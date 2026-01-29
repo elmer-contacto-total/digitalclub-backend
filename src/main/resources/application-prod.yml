@@ -1,0 +1,23 @@
+# Production Profile Configuration
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+
+logging:
+  level:
+    root: WARN
+    com.digitalgroup.holape: INFO
+    org.hibernate.SQL: WARN
+
+# Production JWT settings loaded from environment variables
+jwt:
+  expiration: 3600000
+  refresh-expiration: 604800000

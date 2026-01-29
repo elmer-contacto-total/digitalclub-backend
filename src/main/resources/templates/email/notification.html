@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notificación - Holape</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #673AB7; padding: 20px; text-align: center; border-radius: 5px 5px 0 0;">
+        <h1 style="color: white; margin: 0;">Notificación</h1>
+    </div>
+
+    <div style="background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+        <div style="background-color: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 5px; margin: 20px 0;">
+            <p th:utext="${message}" style="margin: 0;">Mensaje de notificación</p>
+        </div>
+
+        <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
+
+        <p>Saludos,<br>El equipo de Holape</p>
+    </div>
+
+    <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
+        <p>Este es un correo automático, por favor no responda a este mensaje.</p>
+    </div>
+</body>
+</html>

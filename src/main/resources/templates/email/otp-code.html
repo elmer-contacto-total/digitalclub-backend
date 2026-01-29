@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Código de Verificación</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #9C27B0; padding: 20px; text-align: center; border-radius: 5px 5px 0 0;">
+        <h1 style="color: white; margin: 0;">Código de Verificación</h1>
+    </div>
+
+    <div style="background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+        <p>Hola <strong th:text="${user.firstName}">Usuario</strong>,</p>
+
+        <p>Tu código de verificación para iniciar sesión es:</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="background-color: #fff; display: inline-block; padding: 20px 40px; border: 2px solid #9C27B0; border-radius: 10px;">
+                <span th:text="${otpCode}" style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #9C27B0;">123456</span>
+            </div>
+        </div>
+
+        <p style="color: #888; font-size: 14px; text-align: center;">Este código expirará en 5 minutos.</p>
+
+        <p style="color: #ff6b6b;">Si no solicitaste este código, ignora este correo.</p>
+
+        <p>Saludos,<br>El equipo de Holape</p>
+    </div>
+
+    <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
+        <p>Este es un correo automático, por favor no responda a este mensaje.</p>
+    </div>
+</body>
+</html>

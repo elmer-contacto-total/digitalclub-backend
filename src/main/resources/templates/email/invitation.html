@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenido a Holape</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #4CAF50; padding: 20px; text-align: center; border-radius: 5px 5px 0 0;">
+        <h1 style="color: white; margin: 0;">Bienvenido a Holape</h1>
+    </div>
+
+    <div style="background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+        <p>Hola <strong th:text="${user.firstName}">Usuario</strong>,</p>
+
+        <p>Has sido invitado a unirte a <strong th:text="${clientName}">la plataforma</strong> en Holape.</p>
+
+        <p>Tus credenciales de acceso son:</p>
+
+        <div style="background-color: #fff; padding: 15px; border: 1px solid #ddd; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Email:</strong> <span th:text="${user.email}">email@ejemplo.com</span></p>
+            <p style="margin: 5px 0;"><strong>Contraseña temporal:</strong> <span th:text="${tempPassword}">********</span></p>
+        </div>
+
+        <p style="color: #ff6b6b;"><strong>Importante:</strong> Por seguridad, deberás cambiar tu contraseña en el primer inicio de sesión.</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a th:href="${loginUrl}"
+               style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                Iniciar Sesión
+            </a>
+        </div>
+
+        <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
+
+        <p>Saludos,<br>El equipo de Holape</p>
+    </div>
+
+    <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
+        <p>Este es un correo automático, por favor no responda a este mensaje.</p>
+    </div>
+</body>
+</html>

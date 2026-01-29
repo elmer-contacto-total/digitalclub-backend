@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importación Completada - Holape</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #2196F3; padding: 20px; text-align: center; border-radius: 5px 5px 0 0;">
+        <h1 style="color: white; margin: 0;">Importación Completada</h1>
+    </div>
+
+    <div style="background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px;">
+        <p>Hola <strong th:text="${user.firstName}">Usuario</strong>,</p>
+
+        <p>Tu proceso de importación ha sido completado exitosamente.</p>
+
+        <div style="background-color: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 5px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #2196F3;">Resumen de la importación</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Total de registros:</td>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;" th:text="${totalRecords}">0</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #4CAF50;">Importados correctamente:</td>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-weight: bold; color: #4CAF50;" th:text="${successCount}">0</td>
+                </tr>
+                <tr th:if="${errorCount > 0}">
+                    <td style="padding: 8px 0; color: #f44336;">Con errores:</td>
+                    <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #f44336;" th:text="${errorCount}">0</td>
+                </tr>
+            </table>
+        </div>
+
+        <div th:if="${errorCount > 0}" style="background-color: #fff3e0; padding: 15px; border: 1px solid #ffcc80; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0; color: #e65100;">
+                <strong>Nota:</strong> Algunos registros no pudieron ser importados.
+                Por favor revisa el detalle en la sección de importaciones del sistema.
+            </p>
+        </div>
+
+        <p>Puedes ver los resultados detallados en el panel de administración.</p>
+
+        <p>Saludos,<br>El equipo de Holape</p>
+    </div>
+
+    <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
+        <p>Este es un correo automático, por favor no responda a este mensaje.</p>
+    </div>
+</body>
+</html>
