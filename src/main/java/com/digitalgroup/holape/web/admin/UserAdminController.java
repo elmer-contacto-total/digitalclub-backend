@@ -676,7 +676,6 @@ public class UserAdminController {
         contact.put("avatarUrl", user.getAvatarData());
         contact.put("status", user.getStatus() != null ? user.getStatus().name() : "ACTIVE");
         contact.put("createdAt", user.getCreatedAt());
-        contact.put("issueNotes", user.getIssueNotes());
         contact.put("requireResponse", user.getRequireResponse());
 
         // Manager info
@@ -692,22 +691,6 @@ public class UserAdminController {
                 "found", true,
                 "contact", contact
         ));
-    }
-
-    /**
-     * Update issue notes for a user
-     * PARIDAD ELECTRON: CRM panel notes save
-     */
-    @PatchMapping("/{id}/issue_notes")
-    public ResponseEntity<Map<String, Object>> updateIssueNotes(
-            @PathVariable Long id,
-            @RequestBody Map<String, String> request) {
-
-        User user = userService.findById(id);
-        user.setIssueNotes(request.get("notes"));
-        userRepository.save(user);
-
-        return ResponseEntity.ok(Map.of("success", true));
     }
 
     /**

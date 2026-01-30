@@ -158,9 +158,6 @@ public class User {
     @Column(name = "last_message_at")
     private LocalDateTime lastMessageAt;
 
-    @Column(name = "issue_notes", columnDefinition = "text")
-    private String issueNotes;
-
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
