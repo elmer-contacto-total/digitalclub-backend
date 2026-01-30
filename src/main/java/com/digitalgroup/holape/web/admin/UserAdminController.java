@@ -54,8 +54,13 @@ public class UserAdminController {
 
     /**
      * List users with standard REST pagination
+     * PARIDAD Rails: UsersController#index
+     * - super_admin, admin, staff: All users in current client
+     * - manager_level_4: All standard users in current client
+     * - manager_level_1,2,3: Only their subordinates
      */
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<PagedResponse<Map<String, Object>>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false, defaultValue = "1") int page,
@@ -63,18 +68,34 @@ public class UserAdminController {
             @RequestParam(required = false) String search) {
 
         Long clientId = currentUser.getClientId();
-        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("id").descending());
 
         Page<User> usersPage;
 
-        // Filter by role
+        // Filter by role - PARIDAD Rails UsersController#index
         if (currentUser.getRole().equals("SUPER_ADMIN") ||
             currentUser.getRole().equals("ADMIN") ||
             currentUser.getRole().equals("STAFF")) {
-            usersPage = userService.findByClient(clientId, pageable);
-        } else if (currentUser.getRole().contains("MANAGER")) {
-            usersPage = userRepository.findByManager_IdAndRole(
-                    currentUser.getId(), UserRole.STANDARD, pageable);
+            // super_admin, admin, staff: All users in current client
+            if (search != null && !search.isBlank()) {
+                usersPage = userRepository.searchUsersByClient(clientId, search, pageable);
+            } else {
+                usersPage = userRepository.findAllByClientIdWithManager(clientId, pageable);
+            }
+        } else if (currentUser.isManagerLevel4()) {
+            // manager_level_4: All standard users in current client
+            if (search != null && !search.isBlank()) {
+                usersPage = userRepository.searchStandardUsersByClient(clientId, search, pageable);
+            } else {
+                usersPage = userRepository.findStandardUsersByClientId(clientId, pageable);
+            }
+        } else if (currentUser.isManager()) {
+            // manager_level_1,2,3: Only their subordinates
+            if (search != null && !search.isBlank()) {
+                usersPage = userRepository.searchSubordinates(currentUser.getId(), search, pageable);
+            } else {
+                usersPage = userRepository.findByManager_IdOrderByIdDesc(currentUser.getId(), pageable);
+            }
         } else {
             usersPage = Page.empty();
         }
@@ -89,11 +110,49 @@ public class UserAdminController {
 
     /**
      * Get user by ID
+     * PARIDAD ANGULAR: Returns { user: User, manager?: UserOption, subordinates?: UserListItem[] }
      */
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> show(@PathVariable Long id) {
         User user = userService.findById(id);
-        return ResponseEntity.ok(mapUserToResponse(user));
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("user", mapUserToResponse(user));
+
+        // Include manager info if exists
+        if (user.getManager() != null && org.hibernate.Hibernate.isInitialized(user.getManager())) {
+            User manager = user.getManager();
+            Map<String, Object> managerInfo = new HashMap<>();
+            managerInfo.put("id", manager.getId());
+            managerInfo.put("fullName", manager.getFullName());
+            managerInfo.put("email", manager.getEmail());
+            managerInfo.put("role", manager.getRole() != null ? manager.getRole().getValue() : 0);
+            response.put("manager", managerInfo);
+        }
+
+        // Include subordinates if user is a manager/agent
+        if (user.getRole() != null && (user.getRole() == UserRole.AGENT ||
+            user.getRole() == UserRole.MANAGER_LEVEL_4 ||
+            user.getRole() == UserRole.MANAGER_LEVEL_3 ||
+            user.getRole() == UserRole.MANAGER_LEVEL_2 ||
+            user.getRole() == UserRole.MANAGER_LEVEL_1)) {
+            List<User> subordinates = userRepository.findSubordinatesByManagerId(user.getId());
+            List<Map<String, Object>> subordinatesList = subordinates.stream()
+                    .map(sub -> {
+                        Map<String, Object> subMap = new HashMap<>();
+                        subMap.put("id", sub.getId());
+                        subMap.put("firstName", sub.getFirstName());
+                        subMap.put("lastName", sub.getLastName());
+                        subMap.put("email", sub.getEmail());
+                        subMap.put("role", sub.getRole() != null ? sub.getRole().getValue() : 0);
+                        return subMap;
+                    })
+                    .collect(Collectors.toList());
+            response.put("subordinates", subordinatesList);
+        }
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -1079,6 +1138,10 @@ public class UserAdminController {
         map.put("lastMessageAt", user.getLastMessageAt());
         map.put("requireResponse", user.getRequireResponse());
 
+        // PARIDAD RAILS: Utils.friendly_role(user.role, current_client)
+        // Add friendly role name based on client structure
+        map.put("friendlyRole", getFriendlyRole(user.getRole(), user.getClient()));
+
         // Safely handle lazy-loaded manager to avoid LazyInitializationException
         try {
             if (user.getManager() != null) {
@@ -1091,12 +1154,70 @@ public class UserAdminController {
                 } else {
                     // Only access the ID (which is available without loading)
                     map.put("managerId", manager.getId());
+                    map.put("managerName", null);
                 }
+            } else {
+                map.put("managerId", null);
+                map.put("managerName", null);
             }
         } catch (Exception e) {
             log.debug("Could not load manager for user {}: {}", user.getId(), e.getMessage());
+            map.put("managerId", null);
+            map.put("managerName", null);
         }
         return map;
+    }
+
+    /**
+     * Get friendly role name based on client structure
+     * PARIDAD RAILS: Utils.friendly_role(role, current_client)
+     */
+    private String getFriendlyRole(UserRole role, com.digitalgroup.holape.domain.client.entity.Client client) {
+        if (role == null) return "";
+
+        // Try to get custom name from client structure
+        if (client != null) {
+            try {
+                var structure = client.getClientStructure();
+                if (structure != null && org.hibernate.Hibernate.isInitialized(structure)) {
+                    switch (role) {
+                        case MANAGER_LEVEL_1:
+                            if (structure.getManagerLevel1() != null) return structure.getManagerLevel1();
+                            break;
+                        case MANAGER_LEVEL_2:
+                            if (structure.getManagerLevel2() != null) return structure.getManagerLevel2();
+                            break;
+                        case MANAGER_LEVEL_3:
+                            if (structure.getManagerLevel3() != null) return structure.getManagerLevel3();
+                            break;
+                        case MANAGER_LEVEL_4:
+                            if (structure.getManagerLevel4() != null) return structure.getManagerLevel4();
+                            break;
+                        case AGENT:
+                            if (structure.getAgent() != null) return structure.getAgent();
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Could not load client structure: {}", e.getMessage());
+            }
+        }
+
+        // Default role names (fallback)
+        return switch (role) {
+            case SUPER_ADMIN -> "Super Admin";
+            case ADMIN -> "Administrador";
+            case MANAGER_LEVEL_1 -> "Manager Level 1";
+            case MANAGER_LEVEL_2 -> "Manager Level 2";
+            case MANAGER_LEVEL_3 -> "Manager Level 3";
+            case MANAGER_LEVEL_4 -> "Supervisor";
+            case AGENT -> "Agente";
+            case STANDARD -> "Cliente";
+            case STAFF -> "Staff";
+            case WHATSAPP_BUSINESS -> "WhatsApp Business";
+        };
     }
 
     /**
@@ -1153,4 +1274,86 @@ public class UserAdminController {
     public record ReassignBulkRequest(List<Long> userIds, Long newAgentId) {}
 
     public record UpdateTempPasswordRequest(String password, String passwordConfirmation) {}
+
+    // ==================== PROFILE ENDPOINTS ====================
+
+    /**
+     * Get current user's profile
+     * PARIDAD RAILS: Devise registrations#edit
+     */
+    @GetMapping("/profile")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> getProfile(
+            @AuthenticationPrincipal CustomUserDetails currentUser) {
+
+        User user = userService.findById(currentUser.getId());
+
+        Map<String, Object> profile = new HashMap<>();
+        profile.put("id", user.getId());
+        profile.put("email", user.getEmail());
+        profile.put("firstName", user.getFirstName());
+        profile.put("lastName", user.getLastName());
+        profile.put("phone", user.getPhone());
+        profile.put("timeZone", user.getTimeZone());
+        profile.put("locale", user.getLocale());
+        profile.put("avatarData", user.getAvatarData());
+        profile.put("role", user.getRole() != null ? user.getRole().getValue() : 0);
+        profile.put("status", user.getStatus() != null ? user.getStatus().getValue() : 0);
+        profile.put("clientId", user.getClientId());
+        profile.put("initialPasswordChanged", user.getInitialPasswordChanged() != null ? user.getInitialPasswordChanged() : true);
+        profile.put("createdAt", user.getCreatedAt());
+        profile.put("updatedAt", user.getUpdatedAt());
+
+        return ResponseEntity.ok(profile);
+    }
+
+    /**
+     * Update current user's profile
+     * PARIDAD RAILS: Devise registrations#update
+     */
+    @PutMapping("/profile")
+    public ResponseEntity<Map<String, Object>> updateProfile(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody UpdateProfileRequest request) {
+
+        User user = userService.findById(currentUser.getId());
+
+        // Update allowed fields
+        if (request.firstName() != null) {
+            user.setFirstName(request.firstName());
+        }
+        if (request.lastName() != null) {
+            user.setLastName(request.lastName());
+        }
+        if (request.phone() != null) {
+            user.setPhone(request.phone());
+        }
+        if (request.timeZone() != null) {
+            user.setTimeZone(request.timeZone());
+        }
+
+        User updated = userRepository.save(user);
+
+        Map<String, Object> profile = new HashMap<>();
+        profile.put("id", updated.getId());
+        profile.put("email", updated.getEmail());
+        profile.put("firstName", updated.getFirstName());
+        profile.put("lastName", updated.getLastName());
+        profile.put("phone", updated.getPhone());
+        profile.put("timeZone", updated.getTimeZone());
+        profile.put("locale", updated.getLocale());
+        profile.put("avatarData", updated.getAvatarData());
+        profile.put("role", updated.getRole() != null ? updated.getRole().getValue() : 0);
+        profile.put("status", updated.getStatus() != null ? updated.getStatus().getValue() : 0);
+        profile.put("message", "Perfil actualizado correctamente");
+
+        return ResponseEntity.ok(profile);
+    }
+
+    public record UpdateProfileRequest(
+            String firstName,
+            String lastName,
+            String phone,
+            String timeZone
+    ) {}
 }
