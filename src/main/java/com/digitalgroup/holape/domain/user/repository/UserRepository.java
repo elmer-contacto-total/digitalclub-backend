@@ -694,4 +694,120 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             @Param("clientId") Long clientId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
+
+    // ==================== MANAGER ASSIGNMENTS QUERIES ====================
+
+    /**
+     * Find clients (standard role) where manager_id is in the given list
+     * PARIDAD RAILS: managers#index - subordinates of subordinates
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            ORDER BY u.id DESC
+            """)
+    Page<User> findClientsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find clients (standard role) where manager_id is in the given list with search
+     * PARIDAD RAILS: managers#index with search filter
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.id DESC
+            """)
+    Page<User> findClientsByManagerIdsWithSearch(
+            @Param("managerIds") List<Long> managerIds,
+            @Param("search") String search,
+            Pageable pageable);
+
+    // ==================== SUPERVISOR CLIENTS FILTER METHODS ====================
+
+    /**
+     * Find clients with open tickets for multiple managers (supervisor view)
+     * PARIDAD: Rails scope :with_open_tickets for supervisor_clients
+     */
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithOpenTicketsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find clients without open tickets for multiple managers (supervisor view)
+     * PARIDAD: Rails scope :without_open_tickets for supervisor_clients
+     */
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id NOT IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithoutOpenTicketsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find clients requiring response for multiple managers (supervisor view)
+     * PARIDAD: Rails scope :with_unresponded_messages for supervisor_clients
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.requireResponse = true
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            ORDER BY u.lastMessageAt ASC NULLS LAST
+            """)
+    Page<User> findClientsRequiringResponseByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find clients that have been responded to for multiple managers (supervisor view)
+     * PARIDAD: Rails scope :responded_messages for supervisor_clients
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND (u.requireResponse = false OR u.requireResponse IS NULL)
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            ORDER BY u.lastMessageAt DESC NULLS LAST
+            """)
+    Page<User> findClientsRespondedByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find clients with active conversations for multiple managers (supervisor view)
+     * PARIDAD: Rails scope :with_active_conversation for supervisor_clients
+     */
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.last_message_at IS NOT NULL
+            AND u.last_message_at > NOW() - INTERVAL '7 days'
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithActiveConversationByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
 }

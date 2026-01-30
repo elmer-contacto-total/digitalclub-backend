@@ -114,11 +114,21 @@ firebase:
 
 # AWS S3 Configuration
 aws:
+  access-key-id: ${AWS_ACCESS_KEY_ID:}
+  secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+  region: ${AWS_REGION:us-east-1}
   s3:
-    access-key: ${AWS_ACCESS_KEY_ID:}
-    secret-key: ${AWS_SECRET_ACCESS_KEY:}
-    region: ${AWS_REGION:us-east-1}
     bucket: ${AWS_S3_BUCKET:}
+    enabled: ${AWS_S3_ENABLED:false}
+
+# Media Storage Configuration (from ms-media integration)
+media:
+  storage:
+    type: ${MEDIA_STORAGE_TYPE:s3}
+    folder: ${MEDIA_STORAGE_FOLDER:media-captures}
+  max-image-size: 10485760
+  max-audio-size: 52428800
+  retention-days: 365
 
 # OpenAPI Configuration
 springdoc:

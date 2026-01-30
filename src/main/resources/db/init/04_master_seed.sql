@@ -241,14 +241,44 @@ VALUES
     (29, 24, 'cliente4_foh@demo.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
      'Luis', 'Mendoza Quispe', 'luis_mendoza', '987654324', 3, 1, 0, 0, 'America/Lima', 'uuid-cliente4-foh-029', 'es', false, true, 'D000070456789', '{}', false, false, NOW(), NOW()),
     (30, 25, 'cliente5_foh@demo.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
-     'Carmen', 'Sánchez Díaz', 'carmen_sanchez', '987654325', 3, 1, 0, 0, 'America/Lima', 'uuid-cliente5-foh-030', 'es', false, true, 'D000070567890', '{}', false, false, NOW(), NOW());
+     'Carmen', 'Sánchez Díaz', 'carmen_sanchez', '987654325', 3, 1, 0, 0, 'America/Lima', 'uuid-cliente5-foh-030', 'es', false, true, 'D000070567890', '{}', false, false, NOW(), NOW()),
 
-SELECT setval('users_id_seq', 30);
+    -- ========== CLIENTES DE PRUEBA - TODAS LAS ORGANIZACIONES ==========
+    -- Anthony Marquez (+51 935 374 672), Elmer Riva (+51 978 511 383), Samuel Chamorro (+51 913 254 120)
+
+    -- WizApp (client_id = 1)
+    (31, 3, 'anthony.marquez@wizapp.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Anthony', 'Marquez', 'anthony_marquez_wiz', '935374672', 1, 1, 0, 0, 'America/Lima', 'uuid-anthony-wiz-031', 'es', false, true, 'D000093537467', '{}', false, false, NOW(), NOW()),
+    (32, 3, 'elmer.riva@wizapp.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Elmer', 'Riva', 'elmer_riva_wiz', '978511383', 1, 1, 0, 0, 'America/Lima', 'uuid-elmer-wiz-032', 'es', false, true, 'D000097851138', '{}', false, false, NOW(), NOW()),
+    (37, 3, 'samuel.chamorro@wizapp.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Samuel', 'Chamorro', 'samuel_chamorro_wiz', '913254120', 1, 1, 0, 0, 'America/Lima', 'uuid-samuel-wiz-037', 'es', false, true, 'D000091325412', '{}', false, false, NOW(), NOW()),
+
+    -- Devtech Perú (client_id = 2)
+    (38, 7, 'anthony.marquez@devtechperu.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Anthony', 'Marquez', 'anthony_marquez_dev', '935374672', 2, 1, 0, 0, 'America/Lima', 'uuid-anthony-dev-038', 'es', false, true, 'D000193537467', '{}', false, false, NOW(), NOW()),
+    (39, 7, 'elmer.riva@devtechperu.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Elmer', 'Riva', 'elmer_riva_dev', '978511383', 2, 1, 0, 0, 'America/Lima', 'uuid-elmer-dev-039', 'es', false, true, 'D000197851138', '{}', false, false, NOW(), NOW()),
+    (40, 7, 'samuel.chamorro@devtechperu.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Samuel', 'Chamorro', 'samuel_chamorro_dev', '913254120', 2, 1, 0, 0, 'America/Lima', 'uuid-samuel-dev-040', 'es', false, true, 'D000191325412', '{}', false, false, NOW(), NOW()),
+
+    -- Financiera Oh (client_id = 3)
+    (41, 23, 'anthony.marquez@foh.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Anthony', 'Marquez', 'anthony_marquez_foh', '935374672', 3, 1, 0, 0, 'America/Lima', 'uuid-anthony-foh-041', 'es', false, true, 'D000293537467', '{}', false, false, NOW(), NOW()),
+    (42, 23, 'elmer.riva@foh.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Elmer', 'Riva', 'elmer_riva_foh', '978511383', 3, 1, 0, 0, 'America/Lima', 'uuid-elmer-foh-042', 'es', false, true, 'D000297851138', '{}', false, false, NOW(), NOW()),
+    (43, 24, 'samuel.chamorro@foh.com', '$2a$12$8kT5V5p4xqQxnIQFZ1rZxOzGVJl5H1DBL3LpFN8M3VHmVk4Lm0xKu',
+     'Samuel', 'Chamorro', 'samuel_chamorro_foh', '913254120', 3, 1, 0, 0, 'America/Lima', 'uuid-samuel-foh-043', 'es', false, true, 'D000291325412', '{}', false, false, NOW(), NOW());
+
+SELECT setval('users_id_seq', 43);
 
 -- Actualizar last_message_at para algunos usuarios
 UPDATE users SET last_message_at = NOW() - INTERVAL '1 hour' WHERE id IN (26, 27);
 UPDATE users SET last_message_at = NOW() - INTERVAL '1 day' WHERE id IN (28, 29);
 UPDATE users SET last_message_at = NOW() - INTERVAL '1 week' WHERE id IN (10, 11, 12);
+-- Clientes de prueba con conversaciones recientes
+UPDATE users SET last_message_at = NOW() - INTERVAL '30 minutes' WHERE id IN (41, 42, 43);
+UPDATE users SET last_message_at = NOW() - INTERVAL '2 hours' WHERE id IN (38, 39, 40);
 
 -- =====================================================
 -- PASO 9: BULK MESSAGES (igual que Rails)
@@ -338,9 +368,53 @@ VALUES
     (15, 27, 3, 3, 'SEDE', true, 'Lima Norte', NOW(), NOW()),
     (16, 27, 4, 4, 'CATEGORIA', true, 'Standard', NOW(), NOW()),
     (17, 27, 9, 9, 'MONTO', true, '12000', NOW(), NOW()),
-    (18, 27, 10, 10, 'PLAZO', true, '24', NOW(), NOW());
+    (18, 27, 10, 10, 'PLAZO', true, '24', NOW(), NOW()),
 
-SELECT setval('crm_infos_id_seq', 18);
+    -- ========== CLIENTES DE PRUEBA FOH ==========
+
+    -- Cliente 41 (Anthony Marquez)
+    (19, 41, 1, 1, 'DNI', true, '93537467', NOW(), NOW()),
+    (20, 41, 2, 2, 'PRODUCTO', true, 'Tarjeta Oh Premium', NOW(), NOW()),
+    (21, 41, 3, 3, 'SEDE', true, 'Lima Este', NOW(), NOW()),
+    (22, 41, 4, 4, 'CATEGORIA', true, 'VIP', NOW(), NOW()),
+    (23, 41, 5, 5, 'PORC_DESCUENTO', true, '20', NOW(), NOW()),
+    (24, 41, 6, 6, 'ESTADO', true, 'Activo', NOW(), NOW()),
+    (25, 41, 7, 7, 'LINEA_ACTUAL', true, '15000', NOW(), NOW()),
+    (26, 41, 8, 8, 'LINEA_AMPLIA', true, '25000', NOW(), NOW()),
+    (27, 41, 9, 9, 'MONTO', true, '8500', NOW(), NOW()),
+    (28, 41, 10, 10, 'PLAZO', true, '18', NOW(), NOW()),
+    (29, 41, 11, 11, 'TASA', true, '1.8', NOW(), NOW()),
+    (30, 41, 12, 12, 'EQUIPO', true, 'Ventas Premium', NOW(), NOW()),
+
+    -- Cliente 42 (Elmer Riva)
+    (31, 42, 1, 1, 'DNI', true, '97851138', NOW(), NOW()),
+    (32, 42, 2, 2, 'PRODUCTO', true, 'Préstamo Efectivo', NOW(), NOW()),
+    (33, 42, 3, 3, 'SEDE', true, 'Callao', NOW(), NOW()),
+    (34, 42, 4, 4, 'CATEGORIA', true, 'Gold', NOW(), NOW()),
+    (35, 42, 5, 5, 'PORC_DESCUENTO', true, '12', NOW(), NOW()),
+    (36, 42, 6, 6, 'ESTADO', true, 'Activo', NOW(), NOW()),
+    (37, 42, 7, 7, 'LINEA_ACTUAL', true, '8000', NOW(), NOW()),
+    (38, 42, 8, 8, 'LINEA_AMPLIA', true, '12000', NOW(), NOW()),
+    (39, 42, 9, 9, 'MONTO', true, '6000', NOW(), NOW()),
+    (40, 42, 10, 10, 'PLAZO', true, '24', NOW(), NOW()),
+    (41, 42, 11, 11, 'TASA', true, '2.2', NOW(), NOW()),
+    (42, 42, 12, 12, 'EQUIPO', true, 'Retención', NOW(), NOW()),
+
+    -- Cliente 43 (Samuel Chamorro)
+    (43, 43, 1, 1, 'DNI', true, '91325412', NOW(), NOW()),
+    (44, 43, 2, 2, 'PRODUCTO', true, 'Tarjeta Oh Clásica', NOW(), NOW()),
+    (45, 43, 3, 3, 'SEDE', true, 'Lima Sur', NOW(), NOW()),
+    (46, 43, 4, 4, 'CATEGORIA', true, 'Standard', NOW(), NOW()),
+    (47, 43, 5, 5, 'PORC_DESCUENTO', true, '8', NOW(), NOW()),
+    (48, 43, 6, 6, 'ESTADO', true, 'Activo', NOW(), NOW()),
+    (49, 43, 7, 7, 'LINEA_ACTUAL', true, '4000', NOW(), NOW()),
+    (50, 43, 8, 8, 'LINEA_AMPLIA', true, '6000', NOW(), NOW()),
+    (51, 43, 9, 9, 'MONTO', true, '2500', NOW(), NOW()),
+    (52, 43, 10, 10, 'PLAZO', true, '12', NOW(), NOW()),
+    (53, 43, 11, 11, 'TASA', true, '2.8', NOW(), NOW()),
+    (54, 43, 12, 12, 'EQUIPO', true, 'Cobranzas B', NOW(), NOW());
+
+SELECT setval('crm_infos_id_seq', 54);
 
 -- =====================================================
 -- PASO 13: TICKETS
@@ -359,9 +433,29 @@ VALUES
 
     -- Tickets Devtech
     (6, 10, 7, NULL, 'Consulta general', 'Cliente con dudas sobre servicio', 0, NULL, NOW(), NOW()),
-    (7, 11, 7, NOW() - INTERVAL '1 day', 'Caso resuelto', 'Se resolvió consulta', 1, 'con_acuerdo', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day');
+    (7, 11, 7, NOW() - INTERVAL '1 day', 'Caso resuelto', 'Se resolvió consulta', 1, 'con_acuerdo', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day'),
 
-SELECT setval('tickets_id_seq', 7);
+    -- ========== TICKETS CLIENTES DE PRUEBA ==========
+
+    -- Tickets FOH - Anthony Marquez (41)
+    (8, 41, 23, NULL, 'Consulta ampliación de línea', 'Cliente VIP solicita información sobre ampliación', 0, NULL, NOW() - INTERVAL '20 minutes', NOW()),
+
+    -- Tickets FOH - Elmer Riva (42)
+    (9, 42, 23, NULL, 'Solicitud de préstamo', 'Cliente consulta sobre nuevo préstamo efectivo', 0, NULL, NOW() - INTERVAL '45 minutes', NOW()),
+
+    -- Tickets FOH - Samuel Chamorro (43)
+    (10, 43, 24, NULL, 'Reclamo por cargo', 'Cliente reporta cargo no reconocido en su tarjeta', 0, NULL, NOW() - INTERVAL '15 minutes', NOW()),
+
+    -- Tickets Devtech - Anthony Marquez (38)
+    (11, 38, 7, NULL, 'Consulta sobre servicios', 'Cliente pregunta por nuevos servicios disponibles', 0, NULL, NOW() - INTERVAL '1 hour', NOW()),
+
+    -- Tickets Devtech - Elmer Riva (39)
+    (12, 39, 7, NULL, 'Soporte técnico', 'Cliente requiere asistencia técnica', 0, NULL, NOW() - INTERVAL '2 hours', NOW()),
+
+    -- Tickets Devtech - Samuel Chamorro (40)
+    (13, 40, 8, NULL, 'Renovación de contrato', 'Cliente interesado en renovar contrato anual', 0, NULL, NOW() - INTERVAL '30 minutes', NOW());
+
+SELECT setval('tickets_id_seq', 13);
 
 -- =====================================================
 -- PASO 14: MESSAGES
@@ -381,9 +475,47 @@ VALUES
 
     -- Ticket 6: Devtech
     (7, 10, NULL, 7, false, NULL, NULL, 6, NULL, 0, 3, 'Tengo una consulta sobre el servicio', NULL, false, NULL, false, true, NOW() - INTERVAL '1 hour', false, NULL, 'Frank Giraldo', NOW() - INTERVAL '1 hour', 1, NOW() - INTERVAL '1 hour', NOW()),
-    (8, 7, NULL, 10, false, NULL, NULL, 6, NULL, 1, 0, 'Hola Frank! En qué puedo ayudarte?', NULL, false, NULL, false, true, NOW() - INTERVAL '45 minutes', false, NULL, 'Augusto Sectorista1', NOW() - INTERVAL '45 minutes', 2, NOW() - INTERVAL '45 minutes', NOW());
+    (8, 7, NULL, 10, false, NULL, NULL, 6, NULL, 1, 0, 'Hola Frank! En qué puedo ayudarte?', NULL, false, NULL, false, true, NOW() - INTERVAL '45 minutes', false, NULL, 'Augusto Sectorista1', NOW() - INTERVAL '45 minutes', 2, NOW() - INTERVAL '45 minutes', NOW()),
 
-SELECT setval('messages_id_seq', 8);
+    -- ========== CONVERSACIONES CLIENTES DE PRUEBA ==========
+
+    -- Ticket 8: Anthony Marquez (FOH) - Consulta ampliación
+    (9, 41, NULL, 23, false, NULL, NULL, 8, NULL, 0, 3, 'Hola, buenos días. Me gustaría saber sobre la ampliación de mi línea de crédito.', NULL, false, NULL, false, true, NOW() - INTERVAL '20 minutes', false, NULL, 'Anthony Marquez', NOW() - INTERVAL '20 minutes', 1, NOW() - INTERVAL '20 minutes', NOW()),
+    (10, 23, NULL, 41, false, NULL, NULL, 8, NULL, 1, 3, 'Buenos días Sr. Marquez! Gracias por comunicarse con nosotros. Revisando su cuenta, veo que es cliente VIP.', NULL, false, NULL, false, true, NOW() - INTERVAL '18 minutes', false, NULL, 'Agente1 FOH', NOW() - INTERVAL '18 minutes', 2, NOW() - INTERVAL '18 minutes', NOW()),
+    (11, 23, NULL, 41, false, NULL, NULL, 8, NULL, 1, 3, 'Tiene disponible una ampliación de S/. 10,000 a una tasa preferencial del 1.8%. ¿Le interesa?', NULL, false, NULL, false, true, NOW() - INTERVAL '17 minutes', false, NULL, 'Agente1 FOH', NOW() - INTERVAL '17 minutes', 3, NOW() - INTERVAL '17 minutes', NOW()),
+    (12, 41, NULL, 23, false, NULL, NULL, 8, NULL, 0, 2, 'Excelente, me interesa. ¿Cuáles son los plazos disponibles?', NULL, false, NULL, false, true, NOW() - INTERVAL '10 minutes', false, NULL, 'Anthony Marquez', NOW() - INTERVAL '10 minutes', 4, NOW() - INTERVAL '10 minutes', NOW()),
+
+    -- Ticket 9: Elmer Riva (FOH) - Solicitud préstamo
+    (13, 42, NULL, 23, false, NULL, NULL, 9, NULL, 0, 3, 'Buenas tardes, quisiera información sobre un préstamo de efectivo.', NULL, false, NULL, false, true, NOW() - INTERVAL '45 minutes', false, NULL, 'Elmer Riva', NOW() - INTERVAL '45 minutes', 1, NOW() - INTERVAL '45 minutes', NOW()),
+    (14, 23, NULL, 42, false, NULL, NULL, 9, NULL, 1, 3, 'Buenas tardes Sr. Riva! Con gusto le ayudo. ¿Qué monto necesita?', NULL, false, NULL, false, true, NOW() - INTERVAL '43 minutes', false, NULL, 'Agente1 FOH', NOW() - INTERVAL '43 minutes', 2, NOW() - INTERVAL '43 minutes', NOW()),
+    (15, 42, NULL, 23, false, NULL, NULL, 9, NULL, 0, 3, 'Necesito aproximadamente S/. 6,000 para un proyecto personal.', NULL, false, NULL, false, true, NOW() - INTERVAL '40 minutes', false, NULL, 'Elmer Riva', NOW() - INTERVAL '40 minutes', 3, NOW() - INTERVAL '40 minutes', NOW()),
+    (16, 23, NULL, 42, false, NULL, NULL, 9, NULL, 1, 3, 'Perfecto, veo que tiene pre-aprobado hasta S/. 12,000. Le puedo ofrecer un plazo de 24 meses con cuota de S/. 312.', NULL, false, NULL, false, true, NOW() - INTERVAL '35 minutes', false, NULL, 'Agente1 FOH', NOW() - INTERVAL '35 minutes', 4, NOW() - INTERVAL '35 minutes', NOW()),
+    (17, 42, NULL, 23, false, NULL, NULL, 9, NULL, 0, 2, 'Me parece bien. ¿Cómo procedo?', NULL, false, NULL, false, true, NOW() - INTERVAL '30 minutes', false, NULL, 'Elmer Riva', NOW() - INTERVAL '30 minutes', 5, NOW() - INTERVAL '30 minutes', NOW()),
+
+    -- Ticket 10: Samuel Chamorro (FOH) - Reclamo por cargo
+    (18, 43, NULL, 24, false, NULL, NULL, 10, NULL, 0, 3, 'Hola, tengo un cargo que no reconozco en mi tarjeta por S/. 150.', NULL, false, NULL, false, true, NOW() - INTERVAL '15 minutes', false, NULL, 'Samuel Chamorro', NOW() - INTERVAL '15 minutes', 1, NOW() - INTERVAL '15 minutes', NOW()),
+    (19, 24, NULL, 43, false, NULL, NULL, 10, NULL, 1, 3, 'Buenas tardes Sr. Chamorro. Lamento escuchar eso. Permítame revisar su estado de cuenta.', NULL, false, NULL, false, true, NOW() - INTERVAL '13 minutes', false, NULL, 'Agente2 FOH', NOW() - INTERVAL '13 minutes', 2, NOW() - INTERVAL '13 minutes', NOW()),
+    (20, 24, NULL, 43, false, NULL, NULL, 10, NULL, 1, 3, 'Veo un cargo del día 25 por "COMERCIO XYZ". ¿Es ese el cargo que no reconoce?', NULL, false, NULL, false, true, NOW() - INTERVAL '11 minutes', false, NULL, 'Agente2 FOH', NOW() - INTERVAL '11 minutes', 3, NOW() - INTERVAL '11 minutes', NOW()),
+    (21, 43, NULL, 24, false, NULL, NULL, 10, NULL, 0, 2, 'Sí, ese es. Yo no he realizado esa compra.', NULL, false, NULL, false, true, NOW() - INTERVAL '8 minutes', false, NULL, 'Samuel Chamorro', NOW() - INTERVAL '8 minutes', 4, NOW() - INTERVAL '8 minutes', NOW()),
+
+    -- Ticket 11: Anthony Marquez (Devtech) - Consulta servicios
+    (22, 38, NULL, 7, false, NULL, NULL, 11, NULL, 0, 3, 'Hola, quisiera saber qué servicios nuevos tienen disponibles.', NULL, false, NULL, false, true, NOW() - INTERVAL '1 hour', false, NULL, 'Anthony Marquez', NOW() - INTERVAL '1 hour', 1, NOW() - INTERVAL '1 hour', NOW()),
+    (23, 7, NULL, 38, false, NULL, NULL, 11, NULL, 1, 3, 'Hola Anthony! Tenemos varios servicios nuevos. ¿Qué tipo de servicio te interesa?', NULL, false, NULL, false, true, NOW() - INTERVAL '55 minutes', false, NULL, 'Augusto Sectorista1', NOW() - INTERVAL '55 minutes', 2, NOW() - INTERVAL '55 minutes', NOW()),
+    (24, 38, NULL, 7, false, NULL, NULL, 11, NULL, 0, 2, 'Me interesa principalmente el servicio de desarrollo web.', NULL, false, NULL, false, true, NOW() - INTERVAL '50 minutes', false, NULL, 'Anthony Marquez', NOW() - INTERVAL '50 minutes', 3, NOW() - INTERVAL '50 minutes', NOW()),
+
+    -- Ticket 12: Elmer Riva (Devtech) - Soporte técnico
+    (25, 39, NULL, 7, false, NULL, NULL, 12, NULL, 0, 3, 'Tengo un problema con el sistema, no puedo acceder a mi cuenta.', NULL, false, NULL, false, true, NOW() - INTERVAL '2 hours', false, NULL, 'Elmer Riva', NOW() - INTERVAL '2 hours', 1, NOW() - INTERVAL '2 hours', NOW()),
+    (26, 7, NULL, 39, false, NULL, NULL, 12, NULL, 1, 3, 'Hola Elmer! Déjame revisar el estado de tu cuenta.', NULL, false, NULL, false, true, NOW() - INTERVAL '1 hour 50 minutes', false, NULL, 'Augusto Sectorista1', NOW() - INTERVAL '1 hour 50 minutes', 2, NOW() - INTERVAL '1 hour 50 minutes', NOW()),
+    (27, 7, NULL, 39, false, NULL, NULL, 12, NULL, 1, 3, 'Ya encontré el problema. Tu cuenta estaba bloqueada por múltiples intentos. Ya la desbloqueé.', NULL, false, NULL, false, true, NOW() - INTERVAL '1 hour 45 minutes', false, NULL, 'Augusto Sectorista1', NOW() - INTERVAL '1 hour 45 minutes', 3, NOW() - INTERVAL '1 hour 45 minutes', NOW()),
+    (28, 39, NULL, 7, false, NULL, NULL, 12, NULL, 0, 2, 'Gracias! Ya pude entrar. Muy amable.', NULL, false, NULL, false, true, NOW() - INTERVAL '1 hour 40 minutes', false, NULL, 'Elmer Riva', NOW() - INTERVAL '1 hour 40 minutes', 4, NOW() - INTERVAL '1 hour 40 minutes', NOW()),
+
+    -- Ticket 13: Samuel Chamorro (Devtech) - Renovación contrato
+    (29, 40, NULL, 8, false, NULL, NULL, 13, NULL, 0, 3, 'Hola, me interesa renovar mi contrato anual de servicios.', NULL, false, NULL, false, true, NOW() - INTERVAL '30 minutes', false, NULL, 'Samuel Chamorro', NOW() - INTERVAL '30 minutes', 1, NOW() - INTERVAL '30 minutes', NOW()),
+    (30, 8, NULL, 40, false, NULL, NULL, 13, NULL, 1, 3, 'Hola Samuel! Me alegra saber que deseas continuar con nosotros. Déjame prepararte una propuesta.', NULL, false, NULL, false, true, NOW() - INTERVAL '28 minutes', false, NULL, 'Augusto Sectorista2', NOW() - INTERVAL '28 minutes', 2, NOW() - INTERVAL '28 minutes', NOW()),
+    (31, 8, NULL, 40, false, NULL, NULL, 13, NULL, 1, 3, 'Por ser cliente fiel, te ofrecemos un 15% de descuento en la renovación anual. ¿Te parece?', NULL, false, NULL, false, true, NOW() - INTERVAL '25 minutes', false, NULL, 'Augusto Sectorista2', NOW() - INTERVAL '25 minutes', 3, NOW() - INTERVAL '25 minutes', NOW()),
+    (32, 40, NULL, 8, false, NULL, NULL, 13, NULL, 0, 2, 'Excelente oferta! Acepto. ¿Cómo procedemos?', NULL, false, NULL, false, true, NOW() - INTERVAL '20 minutes', false, NULL, 'Samuel Chamorro', NOW() - INTERVAL '20 minutes', 4, NOW() - INTERVAL '20 minutes', NOW());
+
+SELECT setval('messages_id_seq', 32);
 
 -- =====================================================
 -- PASO 15: PROSPECTS

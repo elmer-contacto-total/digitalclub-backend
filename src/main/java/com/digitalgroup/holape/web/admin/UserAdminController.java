@@ -290,23 +290,87 @@ public class UserAdminController {
     /**
      * Get supervisor's clients (clients of agents under the supervisor)
      * Equivalent to Rails: supervisor_clients
+     * PARIDAD: Rails supports filtering by manager, ticket status, message status, active only
      */
     @GetMapping("/supervisor_clients")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<PagedResponse<Map<String, Object>>> supervisorClients(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestParam(required = false, defaultValue = "1") int page,
-            @RequestParam(required = false, defaultValue = "10") int pageSize) {
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "25") int pageSize,
+            @RequestParam(required = false) Long managerId,
+            @RequestParam(required = false) Boolean activeOnly,
+            @RequestParam(required = false) String ticketStatus,
+            @RequestParam(required = false) String messageStatus,
+            @RequestParam(required = false) String search) {
 
-        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("lastMessageAt").descending());
+        // Get subordinate agent IDs
+        List<Long> managerIds = userRepository.findAgentsBySupervisor(currentUser.getId())
+                .stream().map(User::getId).collect(Collectors.toList());
 
-        Page<User> clientsPage = userRepository.findClientsBySupervisor(currentUser.getId(), pageable);
+        if (managerIds.isEmpty()) {
+            return ResponseEntity.ok(PagedResponse.empty());
+        }
 
-        List<Map<String, Object>> data = clientsPage.getContent().stream()
-                .map(this::mapUserToResponse)
+        // If specific manager requested, filter to that manager only
+        if (managerId != null && !managerId.equals(0L)) {
+            if (managerIds.contains(managerId)) {
+                managerIds = List.of(managerId);
+            } else {
+                // Manager not in subordinates - return empty
+                return ResponseEntity.ok(PagedResponse.empty());
+            }
+        }
+
+        Pageable unsortedPageable = PageRequest.of(page, pageSize);
+        Pageable sortedPageable = PageRequest.of(page, pageSize, Sort.by("lastMessageAt").descending().and(Sort.by("id")));
+
+        Page<User> clientsPage;
+
+        // Apply filters based on Rails supervisor_clients implementation
+        if (ticketStatus != null && !"all".equals(ticketStatus)) {
+            // Filter by ticket status
+            if ("open".equals(ticketStatus)) {
+                clientsPage = userRepository.findClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
+            } else { // closed
+                clientsPage = userRepository.findClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
+            }
+        } else if (messageStatus != null && !"all".equals(messageStatus)) {
+            // Filter by message response status
+            if ("to_respond".equals(messageStatus)) {
+                clientsPage = userRepository.findClientsRequiringResponseByManagerIds(managerIds, sortedPageable);
+            } else { // responded
+                clientsPage = userRepository.findClientsRespondedByManagerIds(managerIds, sortedPageable);
+            }
+        } else if (Boolean.TRUE.equals(activeOnly)) {
+            // Only clients with active conversations
+            clientsPage = userRepository.findClientsWithActiveConversationByManagerIds(managerIds, unsortedPageable);
+        } else {
+            // All clients of subordinates
+            if (search != null && !search.isBlank()) {
+                clientsPage = userRepository.findClientsByManagerIdsWithSearch(managerIds, search, sortedPageable);
+            } else {
+                clientsPage = userRepository.findClientsByManagerIds(managerIds, sortedPageable);
+            }
+        }
+
+        // Apply search filter if provided (for filtered queries)
+        List<User> filteredClients = clientsPage.getContent();
+        if (search != null && !search.isBlank() && !(ticketStatus == null && messageStatus == null && !Boolean.TRUE.equals(activeOnly))) {
+            String searchLower = search.toLowerCase();
+            filteredClients = filteredClients.stream()
+                    .filter(u -> (u.getFirstName() != null && u.getFirstName().toLowerCase().contains(searchLower)) ||
+                            (u.getLastName() != null && u.getLastName().toLowerCase().contains(searchLower)) ||
+                            (u.getPhone() != null && u.getPhone().contains(search)) ||
+                            (u.getCodigo() != null && u.getCodigo().toLowerCase().contains(searchLower)))
+                    .collect(Collectors.toList());
+        }
+
+        List<Map<String, Object>> data = filteredClients.stream()
+                .map(this::mapUserToAgentClientResponse)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(PagedResponse.of(data, clientsPage.getTotalElements(), page, pageSize));
+        return ResponseEntity.ok(PagedResponse.of(data, clientsPage.getTotalElements(), page + 1, pageSize));
     }
 
     /**
@@ -508,6 +572,144 @@ public class UserAdminController {
     }
 
     /**
+     * Get clients of subordinates (subordinates of subordinates)
+     * PARIDAD RAILS: managers#index JSON response
+     * Returns users where manager_id IN (current_user's subordinates' ids) and role = standard
+     */
+    @GetMapping("/subordinates_clients")
+    @PreAuthorize("hasAnyRole('MANAGER_LEVEL_4', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_1', 'ADMIN', 'SUPER_ADMIN')")
+    @Transactional(readOnly = true)
+    public ResponseEntity<PagedResponse<Map<String, Object>>> getSubordinatesClients(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "50") int pageSize,
+            @RequestParam(required = false) String search) {
+
+        // Get subordinate IDs
+        List<Long> subordinateIds = userRepository.findSubordinatesByManagerId(currentUser.getId())
+                .stream().map(User::getId).collect(Collectors.toList());
+
+        if (subordinateIds.isEmpty()) {
+            return ResponseEntity.ok(PagedResponse.empty());
+        }
+
+        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("id").descending());
+        Page<User> clientsPage;
+
+        if (search != null && !search.isBlank()) {
+            clientsPage = userRepository.findClientsByManagerIdsWithSearch(subordinateIds, search, pageable);
+        } else {
+            clientsPage = userRepository.findClientsByManagerIds(subordinateIds, pageable);
+        }
+
+        // Cache manager names to avoid N+1
+        Map<Long, String> managerNames = userRepository.findAllById(subordinateIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getFullName));
+
+        List<Map<String, Object>> data = clientsPage.getContent().stream()
+                .map(user -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", user.getId());
+                    map.put("name", user.getFullName());
+                    map.put("phone", user.getPhone());
+                    map.put("manager_id", user.getManager() != null ? user.getManager().getId() : null);
+                    map.put("manager_name", user.getManager() != null ? managerNames.getOrDefault(user.getManager().getId(), "") : "");
+                    return map;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(PagedResponse.of(
+                data,
+                clientsPage.getTotalElements(),
+                clientsPage.getNumber() + 1,
+                clientsPage.getSize()
+        ));
+    }
+
+    /**
+     * Search user by phone number
+     * PARIDAD ELECTRON: CRM panel search
+     * Returns user info if found by phone (within agent's clients or client scope)
+     */
+    @GetMapping("/search_by_phone")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> searchByPhone(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam String phone) {
+
+        // Normalize phone (remove +, spaces, dashes)
+        String normalizedPhone = phone.replaceAll("[^0-9]", "");
+
+        // Search for user by phone within the current client
+        Optional<User> userOpt = userRepository.findByPhoneAndClientId(normalizedPhone, currentUser.getClientId());
+
+        // If not found, try with country code variations
+        if (userOpt.isEmpty() && normalizedPhone.length() >= 9) {
+            // Try without country code (last 9 digits for Peru)
+            String shortPhone = normalizedPhone.length() > 9 ?
+                    normalizedPhone.substring(normalizedPhone.length() - 9) : normalizedPhone;
+            userOpt = userRepository.findByPhoneAndClientId(shortPhone, currentUser.getClientId());
+
+            // Try with Peru country code
+            if (userOpt.isEmpty()) {
+                String withCountryCode = "51" + shortPhone;
+                userOpt = userRepository.findByPhoneAndClientId(withCountryCode, currentUser.getClientId());
+            }
+        }
+
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.ok(Map.of("found", false));
+        }
+
+        User user = userOpt.get();
+
+        // Build response
+        Map<String, Object> contact = new HashMap<>();
+        contact.put("id", user.getId());
+        contact.put("firstName", user.getFirstName());
+        contact.put("lastName", user.getLastName());
+        contact.put("fullName", user.getFullName());
+        contact.put("email", user.getEmail());
+        contact.put("phone", user.getPhone());
+        contact.put("codigo", user.getCodigo());
+        contact.put("avatarUrl", user.getAvatarData());
+        contact.put("status", user.getStatus() != null ? user.getStatus().name() : "ACTIVE");
+        contact.put("createdAt", user.getCreatedAt());
+        contact.put("issueNotes", user.getIssueNotes());
+        contact.put("requireResponse", user.getRequireResponse());
+
+        // Manager info
+        if (user.getManager() != null) {
+            contact.put("managerId", user.getManager().getId());
+            contact.put("managerName", user.getManager().getFullName());
+        }
+
+        // Check for open ticket
+        contact.put("hasOpenTicket", hasOpenTicket(user.getId()));
+
+        return ResponseEntity.ok(Map.of(
+                "found", true,
+                "contact", contact
+        ));
+    }
+
+    /**
+     * Update issue notes for a user
+     * PARIDAD ELECTRON: CRM panel notes save
+     */
+    @PatchMapping("/{id}/issue_notes")
+    public ResponseEntity<Map<String, Object>> updateIssueNotes(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request) {
+
+        User user = userService.findById(id);
+        user.setIssueNotes(request.get("notes"));
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    /**
      * Get client/user details with manager assignment history
      * PARIDAD RAILS: client_details_from_stimulus_modal
      * Returns user profile and user_manager_histories for the modal
@@ -606,11 +808,28 @@ public class UserAdminController {
 
     /**
      * Reassign users from one agent to another
+     * PARIDAD RAILS: managers#update (assign_managers)
+     * Used by manager assignments view to reassign clients between agents
      */
     @PostMapping("/reassign_bulk")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<Map<String, Object>> reassignBulk(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody ReassignBulkRequest request) {
+
+        if (request.newAgentId() == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", "Debe seleccionar un agente destino"
+            ));
+        }
+
+        if (request.userIds() == null || request.userIds().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", "Debe seleccionar al menos un usuario"
+            ));
+        }
 
         User newAgent = userService.findById(request.newAgentId());
         int count = 0;
@@ -622,10 +841,11 @@ public class UserAdminController {
             count++;
         }
 
-        log.info("Reassigned {} users to agent {}", count, request.newAgentId());
+        log.info("User {} reassigned {} users to agent {}", currentUser.getId(), count, request.newAgentId());
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
+                "message", String.format("%d usuario(s) reasignado(s) correctamente", count),
                 "reassigned_count", count
         ));
     }
@@ -812,15 +1032,15 @@ public class UserAdminController {
         Map<String, Object> map = new HashMap<>();
         map.put("id", user.getId());
         map.put("email", user.getEmail());
-        map.put("first_name", user.getFirstName());
-        map.put("last_name", user.getLastName());
-        map.put("full_name", user.getFullName());
+        map.put("firstName", user.getFirstName());
+        map.put("lastName", user.getLastName());
+        map.put("fullName", user.getFullName());
         map.put("phone", user.getPhone());
-        map.put("role", user.getRole() != null ? user.getRole().name().toLowerCase() : "unknown");
-        map.put("status", user.getStatus() != null ? user.getStatus().name().toLowerCase() : "unknown");
-        map.put("created_at", user.getCreatedAt());
-        map.put("last_message_at", user.getLastMessageAt());
-        map.put("require_response", user.getRequireResponse());
+        map.put("role", user.getRole() != null ? user.getRole().getValue() : 0);
+        map.put("status", user.getStatus() != null ? user.getStatus().getValue() : 0);
+        map.put("createdAt", user.getCreatedAt());
+        map.put("lastMessageAt", user.getLastMessageAt());
+        map.put("requireResponse", user.getRequireResponse());
 
         // Safely handle lazy-loaded manager to avoid LazyInitializationException
         try {
@@ -828,11 +1048,12 @@ public class UserAdminController {
                 User manager = user.getManager();
                 // Check if manager is initialized (not a proxy)
                 if (org.hibernate.Hibernate.isInitialized(manager)) {
-                    map.put("manager_id", manager.getId());
-                    map.put("manager_name", manager.getFullName());
+                    map.put("managerId", manager.getId());
+                    map.put("managerName", manager.getFullName());
+                    map.put("managerRole", manager.getRole() != null ? manager.getRole().getValue() : 0);
                 } else {
                     // Only access the ID (which is available without loading)
-                    map.put("manager_id", manager.getId());
+                    map.put("managerId", manager.getId());
                 }
             }
         } catch (Exception e) {

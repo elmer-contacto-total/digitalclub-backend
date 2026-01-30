@@ -82,4 +82,19 @@ public class PagedResponse<T> {
                         .build())
                 .build();
     }
+
+    /**
+     * Create an empty PagedResponse
+     */
+    public static <T> PagedResponse<T> empty() {
+        return PagedResponse.<T>builder()
+                .data(List.of())
+                .meta(Meta.builder()
+                        .totalItems(0)
+                        .page(1)
+                        .pageSize(0)
+                        .totalPages(0)
+                        .build())
+                .build();
+    }
 }
