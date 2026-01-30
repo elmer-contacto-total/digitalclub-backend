@@ -694,6 +694,59 @@ public class UserAdminController {
     }
 
     /**
+     * Search user by name
+     * PARIDAD ELECTRON: CRM panel search by name (fallback when phone not available)
+     */
+    @GetMapping("/search_by_name")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> searchByName(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam String name) {
+
+        // Search for users by name within the current client
+        String searchName = name.trim().toLowerCase();
+
+        // Find users matching the name (first_name + last_name or just one of them)
+        List<User> matches = userRepository.findByClientIdAndNameContaining(
+                currentUser.getClientId(), searchName);
+
+        if (matches.isEmpty()) {
+            return ResponseEntity.ok(Map.of("found", false));
+        }
+
+        // Return the first match (most likely)
+        User user = matches.get(0);
+
+        // Build response
+        Map<String, Object> contact = new HashMap<>();
+        contact.put("id", user.getId());
+        contact.put("firstName", user.getFirstName());
+        contact.put("lastName", user.getLastName());
+        contact.put("fullName", user.getFullName());
+        contact.put("email", user.getEmail());
+        contact.put("phone", user.getPhone());
+        contact.put("codigo", user.getCodigo());
+        contact.put("avatarUrl", user.getAvatarData());
+        contact.put("status", user.getStatus() != null ? user.getStatus().name() : "ACTIVE");
+        contact.put("createdAt", user.getCreatedAt());
+        contact.put("requireResponse", user.getRequireResponse());
+
+        // Manager info
+        if (user.getManager() != null) {
+            contact.put("managerId", user.getManager().getId());
+            contact.put("managerName", user.getManager().getFullName());
+        }
+
+        // Check for open ticket
+        contact.put("hasOpenTicket", hasOpenTicket(user.getId()));
+
+        return ResponseEntity.ok(Map.of(
+                "found", true,
+                "contact", contact
+        ));
+    }
+
+    /**
      * Get client/user details with manager assignment history
      * PARIDAD RAILS: client_details_from_stimulus_modal
      * Returns user profile and user_manager_histories for the modal

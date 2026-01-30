@@ -564,6 +564,20 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     // Get first user by client (for default user assignment)
     Optional<User> findFirstByClient_IdOrderByIdAsc(Long clientId);
 
+    /**
+     * Find users by client and name (first_name + last_name contains search term)
+     * PARIDAD ELECTRON: CRM panel search by name fallback
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.client.id = :clientId
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            AND LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :name, '%'))
+            ORDER BY u.lastMessageAt DESC NULLS LAST
+            """)
+    List<User> findByClientIdAndNameContaining(@Param("clientId") Long clientId, @Param("name") String name);
+
     // ==================== AGENT CLIENTS FILTER QUERIES (Rails Parity) ====================
 
     /**
