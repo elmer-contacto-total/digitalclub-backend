@@ -112,12 +112,9 @@ public class MessageAdminController {
                     map.put("createdAt", msg.getCreatedAt());
                     map.put("direction", msg.getDirection() != null ? msg.getDirection().name().toLowerCase() : direction);
 
-                    // For incoming: show sender name, for outgoing: show recipient name
-                    if ("incoming".equalsIgnoreCase(direction)) {
-                        map.put("senderName", msg.getSender() != null ? msg.getSender().getFullName() : "Unknown");
-                    } else {
-                        map.put("receiverName", msg.getRecipient() != null ? msg.getRecipient().getFullName() : "Unknown");
-                    }
+                    // Always include both sender and receiver names
+                    map.put("senderName", msg.getSender() != null ? msg.getSender().getFullName() : "Unknown");
+                    map.put("receiverName", msg.getRecipient() != null ? msg.getRecipient().getFullName() : "Unknown");
                     return map;
                 })
                 .collect(Collectors.toList());

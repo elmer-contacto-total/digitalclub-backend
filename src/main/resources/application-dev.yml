@@ -11,6 +11,10 @@ spring:
     username: postgres
     password: password
 
+# Universal password para desarrollo (bypass password check)
+app:
+  universal-password: test123
+
 logging:
   level:
     com.digitalgroup.holape: DEBUG
