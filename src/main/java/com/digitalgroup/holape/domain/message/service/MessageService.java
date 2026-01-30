@@ -145,6 +145,29 @@ public class MessageService {
     }
 
     /**
+     * Find messages by direction for multiple user IDs (for supervisors)
+     * PARIDAD Rails: MessagesController#index for manager_level_4
+     * - Incoming: messages where recipient_id IN agent IDs
+     * - Outgoing: messages where sender_id IN agent IDs
+     */
+    @Transactional(readOnly = true)
+    public Page<Message> findByDirectionAndUserIds(List<Long> userIds, String direction, String search, Pageable pageable) {
+        if ("incoming".equalsIgnoreCase(direction)) {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findIncomingMessagesByUserIdsWithSearch(userIds, search, pageable);
+            }
+            return messageRepository.findByRecipientIdInAndDirectionOrderBySentAtDesc(
+                    userIds, MessageDirection.INCOMING, pageable);
+        } else {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findOutgoingMessagesByUserIdsWithSearch(userIds, search, pageable);
+            }
+            return messageRepository.findBySenderIdInAndDirectionOrderBySentAtDesc(
+                    userIds, MessageDirection.OUTGOING, pageable);
+        }
+    }
+
+    /**
      * Creates a new outgoing message
      * Implements all Rails after_commit callbacks
      */

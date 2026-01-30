@@ -35,6 +35,17 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     Page<User> findByClient_Id(Long clientId, Pageable pageable);
 
+    /**
+     * Find all users by client with manager eagerly loaded
+     * PARIDAD Rails: User.current_client(@current_client).includes([:client, :manager])
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.client.id = :clientId
+            """)
+    Page<User> findAllByClientIdWithManager(@Param("clientId") Long clientId, Pageable pageable);
+
     List<User> findByClient_IdAndRole(Long clientId, UserRole role);
 
     List<User> findByClient_IdAndManager_IdAndRole(Long clientId, Long managerId, UserRole role);
@@ -824,4 +835,78 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             """,
             nativeQuery = true)
     Page<User> findClientsWithActiveConversationByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    // ==================== USERS INDEX QUERIES (Rails UsersController#index) ====================
+
+    /**
+     * Find all standard users by client ID (for manager_level_4)
+     * PARIDAD Rails: User.current_client(@current_client).includes([:manager]).where(role: 'standard')
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.client.id = :clientId
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            """)
+    Page<User> findStandardUsersByClientId(@Param("clientId") Long clientId, Pageable pageable);
+
+    /**
+     * Search all users by client (for super_admin, admin, staff)
+     * PARIDAD Rails: users_scope.includes([:client, :manager]).datatable_search
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.client.id = :clientId
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+            )
+            """)
+    Page<User> searchUsersByClient(@Param("clientId") Long clientId, @Param("search") String search, Pageable pageable);
+
+    /**
+     * Search standard users by client (for manager_level_4)
+     * PARIDAD Rails: User.where(role: 'standard').includes([:manager]).datatable_search
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.client.id = :clientId
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+            )
+            """)
+    Page<User> searchStandardUsersByClient(@Param("clientId") Long clientId, @Param("search") String search, Pageable pageable);
+
+    /**
+     * Find subordinates of a manager (for manager_level_1,2,3)
+     * PARIDAD Rails: current_user.subordinates.includes([:manager])
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.manager.id = :managerId
+            """)
+    Page<User> findByManager_IdOrderByIdDesc(@Param("managerId") Long managerId, Pageable pageable);
+
+    /**
+     * Search subordinates of a manager (for manager_level_1,2,3)
+     * PARIDAD Rails: current_user.subordinates.includes([:manager]).datatable_search
+     */
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.manager
+            WHERE u.manager.id = :managerId
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+            )
+            """)
+    Page<User> searchSubordinates(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
 }

@@ -97,12 +97,34 @@ public class MessageAdminController {
         // Mode 3: Messages list view (PARIDAD Rails Admin::MessagesController#index)
         Pageable pageable = PageRequest.of(page, pageSize, Sort.by("sentAt").descending());
 
-        Page<Message> messagesPage = messageService.findByDirectionAndUser(
-                currentUser.getId(),
-                direction,
-                search,
-                pageable
-        );
+        Page<Message> messagesPage;
+
+        // PARIDAD Rails: For managers, show messages of their subordinates (agents)
+        if (currentUser.isManager()) {
+            // Get subordinates' IDs (agents under this supervisor)
+            List<Long> agentIds = userRepository.findAgentsBySupervisor(currentUser.getId())
+                    .stream().map(User::getId).collect(Collectors.toList());
+
+            if (agentIds.isEmpty()) {
+                // No subordinates, return empty
+                messagesPage = Page.empty(pageable);
+            } else {
+                messagesPage = messageService.findByDirectionAndUserIds(
+                        agentIds,
+                        direction,
+                        search,
+                        pageable
+                );
+            }
+        } else {
+            // For regular users (agents), show their own messages
+            messagesPage = messageService.findByDirectionAndUser(
+                    currentUser.getId(),
+                    direction,
+                    search,
+                    pageable
+            );
+        }
 
         List<Map<String, Object>> data = messagesPage.getContent().stream()
                 .map(msg -> {

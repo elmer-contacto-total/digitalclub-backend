@@ -320,4 +320,70 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
             @Param("senderId") Long senderId,
             @Param("search") String search,
             Pageable pageable);
+
+    // ==================== SUPERVISOR MESSAGES (multiple user IDs) ====================
+
+    /**
+     * Find incoming messages for multiple recipients (supervisors viewing subordinates' messages)
+     * PARIDAD RAILS: MessagesController#index for manager_level_4
+     * Message.where(recipient_id: agents.ids, direction: 'incoming')
+     */
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.recipient.id IN :recipientIds
+            AND m.direction = :direction
+            ORDER BY m.sentAt DESC
+            """)
+    Page<Message> findByRecipientIdInAndDirectionOrderBySentAtDesc(
+            @Param("recipientIds") List<Long> recipientIds,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    /**
+     * Find outgoing messages for multiple senders (supervisors viewing subordinates' messages)
+     * PARIDAD RAILS: MessagesController#index for manager_level_4
+     * Message.where(sender_id: agents.ids, direction: 'outgoing')
+     */
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.sender.id IN :senderIds
+            AND m.direction = :direction
+            ORDER BY m.sentAt DESC
+            """)
+    Page<Message> findBySenderIdInAndDirectionOrderBySentAtDesc(
+            @Param("senderIds") List<Long> senderIds,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    /**
+     * Find incoming messages with search for multiple recipients (supervisor view)
+     * PARIDAD RAILS: base_query.where("content ILIKE ?", search_term)
+     */
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.recipient.id IN :recipientIds
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            ORDER BY m.sentAt DESC
+            """)
+    Page<Message> findIncomingMessagesByUserIdsWithSearch(
+            @Param("recipientIds") List<Long> recipientIds,
+            @Param("search") String search,
+            Pageable pageable);
+
+    /**
+     * Find outgoing messages with search for multiple senders (supervisor view)
+     * PARIDAD RAILS: base_query.where("content ILIKE ?", search_term)
+     */
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.sender.id IN :senderIds
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.OUTGOING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            ORDER BY m.sentAt DESC
+            """)
+    Page<Message> findOutgoingMessagesByUserIdsWithSearch(
+            @Param("senderIds") List<Long> senderIds,
+            @Param("search") String search,
+            Pageable pageable);
 }
