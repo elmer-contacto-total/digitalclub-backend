@@ -24,3 +24,7 @@ logging:
 jwt:
   expiration: 3600000
   refresh-expiration: 604800000
+
+# Universal password for testing (remove in real production)
+app:
+  universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}

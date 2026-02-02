@@ -154,3 +154,7 @@ async:
   core-pool-size: 5
   max-pool-size: 10
   queue-capacity: 500
+
+# App Configuration
+app:
+  universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
