@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1/media")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
+// CORS ya está configurado globalmente en CorsConfig.java
 public class CapturedMediaController {
 
     private final CapturedMediaService mediaService;
