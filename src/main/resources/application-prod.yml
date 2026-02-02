@@ -10,9 +10,9 @@ spring:
         format_sql: false
 
   datasource:
-    hikari:
-      maximum-pool-size: 20
-      minimum-idle: 10
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
 logging:
   level:
