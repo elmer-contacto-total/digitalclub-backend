@@ -20,9 +20,9 @@ logging:
     com.digitalgroup.holape: INFO
     org.hibernate.SQL: WARN
 
-# Production JWT settings loaded from environment variables
+# Production JWT settings (24 hours / 7 days)
 jwt:
-  expiration: 3600000
+  expiration: 86400000
   refresh-expiration: 604800000
 
 # Universal password/otp for testing (remove in real production)
