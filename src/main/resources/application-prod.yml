@@ -1,4 +1,7 @@
 # Production Profile Configuration
+server:
+  port: ${SERVER_PORT:8443}
+
 spring:
   jpa:
     show-sql: false
