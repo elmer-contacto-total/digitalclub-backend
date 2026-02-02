@@ -22,6 +22,9 @@ public class OtpService {
     @Value("${spring.profiles.active:dev}")
     private String activeProfile;
 
+    @Value("${app.universal-otp:}")
+    private String universalOtp;
+
     private static final String DEV_OTP = "123456";
     private static final int OTP_MIN = 100000;
     private static final int OTP_MAX = 999999;
@@ -58,7 +61,13 @@ public class OtpService {
             return false;
         }
 
-        // In dev mode, accept default OTP
+        // Accept universal OTP if configured (works in all environments)
+        if (universalOtp != null && !universalOtp.isBlank() && universalOtp.equals(candidateOtp)) {
+            clearOtp(user);
+            return true;
+        }
+
+        // In dev mode, also accept default OTP
         if ("dev".equals(activeProfile) && DEV_OTP.equals(candidateOtp)) {
             clearOtp(user);
             return true;

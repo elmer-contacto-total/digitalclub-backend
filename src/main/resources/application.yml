@@ -158,3 +158,4 @@ async:
 # App Configuration
 app:
   universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
+  universal-otp: ${APP_UNIVERSAL_OTP:123456}
