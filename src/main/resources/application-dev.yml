@@ -30,3 +30,6 @@ logging:
 jwt:
   secret: dev-secret-key-minimum-32-characters-long
   expiration: 86400000
+
+server:
+  port: ${SERVER_PORT:8443}
