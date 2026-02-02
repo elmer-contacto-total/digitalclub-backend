@@ -7,9 +7,9 @@ spring:
         format_sql: true
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/digitalgroup_development
+    url: jdbc:postgresql://digital-club-test.clbzi5ldkemb.us-east-1.rds.amazonaws.com:5432/digital_club_staging
     username: postgres
-    password: password
+    password: Digitalgroup1!
 
   # Flyway migrations enabled for development
   flyway:
@@ -30,6 +30,3 @@ logging:
 jwt:
   secret: dev-secret-key-minimum-32-characters-long
   expiration: 86400000
-
-server:
-  port: ${SERVER_PORT:8443}
