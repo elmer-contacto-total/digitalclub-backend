@@ -113,7 +113,9 @@ public class Message {
     @Column(name = "worker_processed_at")
     private LocalDateTime workerProcessedAt;
 
-    @Column(name = "message_order")
+    // TODO: Habilitar cuando la columna exista en la BD de producción
+    // @Column(name = "message_order")
+    @Transient
     private Integer messageOrder;
 
     @CreationTimestamp
