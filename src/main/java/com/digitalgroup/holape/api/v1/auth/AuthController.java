@@ -1,10 +1,15 @@
 package com.digitalgroup.holape.api.v1.auth;
 
+import com.digitalgroup.holape.api.v1.dto.auth.LogoutRequest;
+import com.digitalgroup.holape.api.v1.dto.auth.RefreshTokenRequest;
+import com.digitalgroup.holape.api.v1.dto.auth.RefreshTokenResponse;
+import com.digitalgroup.holape.domain.auth.service.RefreshTokenService;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.security.jwt.JwtTokenProvider;
 import com.digitalgroup.holape.security.otp.OtpService;
 import com.digitalgroup.holape.util.PhoneUtils;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +32,7 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final OtpService otpService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final RefreshTokenService refreshTokenService;
 
     @Value("${app.universal-password:}")
     private String universalPassword;
@@ -131,7 +137,10 @@ public class AuthController {
             user.getClientId(),
             user.getId()
         );
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getEmail());
+
+        // Create refresh token and STORE IN DATABASE (required for refresh endpoint)
+        var refreshTokenEntity = refreshTokenService.createRefreshToken(user, "Web Browser", null);
+        String refreshToken = refreshTokenEntity.getToken();
 
         // Update UUID token
         String uuidToken = UUID.randomUUID().toString();
@@ -236,6 +245,99 @@ public class AuthController {
         log.info("Successful login for user: {}", request.email());
 
         return ResponseEntity.ok(Map.of("user", userResponse));
+    }
+
+    // ==================== TOKEN REFRESH & LOGOUT ENDPOINTS ====================
+
+    /**
+     * Refresh access token endpoint
+     * Uses the refresh token to generate a new access token and rotated refresh token
+     * Public endpoint - does not require authentication
+     */
+    @PostMapping("/auth/refresh")
+    public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        log.info("Token refresh request received");
+
+        try {
+            Map<String, String> tokens = refreshTokenService.refreshAccessToken(request.getRefreshToken());
+
+            RefreshTokenResponse response = RefreshTokenResponse.builder()
+                    .token(tokens.get("access_token"))
+                    .refreshToken(tokens.get("refresh_token"))
+                    .build();
+
+            log.info("Token refresh successful");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.warn("Token refresh failed: {}", e.getMessage());
+            throw e; // Let GlobalExceptionHandler handle it
+        }
+    }
+
+    /**
+     * Logout endpoint
+     * Revokes the refresh token to prevent further token refreshes
+     * Requires authentication
+     */
+    @PostMapping("/auth/logout")
+    public ResponseEntity<?> logout(@Valid @RequestBody LogoutRequest request) {
+        log.info("Logout request received");
+
+        refreshTokenService.revokeToken(request.getRefreshToken());
+
+        log.info("Logout successful - refresh token revoked");
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Logout successful"
+        ));
+    }
+
+    /**
+     * Validate token endpoint
+     * Returns user info if the JWT token is valid
+     * Requires authentication (token in Authorization header)
+     */
+    @GetMapping("/auth/validate")
+    public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
+        log.info("Token validation request received");
+
+        try {
+            // Extract token from "Bearer <token>"
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("valid", false, "error", "No token provided"));
+            }
+
+            String token = authHeader.substring(7);
+
+            // Validate token
+            if (!jwtTokenProvider.validateToken(token)) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("valid", false, "error", "Invalid or expired token"));
+            }
+
+            // Get user from token
+            String email = jwtTokenProvider.getUsernameFromToken(token);
+            User user = userRepository.findByEmail(email).orElse(null);
+
+            if (user == null) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("valid", false, "error", "User not found"));
+            }
+
+            // Build user response
+            Map<String, Object> userResponse = buildUserResponse(user, user.getUuidToken());
+
+            log.info("Token validation successful for user: {}", email);
+            return ResponseEntity.ok(Map.of(
+                "valid", true,
+                "user", userResponse
+            ));
+        } catch (Exception e) {
+            log.warn("Token validation failed: {}", e.getMessage());
+            return ResponseEntity.status(401)
+                    .body(Map.of("valid", false, "error", "Token validation failed"));
+        }
     }
 
     // ==================== HELPER METHODS ====================

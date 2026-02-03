@@ -47,6 +47,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/web/prelogin").permitAll()
                         .requestMatchers("/api/v1/web/verify_otp").permitAll()
                         .requestMatchers("/api/v1/web/resend_otp").permitAll()
+                        .requestMatchers("/api/v1/auth/refresh").permitAll()
                         .requestMatchers("/api/v1/password/forgot").permitAll()
                         .requestMatchers("/api/v1/password/reset").permitAll()
                         // /api/v1/password/change requires authentication (handled by /api/** rule)
