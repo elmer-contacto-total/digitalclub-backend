@@ -1141,7 +1141,7 @@ public class UserAdminController {
         // Add additional fields needed for CurrentUser in Angular
         map.put("timeZone", user.getTimeZone() != null ? user.getTimeZone() : "America/Lima");
         map.put("locale", user.getLocale() != null ? user.getLocale() : "es");
-        map.put("countryId", user.getCountryId());
+        map.put("countryId", user.getCountry() != null ? user.getCountry().getId() : null);
         map.put("avatarData", user.getAvatarData());
         map.put("uuidToken", user.getUuidToken());
 
