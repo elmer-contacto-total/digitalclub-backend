@@ -1,5 +1,7 @@
 package com.digitalgroup.holape.domain.user.service;
 
+import com.digitalgroup.holape.domain.client.entity.Client;
+import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import com.digitalgroup.holape.domain.common.enums.TicketStatus;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
@@ -35,6 +37,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final MessageRepository messageRepository;
@@ -94,8 +97,14 @@ public class UserService {
         // PARIDAD RAILS: set_fields callback - copiar country_id y time_zone del client
         // Rails líneas 253-254: self.country_id = self.client.country_id; self.time_zone = "Lima"
         if (user.getClient() != null) {
-            if (user.getCountry() == null && user.getClient().getCountry() != null) {
-                user.setCountry(user.getClient().getCountry());
+            // Cargar el Client de forma fresca para evitar LazyInitializationException
+            // cuando el Client viene como proxy de otra transacción
+            Client client = clientRepository.findById(user.getClient().getId())
+                    .orElse(user.getClient());
+            user.setClient(client);
+
+            if (user.getCountry() == null && client.getCountry() != null) {
+                user.setCountry(client.getCountry());
             }
             if (user.getTimeZone() == null || user.getTimeZone().isEmpty()) {
                 user.setTimeZone("America/Lima"); // PARIDAD RAILS: default "Lima" -> "America/Lima"

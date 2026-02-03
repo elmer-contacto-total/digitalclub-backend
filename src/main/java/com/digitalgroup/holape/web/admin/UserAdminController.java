@@ -1,5 +1,8 @@
 package com.digitalgroup.holape.web.admin;
 
+import com.digitalgroup.holape.domain.client.entity.Client;
+import com.digitalgroup.holape.domain.client.entity.ClientStructure;
+import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.message.entity.Message;
@@ -30,6 +33,8 @@ import com.digitalgroup.holape.web.dto.PagedResponse;
 
 import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +53,7 @@ public class UserAdminController {
 
     private final UserService userService;
     private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
     private final UserManagerHistoryRepository userManagerHistoryRepository;
     private final MessageRepository messageRepository;
     private final ProspectRepository prospectRepository;
@@ -244,28 +250,107 @@ public class UserAdminController {
     }
 
     /**
-     * Get available managers
+     * Get available managers based on selected user role
+     * PARIDAD RAILS: UsersController#available_managers
+     * Returns managers that can supervise users with the given role
      */
     @GetMapping("/available_managers")
+    @Transactional(readOnly = true)
     public ResponseEntity<PagedResponse<Map<String, Object>>> availableManagers(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestParam(required = false) String role) {
+            @RequestParam(required = false, name = "role") String roleParam) {
 
         Long clientId = currentUser.getClientId();
-        List<UserRole> managerRoles = List.of(
-                UserRole.MANAGER_LEVEL_1, UserRole.MANAGER_LEVEL_2,
-                UserRole.MANAGER_LEVEL_3, UserRole.MANAGER_LEVEL_4, UserRole.AGENT
-        );
+        List<User> managers;
 
-        List<User> managers = userRepository.findActiveInternalUsers(
-                clientId, managerRoles, Status.ACTIVE);
+        // Get client structure for hierarchy checks
+        Client client = clientRepository.findById(clientId).orElse(null);
+        ClientStructure structure = client != null ? client.getClientStructure() : null;
 
+        // PARIDAD RAILS: Determine available managers based on selected role
+        // Rails: available_managers(user_role = params[:q])
+        String userRole = roleParam != null ? roleParam.toLowerCase() : null;
+
+        if (userRole == null) {
+            // No role specified - return all potential managers (agents and managers)
+            List<UserRole> managerRoles = List.of(
+                    UserRole.MANAGER_LEVEL_1, UserRole.MANAGER_LEVEL_2,
+                    UserRole.MANAGER_LEVEL_3, UserRole.MANAGER_LEVEL_4, UserRole.AGENT
+            );
+            managers = userRepository.findActiveInternalUsers(clientId, managerRoles, Status.ACTIVE);
+        } else {
+            // UserRole values: STANDARD=0, SUPER_ADMIN=1, ADMIN=2, MANAGER_LEVEL_1=3,
+            // MANAGER_LEVEL_2=4, MANAGER_LEVEL_3=5, MANAGER_LEVEL_4=6, AGENT=7, STAFF=8, WHATSAPP_BUSINESS=9
+            managers = switch (userRole) {
+                case "super_admin", "1" ->
+                    // PARIDAD RAILS: super_admin has no manager
+                    Collections.emptyList();
+
+                case "admin", "2" ->
+                    // PARIDAD RAILS: admin has no manager
+                    Collections.emptyList();
+
+                case "staff", "8" ->
+                    // PARIDAD RAILS: staff reports to admin
+                    userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+
+                case "standard", "0" ->
+                    // PARIDAD RAILS: standard users report to agents
+                    userRepository.findActiveInternalUsers(clientId, List.of(UserRole.AGENT), Status.ACTIVE);
+
+                case "agent", "7" ->
+                    // PARIDAD RAILS: agents report to manager_level_4
+                    userRepository.findActiveInternalUsers(clientId, List.of(UserRole.MANAGER_LEVEL_4), Status.ACTIVE);
+
+                case "manager_level_4", "6" -> {
+                    // PARIDAD RAILS: manager_level_4 reports to manager_level_3 (if exists) or admin
+                    if (structure != null && Boolean.TRUE.equals(structure.getExistsManagerLevel3())) {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.MANAGER_LEVEL_3), Status.ACTIVE);
+                    } else {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+                    }
+                }
+
+                case "manager_level_3", "5" -> {
+                    // PARIDAD RAILS: manager_level_3 reports to manager_level_2 (if exists) or admin
+                    if (structure != null && Boolean.TRUE.equals(structure.getExistsManagerLevel2())) {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.MANAGER_LEVEL_2), Status.ACTIVE);
+                    } else {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+                    }
+                }
+
+                case "manager_level_2", "4" -> {
+                    // PARIDAD RAILS: manager_level_2 reports to manager_level_1 (if exists) or admin
+                    if (structure != null && Boolean.TRUE.equals(structure.getExistsManagerLevel1())) {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.MANAGER_LEVEL_1), Status.ACTIVE);
+                    } else {
+                        yield userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+                    }
+                }
+
+                case "manager_level_1", "3" ->
+                    // PARIDAD RAILS: manager_level_1 reports to admin
+                    userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+
+                case "whatsapp_business", "9" ->
+                    // PARIDAD RAILS: whatsapp_business reports to admin
+                    userRepository.findActiveInternalUsers(clientId, List.of(UserRole.ADMIN), Status.ACTIVE);
+
+                default -> {
+                    log.warn("Unknown role in available_managers: {}", userRole);
+                    yield Collections.emptyList();
+                }
+            };
+        }
+
+        // PARIDAD RAILS: Rails devuelve {id, name}, agregamos email y role para el frontend Angular
         List<Map<String, Object>> data = managers.stream()
                 .map(u -> Map.<String, Object>of(
                         "id", u.getId(),
-                        "name", u.getFullName(),
+                        "name", u.getFullName(),  // PARIDAD RAILS: campo "name"
                         "email", u.getEmail(),
-                        "role", u.getRole().name()
+                        "role", u.getRole().ordinal()
                 ))
                 .collect(Collectors.toList());
 
