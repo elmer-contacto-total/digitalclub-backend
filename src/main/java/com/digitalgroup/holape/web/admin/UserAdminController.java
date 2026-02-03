@@ -1138,6 +1138,13 @@ public class UserAdminController {
         map.put("lastMessageAt", user.getLastMessageAt());
         map.put("requireResponse", user.getRequireResponse());
 
+        // Add additional fields needed for CurrentUser in Angular
+        map.put("timeZone", user.getTimeZone() != null ? user.getTimeZone() : "America/Lima");
+        map.put("locale", user.getLocale() != null ? user.getLocale() : "es");
+        map.put("countryId", user.getCountryId());
+        map.put("avatarData", user.getAvatarData());
+        map.put("uuidToken", user.getUuidToken());
+
         // Add client info for login_as display
         try {
             if (user.getClient() != null && org.hibernate.Hibernate.isInitialized(user.getClient())) {
