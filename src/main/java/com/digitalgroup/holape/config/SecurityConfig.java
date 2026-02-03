@@ -56,6 +56,8 @@ public class SecurityConfig {
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/swagger-ui/**", "/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/ws/**", "/websocket/**").permitAll()
+                        // Public endpoints - Media capture from Electron (uses fingerprint as userId)
+                        .requestMatchers("/api/v1/media/**").permitAll()
                         // Admin endpoints - require authentication
                         .requestMatchers("/app/**").authenticated()
                         // API endpoints - require authentication
