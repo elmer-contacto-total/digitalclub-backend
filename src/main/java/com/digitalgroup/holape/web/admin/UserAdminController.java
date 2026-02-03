@@ -1138,6 +1138,21 @@ public class UserAdminController {
         map.put("lastMessageAt", user.getLastMessageAt());
         map.put("requireResponse", user.getRequireResponse());
 
+        // Add client info for login_as display
+        try {
+            if (user.getClient() != null && org.hibernate.Hibernate.isInitialized(user.getClient())) {
+                map.put("clientId", user.getClient().getId());
+                map.put("clientName", user.getClient().getName());
+            } else {
+                map.put("clientId", user.getClientId());
+                map.put("clientName", null);
+            }
+        } catch (Exception e) {
+            log.debug("Could not load client for user {}: {}", user.getId(), e.getMessage());
+            map.put("clientId", user.getClientId());
+            map.put("clientName", null);
+        }
+
         // PARIDAD RAILS: Utils.friendly_role(user.role, current_client)
         // Add friendly role name based on client structure
         map.put("friendlyRole", getFriendlyRole(user.getRole(), user.getClient()));
