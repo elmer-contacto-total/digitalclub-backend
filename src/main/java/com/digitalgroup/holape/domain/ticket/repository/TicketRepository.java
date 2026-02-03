@@ -22,6 +22,12 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
 
     Page<Ticket> findByUserIdAndStatus(Long userId, TicketStatus status, Pageable pageable);
 
+    // Find first open ticket by user (for CRM panel - electron_clients)
+    Optional<Ticket> findFirstByUserIdAndStatusOrderByCreatedAtDesc(Long userId, TicketStatus status);
+
+    // Check if user has open ticket (for CRM panel - electron_clients)
+    boolean existsByUserIdAndStatus(Long userId, TicketStatus status);
+
     // Find all tickets by status (for auto-close job)
     List<Ticket> findByStatus(TicketStatus status);
 

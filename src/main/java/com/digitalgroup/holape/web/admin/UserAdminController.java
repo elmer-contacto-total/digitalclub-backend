@@ -3,8 +3,13 @@ package com.digitalgroup.holape.web.admin;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.entity.ClientStructure;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
+import com.digitalgroup.holape.domain.audit.entity.Audit;
+import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
 import com.digitalgroup.holape.domain.common.enums.Status;
+import com.digitalgroup.holape.domain.common.enums.TicketStatus;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
+import com.digitalgroup.holape.domain.ticket.entity.Ticket;
+import com.digitalgroup.holape.domain.ticket.repository.TicketRepository;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.message.repository.MessageRepository;
 import com.digitalgroup.holape.domain.prospect.entity.Prospect;
@@ -57,6 +62,8 @@ public class UserAdminController {
     private final UserManagerHistoryRepository userManagerHistoryRepository;
     private final MessageRepository messageRepository;
     private final ProspectRepository prospectRepository;
+    private final TicketRepository ticketRepository;
+    private final AuditRepository auditRepository;
 
     /**
      * List users with standard REST pagination
@@ -828,8 +835,19 @@ public class UserAdminController {
             contact.put("managerName", user.getManager().getFullName());
         }
 
-        // Check for open ticket
-        contact.put("hasOpenTicket", hasOpenTicket(user.getId()));
+        // Custom fields (dynamic JSON data - e.g., collection data)
+        contact.put("customFields", user.getCustomFields());
+
+        // Check for open ticket and get ticket ID
+        Optional<Ticket> openTicket = ticketRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                user.getId(), TicketStatus.OPEN);
+        if (openTicket.isPresent()) {
+            contact.put("hasOpenTicket", true);
+            contact.put("openTicketId", openTicket.get().getId());
+        } else {
+            contact.put("hasOpenTicket", false);
+            contact.put("openTicketId", null);
+        }
 
         return ResponseEntity.ok(Map.of(
                 "found", true,
@@ -881,8 +899,19 @@ public class UserAdminController {
             contact.put("managerName", user.getManager().getFullName());
         }
 
-        // Check for open ticket
-        contact.put("hasOpenTicket", hasOpenTicket(user.getId()));
+        // Custom fields (dynamic JSON data - e.g., collection data)
+        contact.put("customFields", user.getCustomFields());
+
+        // Check for open ticket and get ticket ID
+        Optional<Ticket> openTicket = ticketRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                user.getId(), TicketStatus.OPEN);
+        if (openTicket.isPresent()) {
+            contact.put("hasOpenTicket", true);
+            contact.put("openTicketId", openTicket.get().getId());
+        } else {
+            contact.put("hasOpenTicket", false);
+            contact.put("openTicketId", null);
+        }
 
         return ResponseEntity.ok(Map.of(
                 "found", true,
@@ -930,6 +959,41 @@ public class UserAdminController {
         response.put("managerHistory", historyList);
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get action history for a user (audit log)
+     * PARIDAD ELECTRON: CRM panel action history
+     * Returns audits related to the user to show what actions other agents have taken
+     */
+    @GetMapping("/{id}/action_history")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> actionHistory(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
+        // Find audits where auditableType='User' and auditableId=userId
+        Page<Audit> auditsPage = auditRepository.findByAuditableTypeAndAuditableId("User", id, pageable);
+
+        List<Map<String, Object>> data = auditsPage.getContent().stream()
+                .map(audit -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", audit.getId());
+                    map.put("action", audit.getAction());
+                    map.put("username", audit.getUsername()); // Agent who performed the action
+                    map.put("auditedChanges", audit.getAuditedChanges());
+                    map.put("createdAt", audit.getCreatedAt());
+                    return map;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(Map.of(
+                "history", data,
+                "total", auditsPage.getTotalElements()
+        ));
     }
 
     /**
@@ -1353,9 +1417,7 @@ public class UserAdminController {
      * Check if user has an open ticket
      */
     private boolean hasOpenTicket(Long userId) {
-        // TODO: Implement when Ticket repository is available
-        // For now, return false
-        return false;
+        return ticketRepository.existsByUserIdAndStatus(userId, TicketStatus.OPEN);
     }
 
     public record CreateUserRequest(
