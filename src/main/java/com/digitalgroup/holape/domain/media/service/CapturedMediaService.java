@@ -99,6 +99,16 @@ public class CapturedMediaService {
                 capturedAt = LocalDateTime.now();
             }
 
+            // Parse message sent timestamp (when the WhatsApp message was originally sent)
+            LocalDateTime messageSentAt = null;
+            if (request.getMessageSentAt() != null && !request.getMessageSentAt().isEmpty()) {
+                try {
+                    messageSentAt = LocalDateTime.parse(request.getMessageSentAt(), DateTimeFormatter.ISO_DATE_TIME);
+                } catch (Exception e) {
+                    log.warn("[CapturedMediaService] Could not parse messageSentAt: {}", request.getMessageSentAt());
+                }
+            }
+
             // Look up agent (the logged-in user in Electron)
             User agent = null;
             if (request.getAgentId() != null) {
@@ -132,6 +142,7 @@ public class CapturedMediaService {
                     .whatsappMessageId(request.getWhatsappMessageId())
                     .captureSource(request.getSource())
                     .capturedAt(capturedAt)
+                    .messageSentAt(messageSentAt)
                     .build();
 
             CapturedMedia saved = mediaRepository.save(media);

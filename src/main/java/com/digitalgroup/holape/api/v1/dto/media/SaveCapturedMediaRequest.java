@@ -52,4 +52,9 @@ public class SaveCapturedMediaRequest {
 
     @NotNull(message = "capturedAt is required")
     private String capturedAt; // ISO datetime string
+
+    /**
+     * When the WhatsApp message was originally sent (extracted from message metadata)
+     */
+    private String messageSentAt; // ISO datetime string
 }

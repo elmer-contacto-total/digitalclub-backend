@@ -18,8 +18,16 @@ import java.util.Map;
 @Builder
 public class LogMediaAuditRequest {
 
+    /**
+     * Device fingerprint (for audit tracking)
+     */
     @NotBlank(message = "userId is required")
     private String userId;
+
+    /**
+     * ID of the logged-in agent
+     */
+    private Long agentId;
 
     @NotBlank(message = "action is required")
     private String action;

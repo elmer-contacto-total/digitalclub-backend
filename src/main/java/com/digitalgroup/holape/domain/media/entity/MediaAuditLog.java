@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.media.entity;
 
 import com.digitalgroup.holape.domain.media.enums.MediaAuditAction;
+import com.digitalgroup.holape.domain.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -11,14 +12,17 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * Entity representing media security audit logs
+ * Entity representing media security audit logs.
+ * Tracks all media-related actions for security and compliance.
  */
 @Entity
 @Table(name = "media_audit_logs", indexes = {
     @Index(name = "idx_media_audit_user", columnList = "user_fingerprint"),
     @Index(name = "idx_media_audit_action", columnList = "action"),
     @Index(name = "idx_media_audit_timestamp", columnList = "event_timestamp"),
-    @Index(name = "idx_media_audit_chat", columnList = "chat_phone")
+    @Index(name = "idx_media_audit_chat", columnList = "chat_phone"),
+    @Index(name = "idx_media_audit_agent_id", columnList = "agent_id"),
+    @Index(name = "idx_media_audit_client_user_id", columnList = "client_user_id")
 })
 @Getter
 @Setter
@@ -31,6 +35,23 @@ public class MediaAuditLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * The agent who performed this action
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agent_id")
+    private User agent;
+
+    /**
+     * The client related to this audit event
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "client_user_id")
+    private User clientUser;
+
+    /**
+     * Device fingerprint for audit tracking
+     */
     @Column(name = "user_fingerprint", length = 64, nullable = false)
     private String userFingerprint;
 

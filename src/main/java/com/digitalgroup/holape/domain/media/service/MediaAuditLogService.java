@@ -4,6 +4,8 @@ import com.digitalgroup.holape.api.v1.dto.media.LogMediaAuditRequest;
 import com.digitalgroup.holape.domain.media.entity.MediaAuditLog;
 import com.digitalgroup.holape.domain.media.enums.MediaAuditAction;
 import com.digitalgroup.holape.domain.media.repository.MediaAuditLogRepository;
+import com.digitalgroup.holape.domain.user.entity.User;
+import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -13,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -20,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 public class MediaAuditLogService {
 
     private final MediaAuditLogRepository auditRepository;
+    private final UserRepository userRepository;
 
     /**
      * Log a media audit event
@@ -47,7 +51,21 @@ public class MediaAuditLogService {
                 eventTimestamp = LocalDateTime.now();
             }
 
+            // Look up agent
+            User agent = null;
+            if (request.getAgentId() != null) {
+                agent = userRepository.findById(request.getAgentId()).orElse(null);
+            }
+
+            // Look up client user by chat phone
+            User clientUser = null;
+            if (request.getChatPhone() != null && !request.getChatPhone().isEmpty()) {
+                clientUser = findUserByPhone(request.getChatPhone());
+            }
+
             MediaAuditLog auditLog = MediaAuditLog.builder()
+                    .agent(agent)
+                    .clientUser(clientUser)
                     .userFingerprint(request.getUserId())
                     .action(action)
                     .description(request.getDescription())
@@ -62,7 +80,8 @@ public class MediaAuditLogService {
                     .build();
 
             MediaAuditLog saved = auditRepository.save(auditLog);
-            log.info("[MediaAuditService] Audit event logged: {} - {}", action, request.getUserId());
+            log.info("[MediaAuditService] Audit event logged: {} - {} agent={}",
+                    action, request.getUserId(), agent != null ? agent.getId() : "null");
 
             return saved;
 
@@ -98,5 +117,41 @@ public class MediaAuditLogService {
 
     public long countByAction(MediaAuditAction action) {
         return auditRepository.countByAction(action);
+    }
+
+    /**
+     * Find user by phone number, trying multiple formats
+     */
+    private User findUserByPhone(String phone) {
+        if (phone == null || phone.isEmpty()) {
+            return null;
+        }
+
+        // Normalize phone (remove non-digits)
+        String normalizedPhone = phone.replaceAll("[^0-9]", "");
+
+        // Try exact match first
+        Optional<User> user = userRepository.findByPhone(normalizedPhone);
+        if (user.isPresent()) {
+            return user.get();
+        }
+
+        // Try without country code (last 9 digits for Peru)
+        if (normalizedPhone.length() > 9) {
+            String shortPhone = normalizedPhone.substring(normalizedPhone.length() - 9);
+            user = userRepository.findByPhone(shortPhone);
+            if (user.isPresent()) {
+                return user.get();
+            }
+
+            // Try with Peru country code
+            String withCountryCode = "51" + shortPhone;
+            user = userRepository.findByPhone(withCountryCode);
+            if (user.isPresent()) {
+                return user.get();
+            }
+        }
+
+        return null;
     }
 }

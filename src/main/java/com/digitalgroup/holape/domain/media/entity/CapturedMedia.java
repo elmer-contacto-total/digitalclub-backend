@@ -92,6 +92,12 @@ public class CapturedMedia {
     @Column(name = "captured_at", nullable = false)
     private LocalDateTime capturedAt;
 
+    /**
+     * When the WhatsApp message was originally sent (extracted from message metadata)
+     */
+    @Column(name = "message_sent_at")
+    private LocalDateTime messageSentAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
