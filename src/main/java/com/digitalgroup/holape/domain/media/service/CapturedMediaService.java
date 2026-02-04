@@ -118,10 +118,25 @@ public class CapturedMediaService {
                 }
             }
 
-            // Look up client user by chat phone
+            // Look up client user - prefer direct ID lookup, fallback to phone
             User clientUser = null;
-            if (request.getChatPhone() != null && !request.getChatPhone().isEmpty()) {
+            if (request.getClientUserId() != null) {
+                // Direct lookup by ID from Angular CRM
+                clientUser = userRepository.findById(request.getClientUserId()).orElse(null);
+                if (clientUser == null) {
+                    log.warn("[CapturedMediaService] Client user not found by ID: {}", request.getClientUserId());
+                } else {
+                    log.info("[CapturedMediaService] Client user found by ID: {} ({})",
+                            clientUser.getId(), clientUser.getName());
+                }
+            }
+            // Fallback to phone lookup if ID not provided or not found
+            if (clientUser == null && request.getChatPhone() != null && !request.getChatPhone().isEmpty()) {
                 clientUser = findUserByPhone(request.getChatPhone());
+                if (clientUser != null) {
+                    log.info("[CapturedMediaService] Client user found by phone: {} ({})",
+                            clientUser.getId(), clientUser.getName());
+                }
             }
 
             // Create entity

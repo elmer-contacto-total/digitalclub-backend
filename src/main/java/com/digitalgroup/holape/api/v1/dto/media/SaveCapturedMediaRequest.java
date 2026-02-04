@@ -30,6 +30,12 @@ public class SaveCapturedMediaRequest {
      */
     private Long agentId;
 
+    /**
+     * ID of the client user (from CRM lookup in Angular)
+     * When provided, this takes precedence over phone-based lookup
+     */
+    private Long clientUserId;
+
     private String chatPhone;
 
     private String chatName;
