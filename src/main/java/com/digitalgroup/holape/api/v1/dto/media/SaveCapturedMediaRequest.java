@@ -19,8 +19,16 @@ public class SaveCapturedMediaRequest {
     @NotBlank(message = "mediaId is required")
     private String mediaId;
 
+    /**
+     * Device fingerprint (for audit/tracking)
+     */
     @NotBlank(message = "userId is required")
     private String userId;
+
+    /**
+     * ID of the logged-in agent in Angular/Electron
+     */
+    private Long agentId;
 
     private String chatPhone;
 

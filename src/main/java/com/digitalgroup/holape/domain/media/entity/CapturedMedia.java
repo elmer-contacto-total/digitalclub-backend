@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.media.entity;
 
 import com.digitalgroup.holape.domain.media.enums.CapturedMediaType;
+import com.digitalgroup.holape.domain.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -8,14 +9,17 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 /**
- * Entity representing captured media from Electron app
+ * Entity representing captured media from Electron app.
+ * Associates media with both the agent (who captured) and client (whose media).
  */
 @Entity
 @Table(name = "captured_media", indexes = {
     @Index(name = "idx_captured_media_chat_phone", columnList = "chat_phone"),
     @Index(name = "idx_captured_media_user_fingerprint", columnList = "user_fingerprint"),
     @Index(name = "idx_captured_media_captured_at", columnList = "captured_at"),
-    @Index(name = "idx_captured_media_sha256", columnList = "sha256_hash")
+    @Index(name = "idx_captured_media_sha256", columnList = "sha256_hash"),
+    @Index(name = "idx_captured_media_agent_id", columnList = "agent_id"),
+    @Index(name = "idx_captured_media_client_user_id", columnList = "client_user_id")
 })
 @Getter
 @Setter
@@ -31,6 +35,23 @@ public class CapturedMedia {
     @Column(name = "media_uuid", length = 36, nullable = false, unique = true)
     private String mediaUuid;
 
+    /**
+     * The agent who captured this media (logged-in user in Electron)
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agent_id")
+    private User agent;
+
+    /**
+     * The client whose media was captured (resolved from chat_phone)
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "client_user_id")
+    private User clientUser;
+
+    /**
+     * Device fingerprint for audit purposes
+     */
     @Column(name = "user_fingerprint", length = 64, nullable = false)
     private String userFingerprint;
 

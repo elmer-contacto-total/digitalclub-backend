@@ -4,6 +4,8 @@ import com.digitalgroup.holape.api.v1.dto.media.SaveCapturedMediaRequest;
 import com.digitalgroup.holape.domain.media.entity.CapturedMedia;
 import com.digitalgroup.holape.domain.media.enums.CapturedMediaType;
 import com.digitalgroup.holape.domain.media.repository.CapturedMediaRepository;
+import com.digitalgroup.holape.domain.user.entity.User;
+import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.integration.storage.MediaStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,7 @@ public class CapturedMediaService {
 
     private final CapturedMediaRepository mediaRepository;
     private final MediaStorageService storageService;
+    private final UserRepository userRepository;
 
     /**
      * Save a captured media from Electron app.
@@ -96,9 +99,26 @@ public class CapturedMediaService {
                 capturedAt = LocalDateTime.now();
             }
 
+            // Look up agent (the logged-in user in Electron)
+            User agent = null;
+            if (request.getAgentId() != null) {
+                agent = userRepository.findById(request.getAgentId()).orElse(null);
+                if (agent == null) {
+                    log.warn("[CapturedMediaService] Agent not found: {}", request.getAgentId());
+                }
+            }
+
+            // Look up client user by chat phone
+            User clientUser = null;
+            if (request.getChatPhone() != null && !request.getChatPhone().isEmpty()) {
+                clientUser = findUserByPhone(request.getChatPhone());
+            }
+
             // Create entity
             CapturedMedia media = CapturedMedia.builder()
                     .mediaUuid(request.getMediaId())
+                    .agent(agent)
+                    .clientUser(clientUser)
                     .userFingerprint(request.getUserId())
                     .chatPhone(request.getChatPhone())
                     .chatName(request.getChatName())
@@ -115,7 +135,10 @@ public class CapturedMediaService {
                     .build();
 
             CapturedMedia saved = mediaRepository.save(media);
-            log.info("[CapturedMediaService] Media saved: {} ({} bytes)", request.getMediaId(), fileData.length);
+            log.info("[CapturedMediaService] Media saved: {} ({} bytes) agent={} client={}",
+                    request.getMediaId(), fileData.length,
+                    agent != null ? agent.getId() : "null",
+                    clientUser != null ? clientUser.getId() : "null");
 
             return Optional.of(saved);
 
@@ -204,5 +227,41 @@ public class CapturedMediaService {
             case "application/pdf" -> "pdf";
             default -> "bin";
         };
+    }
+
+    /**
+     * Find user by phone number, trying multiple formats
+     */
+    private User findUserByPhone(String phone) {
+        if (phone == null || phone.isEmpty()) {
+            return null;
+        }
+
+        // Normalize phone (remove non-digits)
+        String normalizedPhone = phone.replaceAll("[^0-9]", "");
+
+        // Try exact match first
+        Optional<User> user = userRepository.findByPhone(normalizedPhone);
+        if (user.isPresent()) {
+            return user.get();
+        }
+
+        // Try without country code (last 9 digits for Peru)
+        if (normalizedPhone.length() > 9) {
+            String shortPhone = normalizedPhone.substring(normalizedPhone.length() - 9);
+            user = userRepository.findByPhone(shortPhone);
+            if (user.isPresent()) {
+                return user.get();
+            }
+
+            // Try with Peru country code
+            String withCountryCode = "51" + shortPhone;
+            user = userRepository.findByPhone(withCountryCode);
+            if (user.isPresent()) {
+                return user.get();
+            }
+        }
+
+        return null;
     }
 }
