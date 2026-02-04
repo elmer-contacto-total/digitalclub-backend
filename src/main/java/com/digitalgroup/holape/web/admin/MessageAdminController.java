@@ -6,6 +6,8 @@ import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
 import com.digitalgroup.holape.domain.crm.entity.CrmInfo;
 import com.digitalgroup.holape.domain.crm.repository.CrmInfoRepository;
+import com.digitalgroup.holape.domain.media.entity.CapturedMedia;
+import com.digitalgroup.holape.domain.media.repository.CapturedMediaRepository;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.message.repository.MessageRepository;
 import com.digitalgroup.holape.domain.message.service.MessageService;
@@ -50,6 +52,7 @@ public class MessageAdminController {
     private final TicketRepository ticketRepository;
     private final ClientRepository clientRepository;
     private final ClientSettingRepository clientSettingRepository;
+    private final CapturedMediaRepository capturedMediaRepository;
 
     /**
      * Get messages - three modes:
@@ -326,6 +329,29 @@ public class MessageAdminController {
         response.put("isWhatsappBusiness", isClientWhatsappBusiness);
         response.put("canSendFreeform", canSendFreeform);
         response.put("lastIncomingMessageAt", lastIncomingMessageAt);
+
+        // Captured media (images and audios from Electron)
+        List<CapturedMedia> capturedMedia = capturedMediaRepository
+                .findTop100ByClientUserIdOrderByMessageSentAtDesc(clientId);
+        List<Map<String, Object>> capturedMediaList = capturedMedia.stream()
+                .map(media -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", media.getId());
+                    m.put("mediaUuid", media.getMediaUuid());
+                    m.put("mediaType", media.getMediaType().name().toLowerCase());
+                    m.put("mimeType", media.getMimeType());
+                    m.put("publicUrl", media.getPublicUrl());
+                    m.put("filePath", media.getFilePath());
+                    m.put("sizeBytes", media.getSizeBytes());
+                    m.put("durationSeconds", media.getDurationSeconds());
+                    m.put("capturedAt", media.getCapturedAt());
+                    m.put("messageSentAt", media.getMessageSentAt());
+                    m.put("chatPhone", media.getChatPhone());
+                    m.put("chatName", media.getChatName());
+                    return m;
+                })
+                .collect(Collectors.toList());
+        response.put("capturedMedia", capturedMediaList);
 
         return ResponseEntity.ok(response);
     }

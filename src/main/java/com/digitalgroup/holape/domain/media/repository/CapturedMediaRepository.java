@@ -32,4 +32,20 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
 
     List<CapturedMedia> findTop50ByChatPhoneAndMediaTypeInOrderByCapturedAtDesc(
             String chatPhone, List<CapturedMediaType> types);
+
+    /**
+     * Find captured media by client user ID
+     */
+    List<CapturedMedia> findByClientUserIdOrderByMessageSentAtDesc(Long clientUserId);
+
+    /**
+     * Find captured media by client user ID with limit
+     */
+    List<CapturedMedia> findTop100ByClientUserIdOrderByMessageSentAtDesc(Long clientUserId);
+
+    /**
+     * Find captured media by client user ID and media type
+     */
+    List<CapturedMedia> findByClientUserIdAndMediaTypeOrderByMessageSentAtDesc(
+            Long clientUserId, CapturedMediaType mediaType);
 }
