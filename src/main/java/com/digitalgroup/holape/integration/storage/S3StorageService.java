@@ -24,10 +24,11 @@ import java.util.UUID;
 /**
  * S3 Storage Service
  * Handles file uploads/downloads to AWS S3
+ * Implements MediaStorageService for captured media from Electron
  */
 @Slf4j
 @Service
-public class S3StorageService {
+public class S3StorageService implements MediaStorageService {
 
     @Value("${aws.access-key-id:}")
     private String accessKeyId;
@@ -249,11 +250,94 @@ public class S3StorageService {
         }
     }
 
+    @Override
     public boolean isEnabled() {
         return enabled && s3Client != null;
     }
 
     public String getBucketName() {
         return bucketName;
+    }
+
+    // ==================== MediaStorageService Interface Implementation ====================
+
+    /**
+     * Upload data to S3 (implements MediaStorageService)
+     * Used by CapturedMediaService for media captured from Electron
+     */
+    @Override
+    public String upload(byte[] data, String path, String contentType) {
+        if (!isEnabled()) {
+            log.warn("S3 Storage is not enabled, cannot upload media");
+            return path; // Return path as-is when disabled
+        }
+
+        try {
+            PutObjectRequest request = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(path)
+                    .contentType(contentType)
+                    .build();
+
+            s3Client.putObject(request, RequestBody.fromBytes(data));
+
+            log.info("Uploaded media to S3: {} ({} bytes)", path, data.length);
+            return path;
+
+        } catch (S3Exception e) {
+            log.error("Failed to upload media to S3: {}", path, e);
+            throw new RuntimeException("Failed to upload media: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Download file content from S3 (implements MediaStorageService)
+     */
+    @Override
+    public byte[] download(String path) {
+        if (!isEnabled()) {
+            throw new IllegalStateException("S3 Storage is not enabled");
+        }
+
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(path)
+                    .build();
+
+            return s3Client.getObjectAsBytes(request).asByteArray();
+
+        } catch (S3Exception e) {
+            log.error("Failed to download media from S3: {}", path, e);
+            throw new RuntimeException("Failed to download media: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Delete file from S3 (implements MediaStorageService)
+     */
+    @Override
+    public void delete(String path) {
+        deleteFile(path);
+    }
+
+    /**
+     * Get public/presigned URL (implements MediaStorageService)
+     * Returns a URL valid for 1 hour
+     */
+    @Override
+    public String getPublicUrl(String path) {
+        if (!isEnabled()) {
+            return null;
+        }
+        return getDownloadUrl(path);
+    }
+
+    /**
+     * Check if file exists (implements MediaStorageService)
+     */
+    @Override
+    public boolean exists(String path) {
+        return fileExists(path);
     }
 }
