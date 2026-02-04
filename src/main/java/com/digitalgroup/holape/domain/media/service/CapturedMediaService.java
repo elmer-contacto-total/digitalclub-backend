@@ -127,7 +127,7 @@ public class CapturedMediaService {
                     log.warn("[CapturedMediaService] Client user not found by ID: {}", request.getClientUserId());
                 } else {
                     log.info("[CapturedMediaService] Client user found by ID: {} ({})",
-                            clientUser.getId(), clientUser.getName());
+                            clientUser.getId(), clientUser.getFullName());
                 }
             }
             // Fallback to phone lookup if ID not provided or not found
@@ -135,7 +135,7 @@ public class CapturedMediaService {
                 clientUser = findUserByPhone(request.getChatPhone());
                 if (clientUser != null) {
                     log.info("[CapturedMediaService] Client user found by phone: {} ({})",
-                            clientUser.getId(), clientUser.getName());
+                            clientUser.getId(), clientUser.getFullName());
                 }
             }
 
