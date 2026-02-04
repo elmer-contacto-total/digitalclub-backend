@@ -119,7 +119,7 @@ aws:
   region: ${AWS_REGION:us-east-1}
   s3:
     bucket: ${AWS_S3_BUCKET:}
-    enabled: ${AWS_S3_ENABLED:false}
+    enabled: ${AWS_S3_ENABLED:true}
 
 # Media Storage Configuration (from ms-media integration)
 media:

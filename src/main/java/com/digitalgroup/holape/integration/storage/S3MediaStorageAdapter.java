@@ -17,15 +17,18 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Primary;
 import java.io.IOException;
 import java.time.Duration;
 
 /**
  * S3 implementation of MediaStorageService.
  * Adapts the existing S3 infrastructure for media capture storage.
+ * Primary bean for MediaStorageService injection.
  */
 @Slf4j
 @Service
+@Primary
 @ConditionalOnProperty(name = "media.storage.type", havingValue = "s3", matchIfMissing = true)
 public class S3MediaStorageAdapter implements MediaStorageService {
 
