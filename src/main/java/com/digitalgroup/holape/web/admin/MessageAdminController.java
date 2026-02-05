@@ -331,8 +331,9 @@ public class MessageAdminController {
         response.put("lastIncomingMessageAt", lastIncomingMessageAt);
 
         // Captured media (images and audios from Electron)
+        // Uses COALESCE(messageSentAt, capturedAt) to properly order even when messageSentAt is null
         List<CapturedMedia> capturedMedia = capturedMediaRepository
-                .findTop100ByClientUserIdOrderByMessageSentAtDesc(clientId);
+                .findByClientUserIdOrderedByEffectiveTime(clientId, PageRequest.of(0, 100));
         List<Map<String, Object>> capturedMediaList = capturedMedia.stream()
                 .map(media -> {
                     Map<String, Object> m = new HashMap<>();

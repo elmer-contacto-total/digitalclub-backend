@@ -5,6 +5,8 @@ import com.digitalgroup.holape.domain.media.enums.CapturedMediaType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -48,4 +50,12 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
      */
     List<CapturedMedia> findByClientUserIdAndMediaTypeOrderByMessageSentAtDesc(
             Long clientUserId, CapturedMediaType mediaType);
+
+    /**
+     * Find captured media by client user ID ordered by message sent time (with fallback to captured time)
+     * Uses COALESCE to handle null messageSentAt values
+     */
+    @Query("SELECT m FROM CapturedMedia m WHERE m.clientUser.id = :clientUserId " +
+           "ORDER BY COALESCE(m.messageSentAt, m.capturedAt) DESC")
+    List<CapturedMedia> findByClientUserIdOrderedByEffectiveTime(@Param("clientUserId") Long clientUserId, Pageable pageable);
 }
