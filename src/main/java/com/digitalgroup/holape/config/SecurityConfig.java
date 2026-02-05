@@ -58,6 +58,8 @@ public class SecurityConfig {
                         .requestMatchers("/ws/**", "/websocket/**").permitAll()
                         // Public endpoints - Media capture from Electron (uses fingerprint as userId)
                         .requestMatchers("/api/v1/media/**").permitAll()
+                        // Public endpoints - App version check (for Electron auto-update)
+                        .requestMatchers("/api/v1/app/**").permitAll()
                         // Admin endpoints - require authentication
                         .requestMatchers("/app/**").authenticated()
                         // API endpoints - require authentication
