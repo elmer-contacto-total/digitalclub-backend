@@ -22,6 +22,17 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
     public void commence(HttpServletRequest request,
                          HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
+
+        // Browser page refresh: Accept contains text/html and no Authorization header.
+        // Redirect to root so the Angular SPA can load and handle the route client-side.
+        String accept = request.getHeader("Accept");
+        String auth = request.getHeader("Authorization");
+        if (auth == null && accept != null && accept.contains("text/html")) {
+            log.info("Browser navigation to protected path {}, redirecting to SPA", request.getServletPath());
+            response.sendRedirect("/");
+            return;
+        }
+
         log.error("Unauthorized error: {}", authException.getMessage());
 
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
