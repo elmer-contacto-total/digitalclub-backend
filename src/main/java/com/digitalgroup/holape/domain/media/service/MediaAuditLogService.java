@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -117,6 +120,73 @@ public class MediaAuditLogService {
 
     public long countByAction(MediaAuditAction action) {
         return auditRepository.countByAction(action);
+    }
+
+    /**
+     * Find audit logs scoped by agent IDs with optional filters.
+     * Used by supervisor/admin views.
+     */
+    public Page<MediaAuditLog> findByAgentIds(List<Long> agentIds, MediaAuditAction action,
+                                               LocalDateTime from, LocalDateTime to, Pageable pageable) {
+        boolean hasAction = action != null;
+        boolean hasDateRange = from != null && to != null;
+
+        if (agentIds == null) {
+            // No agent scoping (admin/super_admin sees all)
+            if (hasAction && hasDateRange) {
+                return auditRepository.findByActionAndEventTimestampBetweenOrderByEventTimestampDesc(action, from, to, pageable);
+            } else if (hasAction) {
+                return auditRepository.findByActionOrderByEventTimestampDesc(action, pageable);
+            } else if (hasDateRange) {
+                return auditRepository.findByEventTimestampBetweenOrderByEventTimestampDesc(from, to, pageable);
+            } else {
+                return auditRepository.findAllByOrderByEventTimestampDesc(pageable);
+            }
+        }
+
+        if (agentIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        if (hasAction && hasDateRange) {
+            return auditRepository.findByAgentIdInAndActionAndEventTimestampBetweenOrderByEventTimestampDesc(
+                    agentIds, action, from, to, pageable);
+        } else if (hasAction) {
+            return auditRepository.findByAgentIdInAndActionOrderByEventTimestampDesc(agentIds, action, pageable);
+        } else if (hasDateRange) {
+            return auditRepository.findByAgentIdInAndEventTimestampBetweenOrderByEventTimestampDesc(
+                    agentIds, from, to, pageable);
+        } else {
+            return auditRepository.findByAgentIdInOrderByEventTimestampDesc(agentIds, pageable);
+        }
+    }
+
+    /**
+     * Get stats counts by action type, scoped by agent IDs.
+     * Returns a map with action names as keys and counts as values, plus a "total" key.
+     */
+    public Map<String, Long> getStatsByAgentIds(List<Long> agentIds) {
+        Map<String, Long> stats = new LinkedHashMap<>();
+
+        if (agentIds == null) {
+            // Admin/super_admin: count all
+            stats.put("total", auditRepository.count());
+            for (MediaAuditAction action : MediaAuditAction.values()) {
+                stats.put(action.name(), auditRepository.countByAction(action));
+            }
+        } else if (agentIds.isEmpty()) {
+            stats.put("total", 0L);
+            for (MediaAuditAction action : MediaAuditAction.values()) {
+                stats.put(action.name(), 0L);
+            }
+        } else {
+            stats.put("total", auditRepository.countByAgentIdIn(agentIds));
+            for (MediaAuditAction action : MediaAuditAction.values()) {
+                stats.put(action.name(), auditRepository.countByAgentIdInAndAction(agentIds, action));
+            }
+        }
+
+        return stats;
     }
 
     /**
