@@ -46,6 +46,9 @@ public class AppVersion {
     @Column(name = "sha256_hash", length = 64)
     private String sha256Hash;
 
+    @Column(name = "s3_key", length = 500)
+    private String s3Key;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean mandatory = false;

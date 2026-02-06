@@ -3,11 +3,13 @@ package com.digitalgroup.holape.api.v1;
 import com.digitalgroup.holape.api.v1.dto.AppVersionDto;
 import com.digitalgroup.holape.domain.app.entity.AppVersion;
 import com.digitalgroup.holape.domain.app.service.AppVersionService;
+import com.digitalgroup.holape.integration.storage.S3StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -25,6 +27,9 @@ import java.util.Optional;
 public class AppVersionController {
 
     private final AppVersionService appVersionService;
+    private final S3StorageService s3StorageService;
+
+    private static final Duration PRESIGNED_URL_DURATION = Duration.ofHours(6);
 
     /**
      * Get the latest version information for a platform.
@@ -45,7 +50,7 @@ public class AppVersionController {
             return ResponseEntity.notFound().build();
         }
 
-        AppVersionDto dto = AppVersionDto.from(latest.get());
+        AppVersionDto dto = toDto(latest.get());
         return ResponseEntity.ok(dto);
     }
 
@@ -79,12 +84,28 @@ public class AppVersionController {
         response.put("currentVersion", currentVersion);
 
         if (updateAvailable) {
-            response.put("latestVersion", AppVersionDto.from(latest.get()));
+            response.put("latestVersion", toDto(latest.get()));
             log.info("Update available: {} -> {}", currentVersion, latest.get().getVersion());
         } else {
             response.put("message", "You are running the latest version");
         }
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Convert entity to DTO, generating presigned URL if s3Key is present.
+     */
+    private AppVersionDto toDto(AppVersion entity) {
+        String s3Key = entity.getS3Key();
+        if (s3Key != null && !s3Key.isBlank() && s3StorageService.isEnabled()) {
+            try {
+                String presignedUrl = s3StorageService.getPresignedUrl(s3Key, PRESIGNED_URL_DURATION).toString();
+                return AppVersionDto.from(entity, presignedUrl);
+            } catch (Exception e) {
+                log.warn("Failed to generate presigned URL for s3Key={}, falling back to downloadUrl", s3Key, e);
+            }
+        }
+        return AppVersionDto.from(entity);
     }
 }

@@ -1,6 +1,8 @@
 package com.digitalgroup.holape.domain.app.repository;
 
 import com.digitalgroup.holape.domain.app.entity.AppVersion;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +26,11 @@ public interface AppVersionRepository extends JpaRepository<AppVersion, Long> {
      * Find a specific version by version string and platform.
      */
     Optional<AppVersion> findByVersionAndPlatform(String version, String platform);
+
+    /**
+     * Find all versions for a specific platform (paginated).
+     */
+    Page<AppVersion> findByPlatformIgnoreCase(String platform, Pageable pageable);
 
     /**
      * Find the latest active version for a platform using explicit query.
