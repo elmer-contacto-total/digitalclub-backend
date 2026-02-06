@@ -95,12 +95,17 @@ public class AppVersionController {
 
     /**
      * Convert entity to DTO, generating presigned URL if s3Key is present.
+     * Includes Content-Disposition so the browser downloads with a friendly filename.
      */
     private AppVersionDto toDto(AppVersion entity) {
         String s3Key = entity.getS3Key();
         if (s3Key != null && !s3Key.isBlank() && s3StorageService.isEnabled()) {
             try {
-                String presignedUrl = s3StorageService.getPresignedUrl(s3Key, PRESIGNED_URL_DURATION).toString();
+                // Build friendly filename: MWS-Desktop-v1.2.0-setup.exe
+                String extension = s3Key.contains(".") ? s3Key.substring(s3Key.lastIndexOf(".")) : ".exe";
+                String friendlyName = "MWS-Desktop-v" + entity.getVersion() + "-setup" + extension;
+
+                String presignedUrl = s3StorageService.getPresignedUrl(s3Key, PRESIGNED_URL_DURATION, friendlyName).toString();
                 return AppVersionDto.from(entity, presignedUrl);
             } catch (Exception e) {
                 log.warn("Failed to generate presigned URL for s3Key={}, falling back to downloadUrl", s3Key, e);

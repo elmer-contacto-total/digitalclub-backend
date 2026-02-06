@@ -143,19 +143,29 @@ public class S3StorageService {
      * Get a pre-signed URL for downloading a file
      */
     public URL getPresignedUrl(String key, Duration expiration) {
+        return getPresignedUrl(key, expiration, null);
+    }
+
+    /**
+     * Get a pre-signed URL with a custom Content-Disposition header (for friendly download filenames)
+     */
+    public URL getPresignedUrl(String key, Duration expiration, String downloadFilename) {
         if (!isEnabled()) {
             throw new IllegalStateException("S3 Storage is not enabled");
         }
 
         try {
-            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+            GetObjectRequest.Builder requestBuilder = GetObjectRequest.builder()
                     .bucket(bucketName)
-                    .key(key)
-                    .build();
+                    .key(key);
+
+            if (downloadFilename != null && !downloadFilename.isBlank()) {
+                requestBuilder.responseContentDisposition("attachment; filename=\"" + downloadFilename + "\"");
+            }
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
                     .signatureDuration(expiration)
-                    .getObjectRequest(getObjectRequest)
+                    .getObjectRequest(requestBuilder.build())
                     .build();
 
             PresignedGetObjectRequest presignedRequest = presigner.presignGetObject(presignRequest);
