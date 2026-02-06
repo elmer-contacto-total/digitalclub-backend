@@ -132,15 +132,15 @@ public class MediaAuditLogService {
         boolean hasDateRange = from != null && to != null;
 
         if (agentIds == null) {
-            // No agent scoping (admin/super_admin sees all)
+            // No agent scoping (admin/super_admin sees all) - use WithGraph variants for eager fetch
             if (hasAction && hasDateRange) {
                 return auditRepository.findByActionAndEventTimestampBetweenOrderByEventTimestampDesc(action, from, to, pageable);
             } else if (hasAction) {
-                return auditRepository.findByActionOrderByEventTimestampDesc(action, pageable);
+                return auditRepository.findWithGraphByActionOrderByEventTimestampDesc(action, pageable);
             } else if (hasDateRange) {
-                return auditRepository.findByEventTimestampBetweenOrderByEventTimestampDesc(from, to, pageable);
+                return auditRepository.findWithGraphByEventTimestampBetweenOrderByEventTimestampDesc(from, to, pageable);
             } else {
-                return auditRepository.findAllByOrderByEventTimestampDesc(pageable);
+                return auditRepository.findWithGraphAllByOrderByEventTimestampDesc(pageable);
             }
         }
 

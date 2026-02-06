@@ -4,6 +4,7 @@ import com.digitalgroup.holape.domain.media.entity.MediaAuditLog;
 import com.digitalgroup.holape.domain.media.enums.MediaAuditAction;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -34,19 +35,37 @@ public interface MediaAuditLogRepository extends JpaRepository<MediaAuditLog, Lo
 
     Page<MediaAuditLog> findAllByOrderByEventTimestampDesc(Pageable pageable);
 
-    // Agent-scoped queries for supervisor view
+    // Agent-scoped queries for supervisor view (with eager fetch of agent/clientUser)
+
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
     Page<MediaAuditLog> findByAgentIdInOrderByEventTimestampDesc(List<Long> agentIds, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
     Page<MediaAuditLog> findByAgentIdInAndActionOrderByEventTimestampDesc(List<Long> agentIds, MediaAuditAction action, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
     Page<MediaAuditLog> findByAgentIdInAndEventTimestampBetweenOrderByEventTimestampDesc(
             List<Long> agentIds, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
     Page<MediaAuditLog> findByAgentIdInAndActionAndEventTimestampBetweenOrderByEventTimestampDesc(
             List<Long> agentIds, MediaAuditAction action, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
     Page<MediaAuditLog> findByActionAndEventTimestampBetweenOrderByEventTimestampDesc(
             MediaAuditAction action, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    // Overloaded versions with EntityGraph for admin view (no agent scoping)
+
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
+    Page<MediaAuditLog> findWithGraphAllByOrderByEventTimestampDesc(Pageable pageable);
+
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
+    Page<MediaAuditLog> findWithGraphByActionOrderByEventTimestampDesc(MediaAuditAction action, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"agent", "clientUser"})
+    Page<MediaAuditLog> findWithGraphByEventTimestampBetweenOrderByEventTimestampDesc(
+            LocalDateTime from, LocalDateTime to, Pageable pageable);
 
     long countByAgentIdIn(List<Long> agentIds);
 
