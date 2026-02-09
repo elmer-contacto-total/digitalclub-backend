@@ -1,6 +1,6 @@
-package com.digitalgroup.holape.domain.campaign.repository;
+package com.digitalgroup.holape.domain.bulksend.repository;
 
-import com.digitalgroup.holape.domain.campaign.entity.BulkSendRule;
+import com.digitalgroup.holape.domain.bulksend.entity.BulkSendRule;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

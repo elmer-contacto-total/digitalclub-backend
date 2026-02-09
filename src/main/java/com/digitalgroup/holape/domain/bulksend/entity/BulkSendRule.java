@@ -1,4 +1,4 @@
-package com.digitalgroup.holape.domain.campaign.entity;
+package com.digitalgroup.holape.domain.bulksend.entity;
 
 import com.digitalgroup.holape.domain.client.entity.Client;
 import jakarta.persistence.*;

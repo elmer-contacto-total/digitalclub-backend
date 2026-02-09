@@ -1,8 +1,6 @@
-package com.digitalgroup.holape.domain.campaign.entity;
+package com.digitalgroup.holape.domain.bulksend.entity;
 
 import com.digitalgroup.holape.domain.client.entity.Client;
-import com.digitalgroup.holape.domain.message.entity.BulkMessage;
-import com.digitalgroup.holape.domain.message.entity.MessageTemplate;
 import com.digitalgroup.holape.domain.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -12,21 +10,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * BulkCampaign Entity
- * Tracks mass sending campaigns via Cloud API or Electron
+ * BulkSend Entity
+ * Tracks mass sending via Electron (CSV-based)
  */
 @Entity
-@Table(name = "bulk_campaigns", indexes = {
-        @Index(name = "idx_bulk_campaigns_client", columnList = "client_id"),
-        @Index(name = "idx_bulk_campaigns_user", columnList = "user_id"),
-        @Index(name = "idx_bulk_campaigns_status", columnList = "status")
+@Table(name = "bulk_sends", indexes = {
+        @Index(name = "idx_bulk_sends_client", columnList = "client_id"),
+        @Index(name = "idx_bulk_sends_user", columnList = "user_id"),
+        @Index(name = "idx_bulk_sends_status", columnList = "status")
 })
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BulkCampaign {
+public class BulkSend {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,20 +38,13 @@ public class BulkCampaign {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "bulk_message_id")
-    private BulkMessage bulkMessage;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "message_template_id")
-    private MessageTemplate messageTemplate;
-
     @Column(name = "send_method", nullable = false, length = 20)
-    private String sendMethod; // CLOUD_API or ELECTRON
+    @Builder.Default
+    private String sendMethod = "ELECTRON";
 
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
-    private String status = "PENDING"; // PENDING, PROCESSING, PAUSED, COMPLETED, CANCELLED, FAILED
+    private String status = "PENDING";
 
     @Column(name = "total_recipients", nullable = false)
     @Builder.Default
@@ -66,6 +57,21 @@ public class BulkCampaign {
     @Column(name = "failed_count", nullable = false)
     @Builder.Default
     private Integer failedCount = 0;
+
+    @Column(name = "message_content", columnDefinition = "TEXT")
+    private String messageContent;
+
+    @Column(name = "attachment_path", length = 500)
+    private String attachmentPath;
+
+    @Column(name = "attachment_type", length = 50)
+    private String attachmentType;
+
+    @Column(name = "attachment_size")
+    private Long attachmentSize;
+
+    @Column(name = "attachment_original_name", length = 255)
+    private String attachmentOriginalName;
 
     @Column(name = "started_at")
     private LocalDateTime startedAt;
@@ -82,15 +88,16 @@ public class BulkCampaign {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "campaign", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "bulkSend", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    private List<BulkCampaignRecipient> recipients = new ArrayList<>();
+    private List<BulkSendRecipient> recipients = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
         if (status == null) status = "PENDING";
+        if (sendMethod == null) sendMethod = "ELECTRON";
         if (totalRecipients == null) totalRecipients = 0;
         if (sentCount == null) sentCount = 0;
         if (failedCount == null) failedCount = 0;
@@ -121,11 +128,7 @@ public class BulkCampaign {
         return processed >= totalRecipients;
     }
 
-    public boolean isCloudApi() {
-        return "CLOUD_API".equals(sendMethod);
-    }
-
-    public boolean isElectron() {
-        return "ELECTRON".equals(sendMethod);
+    public boolean hasAttachment() {
+        return attachmentPath != null && !attachmentPath.isBlank();
     }
 }
