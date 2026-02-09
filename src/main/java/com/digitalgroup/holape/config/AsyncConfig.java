@@ -3,13 +3,13 @@ package com.digitalgroup.holape.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-// import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
 
 @Configuration
-// @EnableAsync // DISABLED - Workers desactivados temporalmente
+@EnableAsync
 public class AsyncConfig {
 
     @Value("${async.core-pool-size:5}")
