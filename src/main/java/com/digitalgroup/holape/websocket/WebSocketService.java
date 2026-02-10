@@ -177,12 +177,13 @@ public class WebSocketService {
     }
 
     /**
-     * Send captured media notification to the agent who captured it.
-     * Called after Electron uploads media via POST /api/v1/media.
+     * Send captured media notification.
+     * Broadcasts to /topic/captured_media so ANY user viewing the conversation
+     * can receive it (frontend filters by clientUserId).
+     * Also sends to the capturing agent's personal queue.
      */
     public void sendCapturedMediaUpdate(CapturedMediaResponse media) {
-        if (media == null || media.getAgentId() == null) {
-            log.debug("Cannot send captured media update: media or agentId is null");
+        if (media == null) {
             return;
         }
 
@@ -191,21 +192,27 @@ public class WebSocketService {
         payload.put("payload", media);
         payload.put("timestamp", System.currentTimeMillis());
 
-        messagingTemplate.convertAndSendToUser(
-                media.getAgentId().toString(),
-                "/queue/captured_media",
-                payload
-        );
+        // Broadcast to topic (any user viewing the conversation receives it)
+        messagingTemplate.convertAndSend("/topic/captured_media", payload);
 
-        log.debug("Sent captured media {} to agent {}", media.getMediaUuid(), media.getAgentId());
+        // Also send to agent's personal queue (for Electron app)
+        if (media.getAgentId() != null) {
+            messagingTemplate.convertAndSendToUser(
+                    media.getAgentId().toString(),
+                    "/queue/captured_media",
+                    payload
+            );
+        }
+
+        log.info("Broadcast captured media {} for client {}", media.getMediaUuid(), media.getClientUserId());
     }
 
     /**
-     * Notify agent that a captured media was deleted (WhatsApp message was deleted).
+     * Notify that a captured media was deleted (WhatsApp message was deleted).
+     * Broadcasts to /topic/captured_media so all viewers are notified.
      */
     public void sendCapturedMediaDeleted(CapturedMediaResponse media) {
-        if (media == null || media.getAgentId() == null) {
-            log.debug("Cannot send captured media deleted: media or agentId is null");
+        if (media == null) {
             return;
         }
 
@@ -214,13 +221,19 @@ public class WebSocketService {
         payload.put("payload", media);
         payload.put("timestamp", System.currentTimeMillis());
 
-        messagingTemplate.convertAndSendToUser(
-                media.getAgentId().toString(),
-                "/queue/captured_media",
-                payload
-        );
+        // Broadcast to topic
+        messagingTemplate.convertAndSend("/topic/captured_media", payload);
 
-        log.debug("Sent captured media deleted {} to agent {}", media.getMediaUuid(), media.getAgentId());
+        // Also send to agent's personal queue
+        if (media.getAgentId() != null) {
+            messagingTemplate.convertAndSendToUser(
+                    media.getAgentId().toString(),
+                    "/queue/captured_media",
+                    payload
+            );
+        }
+
+        log.info("Broadcast captured media deleted {} for client {}", media.getMediaUuid(), media.getClientUserId());
     }
 
     /**
