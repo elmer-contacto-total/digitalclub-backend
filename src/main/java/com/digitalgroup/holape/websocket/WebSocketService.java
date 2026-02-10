@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.websocket;
 
+import com.digitalgroup.holape.api.v1.dto.media.CapturedMediaResponse;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import lombok.RequiredArgsConstructor;
@@ -173,6 +174,53 @@ public class WebSocketService {
 
         // Broadcast to all connected users
         messagingTemplate.convertAndSend("/topic/presence", payload);
+    }
+
+    /**
+     * Send captured media notification to the agent who captured it.
+     * Called after Electron uploads media via POST /api/v1/media.
+     */
+    public void sendCapturedMediaUpdate(CapturedMediaResponse media) {
+        if (media == null || media.getAgentId() == null) {
+            log.debug("Cannot send captured media update: media or agentId is null");
+            return;
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "CAPTURED_MEDIA");
+        payload.put("payload", media);
+        payload.put("timestamp", System.currentTimeMillis());
+
+        messagingTemplate.convertAndSendToUser(
+                media.getAgentId().toString(),
+                "/queue/captured_media",
+                payload
+        );
+
+        log.debug("Sent captured media {} to agent {}", media.getMediaUuid(), media.getAgentId());
+    }
+
+    /**
+     * Notify agent that a captured media was deleted (WhatsApp message was deleted).
+     */
+    public void sendCapturedMediaDeleted(CapturedMediaResponse media) {
+        if (media == null || media.getAgentId() == null) {
+            log.debug("Cannot send captured media deleted: media or agentId is null");
+            return;
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "CAPTURED_MEDIA_DELETED");
+        payload.put("payload", media);
+        payload.put("timestamp", System.currentTimeMillis());
+
+        messagingTemplate.convertAndSendToUser(
+                media.getAgentId().toString(),
+                "/queue/captured_media",
+                payload
+        );
+
+        log.debug("Sent captured media deleted {} to agent {}", media.getMediaUuid(), media.getAgentId());
     }
 
     /**

@@ -9,6 +9,7 @@ import com.digitalgroup.holape.domain.media.enums.CapturedMediaType;
 import com.digitalgroup.holape.domain.media.enums.MediaAuditAction;
 import com.digitalgroup.holape.domain.media.service.CapturedMediaService;
 import com.digitalgroup.holape.domain.media.service.MediaAuditLogService;
+import com.digitalgroup.holape.websocket.WebSocketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class CapturedMediaController {
 
     private final CapturedMediaService mediaService;
     private final MediaAuditLogService auditService;
+    private final WebSocketService webSocketService;
 
     /**
      * Save a captured media from Electron app
@@ -55,9 +57,18 @@ public class CapturedMediaController {
         Optional<CapturedMedia> result = mediaService.saveMedia(request);
 
         if (result.isPresent()) {
+            CapturedMediaResponse response = CapturedMediaResponse.fromEntity(result.get());
+
+            // Notify agent via WebSocket (non-blocking: failure must not break the save)
+            try {
+                webSocketService.sendCapturedMediaUpdate(response);
+            } catch (Exception e) {
+                log.warn("[MediaController] WebSocket broadcast failed for media {}: {}", request.getMediaId(), e.getMessage());
+            }
+
             return ResponseEntity
                     .status(HttpStatus.CREATED)
-                    .body(CapturedMediaResponse.fromEntity(result.get()));
+                    .body(response);
         } else {
             // Either duplicate or error - return status indicating skipped
             Map<String, Object> response = new HashMap<>();
@@ -82,10 +93,20 @@ public class CapturedMediaController {
         }
 
         log.info("[MediaController] Marking media as deleted: whatsappMessageId={}", whatsappMessageId);
-        boolean updated = mediaService.markAsDeleted(whatsappMessageId);
+        Optional<CapturedMedia> updated = mediaService.markAsDeleted(whatsappMessageId);
+
+        if (updated.isPresent()) {
+            // Notify agent via WebSocket
+            try {
+                CapturedMediaResponse mediaResponse = CapturedMediaResponse.fromEntity(updated.get());
+                webSocketService.sendCapturedMediaDeleted(mediaResponse);
+            } catch (Exception e) {
+                log.warn("[MediaController] WebSocket broadcast failed for deleted media: {}", e.getMessage());
+            }
+        }
 
         Map<String, Object> response = new HashMap<>();
-        response.put("status", updated ? "updated" : "not_found");
+        response.put("status", updated.isPresent() ? "updated" : "not_found");
         response.put("whatsappMessageId", whatsappMessageId);
         return ResponseEntity.ok(response);
     }

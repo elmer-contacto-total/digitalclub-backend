@@ -180,24 +180,25 @@ public class CapturedMediaService {
 
     /**
      * Mark a captured media as deleted (the original WhatsApp message was deleted)
+     * @return the updated entity if successfully marked, empty otherwise
      */
     @Transactional
-    public boolean markAsDeleted(String whatsappMessageId) {
+    public Optional<CapturedMedia> markAsDeleted(String whatsappMessageId) {
         Optional<CapturedMedia> mediaOpt = mediaRepository.findByWhatsappMessageId(whatsappMessageId);
         if (mediaOpt.isPresent()) {
             CapturedMedia media = mediaOpt.get();
             if (!Boolean.TRUE.equals(media.getDeleted())) {
                 media.setDeleted(true);
                 media.setDeletedAt(LocalDateTime.now());
-                mediaRepository.save(media);
+                CapturedMedia saved = mediaRepository.save(media);
                 log.info("[CapturedMediaService] Media marked as deleted: whatsappMessageId={}", whatsappMessageId);
-                return true;
+                return Optional.of(saved);
             }
             log.info("[CapturedMediaService] Media already marked as deleted: whatsappMessageId={}", whatsappMessageId);
-            return false;
+            return Optional.empty();
         }
         log.warn("[CapturedMediaService] Media not found for whatsappMessageId={}", whatsappMessageId);
-        return false;
+        return Optional.empty();
     }
 
     public List<CapturedMedia> findByChatPhone(String phone, List<CapturedMediaType> types, int limit) {

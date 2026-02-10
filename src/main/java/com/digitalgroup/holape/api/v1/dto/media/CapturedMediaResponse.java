@@ -20,6 +20,8 @@ public class CapturedMediaResponse {
 
     private Long id;
     private String mediaUuid;
+    private Long agentId;
+    private Long clientUserId;
     private String userFingerprint;
     private String chatPhone;
     private String chatName;
@@ -31,6 +33,7 @@ public class CapturedMediaResponse {
     private Integer durationSeconds;
     private String captureSource;
     private LocalDateTime capturedAt;
+    private LocalDateTime messageSentAt;
     private LocalDateTime createdAt;
     private Boolean deleted;
     private LocalDateTime deletedAt;
@@ -39,6 +42,8 @@ public class CapturedMediaResponse {
         return CapturedMediaResponse.builder()
                 .id(media.getId())
                 .mediaUuid(media.getMediaUuid())
+                .agentId(media.getAgent() != null ? media.getAgent().getId() : null)
+                .clientUserId(media.getClientUser() != null ? media.getClientUser().getId() : null)
                 .userFingerprint(media.getUserFingerprint())
                 .chatPhone(media.getChatPhone())
                 .chatName(media.getChatName())
@@ -50,6 +55,7 @@ public class CapturedMediaResponse {
                 .durationSeconds(media.getDurationSeconds())
                 .captureSource(media.getCaptureSource())
                 .capturedAt(media.getCapturedAt())
+                .messageSentAt(media.getMessageSentAt())
                 .createdAt(media.getCreatedAt())
                 .deleted(media.getDeleted())
                 .deletedAt(media.getDeletedAt())
