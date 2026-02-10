@@ -98,6 +98,7 @@ public class CapturedMedia {
     @Column(name = "message_sent_at")
     private LocalDateTime messageSentAt;
 
+    @Builder.Default
     @Column(name = "deleted", nullable = false)
     private Boolean deleted = false;
 
