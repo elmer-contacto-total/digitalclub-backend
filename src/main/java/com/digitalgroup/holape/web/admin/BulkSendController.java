@@ -19,6 +19,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -102,6 +103,7 @@ public class BulkSendController {
      * Create bulk send from CSV
      */
     @PostMapping("/csv")
+    @Transactional
     public ResponseEntity<Map<String, Object>> createFromCsv(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam("csv") MultipartFile csvFile,
@@ -187,6 +189,7 @@ public class BulkSendController {
      * List bulk sends
      */
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false) String status,
@@ -235,6 +238,7 @@ public class BulkSendController {
      * Get bulk send detail with recipients
      */
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> show(
             @PathVariable Long id,
             @RequestParam(required = false, defaultValue = "0") int recipientPage,
