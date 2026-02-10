@@ -229,23 +229,45 @@ public class ImportAdminController {
     }
 
     /**
-     * Map Import entity to response matching Rails structure
+     * Map Import entity to response with camelCase keys for Angular frontend
      */
     private Map<String, Object> mapImportToResponse(Import importEntity) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", importEntity.getId());
         map.put("status", importEntity.getStatus().name().toLowerCase());
-        map.put("import_type", importEntity.getImportType().name().toLowerCase());
-        map.put("tot_records", importEntity.getTotRecords());
+        map.put("importType", importEntity.getImportType().name().toLowerCase());
+        map.put("totRecords", importEntity.getTotRecords());
         map.put("progress", importEntity.getProgress());
-        map.put("progress_percent", importEntity.calculateProgress());
-        map.put("errors_text", importEntity.getErrorsText());
-        map.put("created_at", importEntity.getCreatedAt());
-        map.put("updated_at", importEntity.getUpdatedAt());
+        map.put("progressPercent", importEntity.calculateProgress());
+        map.put("errorsText", importEntity.getErrorsText());
+        map.put("createdAt", importEntity.getCreatedAt());
+        map.put("updatedAt", importEntity.getUpdatedAt());
 
         if (importEntity.getUser() != null) {
-            map.put("user_id", importEntity.getUser().getId());
-            map.put("user_name", importEntity.getUser().getFullName());
+            map.put("userId", importEntity.getUser().getId());
+            map.put("userName", importEntity.getUser().getFullName());
+        }
+
+        if (importEntity.getClient() != null) {
+            map.put("clientName", importEntity.getClient().getName());
+        }
+
+        // Parse Shrine import_file_data JSON for file name
+        if (importEntity.getImportFileData() != null && !importEntity.getImportFileData().isBlank()) {
+            try {
+                var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var fileData = objectMapper.readTree(importEntity.getImportFileData());
+                var metadata = fileData.path("metadata");
+                if (metadata.has("filename")) {
+                    map.put("importFileName", metadata.get("filename").asText());
+                }
+                // Build file URL from Shrine storage id
+                if (fileData.has("id")) {
+                    map.put("importFileUrl", "/uploads/import/import_file/" + importEntity.getId() + "/" + fileData.get("id").asText());
+                }
+            } catch (Exception e) {
+                log.debug("Could not parse import_file_data for import {}: {}", importEntity.getId(), e.getMessage());
+            }
         }
 
         return map;

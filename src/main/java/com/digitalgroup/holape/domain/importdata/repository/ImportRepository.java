@@ -16,10 +16,10 @@ import java.util.Optional;
 @Repository
 public interface ImportRepository extends JpaRepository<Import, Long> {
 
-    @EntityGraph(attributePaths = {"user"})
+    @EntityGraph(attributePaths = {"user", "client"})
     Page<Import> findByClientId(Long clientId, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"user"})
+    @EntityGraph(attributePaths = {"user", "client"})
     Optional<Import> findById(Long id);
 
     Page<Import> findByClientIdAndStatus(Long clientId, ImportStatus status, Pageable pageable);
