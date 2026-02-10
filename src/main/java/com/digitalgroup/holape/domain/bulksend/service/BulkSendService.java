@@ -8,6 +8,7 @@ import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRepository;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRuleRepository;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
+import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.BusinessException;
@@ -44,7 +45,8 @@ public class BulkSendService {
     public BulkSend createFromCsv(Long userId, Long clientId, String messageContent,
                                    String attachmentPath, String attachmentType,
                                    Long attachmentSize, String attachmentOriginalName,
-                                   List<CsvRecipientDTO> csvRecipients) {
+                                   List<CsvRecipientDTO> csvRecipients,
+                                   Long assignedAgentId) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
@@ -63,19 +65,33 @@ public class BulkSendService {
             throw new BusinessException("Se requiere al menos un destinatario");
         }
 
-        // Check daily limit
+        // Resolve assigned agent (default to creator if not specified)
+        User assignedAgent;
+        if (assignedAgentId != null && !assignedAgentId.equals(userId)) {
+            assignedAgent = userRepository.findById(assignedAgentId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User (assigned agent)", assignedAgentId));
+            // Validate agent belongs to same client
+            if (assignedAgent.getClient() == null || !assignedAgent.getClient().getId().equals(clientId)) {
+                throw new BusinessException("El agente asignado no pertenece al mismo cliente");
+            }
+        } else {
+            assignedAgent = user;
+        }
+
+        // Check daily limit for assigned agent
         BulkSendRule rules = getOrCreateRules(clientId);
-        long sentToday = bulkSendRepository.sumSentByUserSince(userId,
+        long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(assignedAgent.getId(),
                 LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
         if (sentToday + csvRecipients.size() > rules.getMaxDailyMessages()) {
             throw new BusinessException("Límite diario de mensajes (" + rules.getMaxDailyMessages()
-                    + ") sería excedido. Ya enviados hoy: " + sentToday);
+                    + ") sería excedido. Ya enviados hoy por el agente: " + sentToday);
         }
 
         // Create bulk send
         BulkSend bulkSend = BulkSend.builder()
                 .client(client)
                 .user(user)
+                .assignedAgent(assignedAgent)
                 .sendMethod("ELECTRON")
                 .status("PENDING")
                 .messageContent(messageContent)
@@ -283,6 +299,25 @@ public class BulkSendService {
             rules.setEnabled((Boolean) updates.get("enabled"));
 
         return ruleRepository.save(rules);
+    }
+
+    /**
+     * Get list of agents assignable for bulk sends based on current user's role.
+     * Admin → all active agents in client
+     * Manager → agents under this manager
+     * Agent → only themselves
+     */
+    public List<User> getAssignableAgents(Long currentUserId, Long clientId, UserRole currentRole) {
+        if (currentRole == UserRole.SUPER_ADMIN || currentRole == UserRole.ADMIN) {
+            return userRepository.findActiveAgentsByClientId(clientId);
+        } else if (currentRole.isManager()) {
+            return userRepository.findAgentsBySupervisor(currentUserId);
+        } else {
+            // Agent: only themselves
+            return userRepository.findById(currentUserId)
+                    .map(List::of)
+                    .orElse(List.of());
+        }
     }
 
     /**

@@ -17,7 +17,8 @@ import java.util.List;
 @Table(name = "bulk_sends", indexes = {
         @Index(name = "idx_bulk_sends_client", columnList = "client_id"),
         @Index(name = "idx_bulk_sends_user", columnList = "user_id"),
-        @Index(name = "idx_bulk_sends_status", columnList = "status")
+        @Index(name = "idx_bulk_sends_status", columnList = "status"),
+        @Index(name = "idx_bulk_sends_assigned_agent", columnList = "assigned_agent_id")
 })
 @Getter
 @Setter
@@ -37,6 +38,10 @@ public class BulkSend {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_agent_id")
+    private User assignedAgent;
 
     @Column(name = "send_method", nullable = false, length = 20)
     @Builder.Default

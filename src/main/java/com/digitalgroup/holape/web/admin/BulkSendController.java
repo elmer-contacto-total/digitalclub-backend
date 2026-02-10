@@ -6,6 +6,7 @@ import com.digitalgroup.holape.domain.bulksend.entity.BulkSendRule;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRecipientRepository;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRepository;
 import com.digitalgroup.holape.domain.bulksend.service.BulkSendService;
+import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.security.CustomUserDetails;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -46,6 +47,30 @@ public class BulkSendController {
     private final ObjectMapper objectMapper;
 
     /**
+     * List agents assignable for bulk sends (based on current user's role)
+     */
+    @GetMapping("/assignable_agents")
+    public ResponseEntity<Map<String, Object>> getAssignableAgents(
+            @AuthenticationPrincipal CustomUserDetails currentUser) {
+
+        List<User> agents = bulkSendService.getAssignableAgents(
+                currentUser.getId(), currentUser.getClientId(), currentUser.getUserRole());
+
+        List<Map<String, Object>> agentList = agents.stream()
+                .map(a -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", a.getId());
+                    m.put("name", a.getFullName());
+                    m.put("email", a.getEmail());
+                    m.put("role", a.getRole().name());
+                    return m;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(Map.of("agents", agentList));
+    }
+
+    /**
      * Preview CSV — parse and return headers + first rows
      */
     @PostMapping("/csv/preview")
@@ -83,6 +108,7 @@ public class BulkSendController {
             @RequestParam("message_content") String messageContent,
             @RequestParam("phone_column") int phoneColumn,
             @RequestParam(value = "name_column", defaultValue = "-1") int nameColumn,
+            @RequestParam(value = "assigned_agent_id", required = false) Long assignedAgentId,
             @RequestParam(value = "attachment", required = false) MultipartFile attachment) throws IOException {
 
         List<String[]> rows = parseCsv(csvFile);
@@ -143,7 +169,8 @@ public class BulkSendController {
                 attachmentType,
                 attachmentSize,
                 attachmentOriginalName,
-                recipients
+                recipients,
+                assignedAgentId
         );
 
         log.info("Bulk send {} created by user {} with {} recipients",
@@ -182,8 +209,14 @@ public class BulkSendController {
                         currentUser.getClientId(), pageable);
             }
         } else {
-            bulkSendsPage = bulkSendRepository.findByUserIdOrderByCreatedAtDesc(
-                    currentUser.getId(), pageable);
+            // Agents see sends assigned to them
+            if (status != null && !status.isBlank()) {
+                bulkSendsPage = bulkSendRepository.findByAssignedAgentIdAndStatusOrderByCreatedAtDesc(
+                        currentUser.getId(), status.toUpperCase(), pageable);
+            } else {
+                bulkSendsPage = bulkSendRepository.findByAssignedAgentIdOrderByCreatedAtDesc(
+                        currentUser.getId(), pageable);
+            }
         }
 
         List<Map<String, Object>> data = bulkSendsPage.getContent().stream()
@@ -410,6 +443,8 @@ public class BulkSendController {
         map.put("client_id", bulkSend.getClient() != null ? bulkSend.getClient().getId() : null);
         map.put("user_id", bulkSend.getUser() != null ? bulkSend.getUser().getId() : null);
         map.put("user_name", bulkSend.getUser() != null ? bulkSend.getUser().getFullName() : null);
+        map.put("assigned_agent_id", bulkSend.getAssignedAgent() != null ? bulkSend.getAssignedAgent().getId() : null);
+        map.put("assigned_agent_name", bulkSend.getAssignedAgent() != null ? bulkSend.getAssignedAgent().getFullName() : null);
         return map;
     }
 

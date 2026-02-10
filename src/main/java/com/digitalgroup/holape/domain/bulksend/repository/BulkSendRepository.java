@@ -29,4 +29,13 @@ public interface BulkSendRepository extends JpaRepository<BulkSend, Long> {
 
     @Query("SELECT COALESCE(SUM(b.sentCount), 0) FROM BulkSend b WHERE b.user.id = :userId AND b.createdAt >= :since")
     long sumSentByUserSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
+
+    // --- Assigned agent queries ---
+
+    Page<BulkSend> findByAssignedAgentIdOrderByCreatedAtDesc(Long agentId, Pageable pageable);
+
+    Page<BulkSend> findByAssignedAgentIdAndStatusOrderByCreatedAtDesc(Long agentId, String status, Pageable pageable);
+
+    @Query("SELECT COALESCE(SUM(b.sentCount), 0) FROM BulkSend b WHERE b.assignedAgent.id = :agentId AND b.createdAt >= :since")
+    long sumSentByAssignedAgentSince(@Param("agentId") Long agentId, @Param("since") LocalDateTime since);
 }
