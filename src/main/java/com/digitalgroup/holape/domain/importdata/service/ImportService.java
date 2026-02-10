@@ -122,6 +122,14 @@ public class ImportService {
     }
 
     /**
+     * Find imports by client and user with pagination
+     * PARIDAD RAILS: Non-admin users only see their own imports
+     */
+    public Page<Import> findByClientAndUser(Long clientId, Long userId, Pageable pageable) {
+        return importRepository.findByClientIdAndUserId(clientId, userId, pageable);
+    }
+
+    /**
      * Create new import and trigger validation
      * PARIDAD RAILS: usa user_id, no created_by_id
      */

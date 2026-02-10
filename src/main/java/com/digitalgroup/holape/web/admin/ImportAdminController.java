@@ -26,19 +26,21 @@ import java.util.stream.Collectors;
  * Equivalent to Rails Admin::ImportsController
  * Handles CSV imports for users/prospects
  *
- * Access restricted to ADMIN and MANAGER roles only
+ * PARIDAD RAILS: All authenticated users can access imports.
+ * Admin/SuperAdmin see all imports for client; others see only their own.
  */
 @Slf4j
 @RestController
 @RequestMapping("/app/imports")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
+@PreAuthorize("isAuthenticated()")
 public class ImportAdminController {
 
     private final ImportService importService;
 
     /**
-     * List all imports for the client
+     * List imports for the client
+     * PARIDAD RAILS: Admin/SuperAdmin see all; others see only their own
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> index(
@@ -47,7 +49,15 @@ public class ImportAdminController {
             @RequestParam(required = false, defaultValue = "10") int size) {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Import> importsPage = importService.findByClient(currentUser.getClientId(), pageable);
+
+        Page<Import> importsPage;
+        if (currentUser.isAdmin()) {
+            // Admin and SuperAdmin see all imports for the client
+            importsPage = importService.findByClient(currentUser.getClientId(), pageable);
+        } else {
+            // All other roles see only their own imports
+            importsPage = importService.findByClientAndUser(currentUser.getClientId(), currentUser.getId(), pageable);
+        }
 
         List<Map<String, Object>> data = importsPage.getContent().stream()
                 .map(this::mapImportToResponse)

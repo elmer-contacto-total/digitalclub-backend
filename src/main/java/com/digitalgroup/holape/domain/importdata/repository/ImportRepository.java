@@ -20,6 +20,9 @@ public interface ImportRepository extends JpaRepository<Import, Long> {
     Page<Import> findByClientId(Long clientId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"user", "client"})
+    Page<Import> findByClientIdAndUserId(Long clientId, Long userId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"user", "client"})
     Optional<Import> findById(Long id);
 
     Page<Import> findByClientIdAndStatus(Long clientId, ImportStatus status, Pageable pageable);
