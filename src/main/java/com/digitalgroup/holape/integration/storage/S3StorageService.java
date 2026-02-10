@@ -98,7 +98,6 @@ public class S3StorageService {
                     .bucket(bucketName)
                     .key(key)
                     .contentType(file.getContentType())
-                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromBytes(file.getBytes()));
@@ -127,7 +126,6 @@ public class S3StorageService {
                     .bucket(bucketName)
                     .key(key)
                     .contentType(contentType)
-                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromInputStream(inputStream, contentLength));

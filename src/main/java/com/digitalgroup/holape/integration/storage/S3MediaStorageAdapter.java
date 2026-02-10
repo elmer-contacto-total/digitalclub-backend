@@ -82,7 +82,6 @@ public class S3MediaStorageAdapter implements MediaStorageService {
                     .bucket(bucketName)
                     .key(fullPath)
                     .contentType(contentType)
-                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromBytes(data));
