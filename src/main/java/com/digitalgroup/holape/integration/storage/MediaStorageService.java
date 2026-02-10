@@ -29,9 +29,9 @@ public interface MediaStorageService {
     void delete(String path);
 
     /**
-     * Get a public/presigned URL for the file
+     * Get a permanent public URL for the file (no expiration)
      * @param path storage path
-     * @return publicly accessible URL (typically with 1 hour expiration)
+     * @return publicly accessible URL
      */
     String getPublicUrl(String path);
 

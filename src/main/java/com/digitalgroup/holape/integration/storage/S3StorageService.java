@@ -98,6 +98,7 @@ public class S3StorageService {
                     .bucket(bucketName)
                     .key(key)
                     .contentType(file.getContentType())
+                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromBytes(file.getBytes()));
@@ -126,6 +127,7 @@ public class S3StorageService {
                     .bucket(bucketName)
                     .key(key)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromInputStream(inputStream, contentLength));
@@ -178,11 +180,10 @@ public class S3StorageService {
     }
 
     /**
-     * Get a pre-signed URL with default 1 hour expiration
+     * Get a permanent public URL (no expiration, object must have public-read ACL)
      */
     public String getDownloadUrl(String key) {
-        URL url = getPresignedUrl(key, Duration.ofHours(1));
-        return url.toString();
+        return String.format("https://%s.s3.%s.amazonaws.com/%s", bucketName, region, key);
     }
 
     /**

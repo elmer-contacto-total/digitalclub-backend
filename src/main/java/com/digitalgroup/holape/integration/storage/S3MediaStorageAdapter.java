@@ -12,14 +12,9 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Primary;
 import java.io.IOException;
-import java.time.Duration;
 
 /**
  * S3 implementation of MediaStorageService.
@@ -51,7 +46,6 @@ public class S3MediaStorageAdapter implements MediaStorageService {
     private String mediaFolder;
 
     private S3Client s3Client;
-    private S3Presigner presigner;
 
     @PostConstruct
     public void initialize() {
@@ -64,11 +58,6 @@ public class S3MediaStorageAdapter implements MediaStorageService {
             AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
 
             s3Client = S3Client.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(StaticCredentialsProvider.create(credentials))
-                    .build();
-
-            presigner = S3Presigner.builder()
                     .region(Region.of(region))
                     .credentialsProvider(StaticCredentialsProvider.create(credentials))
                     .build();
@@ -93,6 +82,7 @@ public class S3MediaStorageAdapter implements MediaStorageService {
                     .bucket(bucketName)
                     .key(fullPath)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
             s3Client.putObject(request, RequestBody.fromBytes(data));
@@ -153,24 +143,8 @@ public class S3MediaStorageAdapter implements MediaStorageService {
             throw new IllegalStateException("S3 Media Storage is not enabled");
         }
 
-        try {
-            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(path)
-                    .build();
-
-            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                    .signatureDuration(Duration.ofHours(1))
-                    .getObjectRequest(getObjectRequest)
-                    .build();
-
-            PresignedGetObjectRequest presignedRequest = presigner.presignGetObject(presignRequest);
-            return presignedRequest.url().toString();
-
-        } catch (S3Exception e) {
-            log.error("Failed to generate presigned URL for media: {}", path, e);
-            throw new RuntimeException("Failed to generate download URL: " + e.getMessage());
-        }
+        // Direct S3 URL — no expiration (object must have public-read ACL)
+        return String.format("https://%s.s3.%s.amazonaws.com/%s", bucketName, region, path);
     }
 
     @Override

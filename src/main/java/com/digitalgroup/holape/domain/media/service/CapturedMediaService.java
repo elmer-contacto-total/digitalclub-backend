@@ -220,7 +220,7 @@ public class CapturedMediaService {
     }
 
     /**
-     * Refresh the public URL for a media (URLs expire after 1 hour)
+     * Refresh the public URL for a media
      */
     public String refreshPublicUrl(CapturedMedia media) {
         if (storageService.isEnabled() && media.getFilePath() != null) {
