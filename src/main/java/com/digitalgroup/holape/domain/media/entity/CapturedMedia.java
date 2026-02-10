@@ -98,6 +98,12 @@ public class CapturedMedia {
     @Column(name = "message_sent_at")
     private LocalDateTime messageSentAt;
 
+    @Column(name = "deleted", nullable = false)
+    private Boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

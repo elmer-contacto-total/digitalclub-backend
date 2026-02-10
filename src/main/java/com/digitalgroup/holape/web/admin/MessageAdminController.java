@@ -349,6 +349,8 @@ public class MessageAdminController {
                     m.put("messageSentAt", media.getMessageSentAt());
                     m.put("chatPhone", media.getChatPhone());
                     m.put("chatName", media.getChatName());
+                    m.put("deleted", media.getDeleted());
+                    m.put("deletedAt", media.getDeletedAt());
                     return m;
                 })
                 .collect(Collectors.toList());

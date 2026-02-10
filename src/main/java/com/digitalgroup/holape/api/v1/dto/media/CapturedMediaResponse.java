@@ -32,6 +32,8 @@ public class CapturedMediaResponse {
     private String captureSource;
     private LocalDateTime capturedAt;
     private LocalDateTime createdAt;
+    private Boolean deleted;
+    private LocalDateTime deletedAt;
 
     public static CapturedMediaResponse fromEntity(CapturedMedia media) {
         return CapturedMediaResponse.builder()
@@ -49,6 +51,8 @@ public class CapturedMediaResponse {
                 .captureSource(media.getCaptureSource())
                 .capturedAt(media.getCapturedAt())
                 .createdAt(media.getCreatedAt())
+                .deleted(media.getDeleted())
+                .deletedAt(media.getDeletedAt())
                 .build();
     }
 }

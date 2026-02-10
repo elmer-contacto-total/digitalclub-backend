@@ -69,6 +69,28 @@ public class CapturedMediaController {
     }
 
     /**
+     * Mark a captured media as deleted (original WhatsApp message was deleted)
+     */
+    @PostMapping("/mark-deleted")
+    public ResponseEntity<?> markDeleted(@RequestBody Map<String, String> request) {
+        String whatsappMessageId = request.get("whatsappMessageId");
+        if (whatsappMessageId == null || whatsappMessageId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "error",
+                    "message", "whatsappMessageId is required"
+            ));
+        }
+
+        log.info("[MediaController] Marking media as deleted: whatsappMessageId={}", whatsappMessageId);
+        boolean updated = mediaService.markAsDeleted(whatsappMessageId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", updated ? "updated" : "not_found");
+        response.put("whatsappMessageId", whatsappMessageId);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Log a media audit event
      */
     @PostMapping("/audit")
