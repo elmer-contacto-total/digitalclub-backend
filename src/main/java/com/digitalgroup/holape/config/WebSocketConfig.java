@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.config;
 
+import com.digitalgroup.holape.websocket.UserHandshakeHandler;
 import com.digitalgroup.holape.websocket.WebSocketAuthInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
@@ -36,14 +37,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        UserHandshakeHandler handshakeHandler = new UserHandshakeHandler();
+
         // WebSocket endpoint with SockJS fallback and JWT authentication
         registry.addEndpoint("/ws")
+                .setHandshakeHandler(handshakeHandler)
                 .addInterceptors(authInterceptor)
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
 
         // Pure WebSocket endpoint (without SockJS)
         registry.addEndpoint("/websocket")
+                .setHandshakeHandler(handshakeHandler)
                 .addInterceptors(authInterceptor)
                 .setAllowedOriginPatterns("*");
     }
