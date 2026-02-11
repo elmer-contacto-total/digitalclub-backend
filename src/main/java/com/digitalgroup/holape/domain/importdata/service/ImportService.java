@@ -32,6 +32,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
+import com.digitalgroup.holape.domain.crm.entity.CrmInfo;
+import com.digitalgroup.holape.domain.crm.entity.CrmInfoSetting;
+import com.digitalgroup.holape.domain.crm.repository.CrmInfoRepository;
+import com.digitalgroup.holape.domain.crm.repository.CrmInfoSettingRepository;
+import com.digitalgroup.holape.integration.storage.S3StorageService;
 
 /**
  * Import Service
@@ -55,6 +60,9 @@ public class ImportService {
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final CrmInfoRepository crmInfoRepository;
+    private final CrmInfoSettingRepository crmInfoSettingRepository;
+    private final S3StorageService s3StorageService;
 
     /**
      * FOH Agent mapping - PARIDAD RAILS
@@ -95,7 +103,10 @@ public class ImportService {
             Map.entry("supervisor", "manager_email"),
             Map.entry("phone_code", "phone_code"),
             Map.entry("codigo_pais", "phone_code"),
-            Map.entry("country_code", "phone_code")
+            Map.entry("country_code", "phone_code"),
+            Map.entry("apellido_p", "last_name"),
+            Map.entry("apellido_m", "last_name_2"),
+            Map.entry("ejecutivo", "manager_email")
     );
 
     // Required fields for validation
@@ -159,6 +170,9 @@ public class ImportService {
             throw new BusinessException("Error reading file: " + e.getMessage());
         }
 
+        // Persist CSV file in S3 — PARIDAD RAILS: Shrine import_file_data
+        persistCsvFile(importEntity, file, fileContent);
+
         // Trigger async validation
         validateImportAsync(importEntity.getId(), fileContent, assignToUserId);
 
@@ -191,6 +205,9 @@ public class ImportService {
             log.error("Error reading file content", e);
             throw new BusinessException("Error reading file: " + e.getMessage());
         }
+
+        // Persist CSV file in S3 — PARIDAD RAILS: Shrine import_file_data
+        persistCsvFile(importEntity, file, fileContent);
 
         // Trigger FOH-specific validation
         validateImportFohAsync(importEntity.getId(), fileContent);
@@ -243,7 +260,7 @@ public class ImportService {
         }
 
         String[] headers = rows.get(0);
-        Map<Integer, String> columnMapping = mapColumns(headers);
+        Map<Integer, String> columnMapping = mapColumns(headers, importEntity.getClient().getId());
         importEntity.setTotRecords(rows.size() - 1);
 
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -648,14 +665,32 @@ public class ImportService {
 
     /**
      * Map column headers to standard field names
+     * PARIDAD RAILS: Detects CRM columns by matching against CrmInfoSetting labels
      */
-    private Map<Integer, String> mapColumns(String[] headers) {
+    private Map<Integer, String> mapColumns(String[] headers, Long clientId) {
         Map<Integer, String> mapping = new HashMap<>();
 
+        // Fetch CRM labels for this client (case-insensitive lookup)
+        Set<String> crmLabels = new HashSet<>();
+        if (clientId != null) {
+            crmInfoSettingRepository.findByClientIdAndStatusOrderByColumnPositionAsc(
+                    clientId, CrmInfoSetting.Status.ACTIVE)
+                    .forEach(s -> crmLabels.add(s.getColumnLabel().toLowerCase().trim()));
+        }
+
         for (int i = 0; i < headers.length; i++) {
-            String header = normalizeColumnName(headers[i]);
-            String mappedField = COLUMN_ALIASES.getOrDefault(header, header);
-            mapping.put(i, mappedField);
+            String headerOriginal = headers[i].trim();
+            String header = normalizeColumnName(headerOriginal);
+            String mappedField = COLUMN_ALIASES.get(header);
+
+            if (mappedField != null) {
+                mapping.put(i, mappedField);
+            } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
+                // CRM field detected by label match
+                mapping.put(i, "crm_" + headerOriginal);
+            } else {
+                mapping.put(i, header);
+            }
         }
 
         return mapping;
@@ -722,6 +757,14 @@ public class ImportService {
                 case "phone_code" -> tempUser.setPhoneCode(value);
                 case "first_name" -> tempUser.setFirstName(value);
                 case "last_name" -> tempUser.setLastName(value);
+                case "last_name_2" -> {
+                    // PARIDAD RAILS: "#{APELLIDO_P} #{APELLIDO_M}"
+                    if (tempUser.getLastName() != null && !tempUser.getLastName().isEmpty()) {
+                        tempUser.setLastName(tempUser.getLastName() + " " + value);
+                    } else {
+                        tempUser.setLastName(value);
+                    }
+                }
                 case "email" -> tempUser.setEmail(value.toLowerCase());
                 case "codigo" -> tempUser.setCodigo(value);
                 case "role" -> tempUser.setRole(value);
@@ -900,9 +943,8 @@ public class ImportService {
                     .ifPresent(user::setManager);
         }
 
-        // Set CRM fields if present
+        // Set CRM fields in customFields for FOH compatibility
         if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
-            // Store in customFields
             Map<String, Object> customFields = user.getCustomFields();
             if (customFields == null) {
                 customFields = new HashMap<>();
@@ -912,6 +954,34 @@ public class ImportService {
         }
 
         userRepository.save(user);
+
+        // PARIDAD RAILS: Create CrmInfo records (user.crm_infos.destroy_all + rebuild)
+        if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
+            Long clientId = importEntity.getClient().getId();
+            crmInfoRepository.deleteByUserId(user.getId());
+
+            for (Map.Entry<String, String> entry : tempUser.getCrmFields().entrySet()) {
+                String label = entry.getKey();
+                String value = entry.getValue();
+
+                Optional<CrmInfoSetting> settingOpt = crmInfoSettingRepository
+                        .findByClientIdAndColumnLabel(clientId, label);
+
+                if (settingOpt.isPresent()) {
+                    CrmInfoSetting setting = settingOpt.get();
+                    if (setting.getStatus() == CrmInfoSetting.Status.ACTIVE) {
+                        CrmInfo crmInfo = new CrmInfo();
+                        crmInfo.setUser(user);
+                        crmInfo.setCrmInfoSetting(setting);
+                        crmInfo.setColumnValue(value);
+                        crmInfo.setColumnPosition(setting.getColumnPosition());
+                        crmInfo.setColumnLabel(setting.getColumnLabel());
+                        crmInfo.setColumnVisible(setting.getColumnVisible());
+                        crmInfoRepository.save(crmInfo);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -1034,15 +1104,34 @@ public class ImportService {
 
     /**
      * Generate sample CSV content
+     * PARIDAD RAILS: Headers en español, incluye columnas CRM del cliente, BOM UTF-8
      */
-    public String generateSampleCsv(String importType) {
+    public String generateSampleCsv(String importType, Long clientId) {
         StringBuilder csv = new StringBuilder();
+        // BOM UTF-8 for Excel compatibility
+        csv.append('\uFEFF');
 
         switch (importType) {
             case "user" -> {
-                csv.append("phone,first_name,last_name,email,phone_code,manager_email,codigo\n");
-                csv.append("987654321,Juan,Perez,juan@email.com,51,manager@email.com,USR001\n");
-                csv.append("987654322,Maria,Garcia,maria@email.com,51,manager@email.com,USR002\n");
+                // Fetch CRM settings for this client
+                List<CrmInfoSetting> crmSettings = clientId != null ?
+                        crmInfoSettingRepository.findByClientIdAndStatusOrderByColumnPositionAsc(
+                                clientId, CrmInfoSetting.Status.ACTIVE) :
+                        List.of();
+
+                // Headers — PARIDAD RAILS: Spanish column names
+                csv.append("APELLIDO_P,APELLIDO_M,NOMBRE,CELULAR,CORREO,EJECUTIVO");
+                for (CrmInfoSetting setting : crmSettings) {
+                    csv.append(',').append(setting.getColumnLabel());
+                }
+                csv.append('\n');
+
+                // Sample row
+                csv.append("Perez,Gomez,Juan,987654321,juan@email.com,manager@email.com");
+                for (int i = 0; i < crmSettings.size(); i++) {
+                    csv.append(",Valor ").append(i + 1);
+                }
+                csv.append('\n');
             }
             case "foh" -> {
                 csv.append("phone,first_name,last_name,agent_name,phone_order\n");
@@ -1060,6 +1149,64 @@ public class ImportService {
         }
 
         return csv.toString();
+    }
+
+    /**
+     * Get TempImportUsers for a given import
+     */
+    public List<TempImportUser> getTempImportUsers(Long importId) {
+        return tempImportUserRepository.findByUserImportId(importId);
+    }
+
+    /**
+     * Persist CSV file in S3 and store Shrine-compatible metadata
+     * PARIDAD RAILS: import_file_data JSON column (Shrine format)
+     */
+    private void persistCsvFile(Import importEntity, MultipartFile file, byte[] fileContent) {
+        try {
+            String shrineJson;
+            if (s3StorageService.isEnabled()) {
+                String key = s3StorageService.uploadFile(
+                        new ByteArrayInputStream(fileContent),
+                        "imports",
+                        file.getOriginalFilename(),
+                        file.getContentType(),
+                        fileContent.length);
+                shrineJson = buildShrineJson(key, file.getOriginalFilename(),
+                        fileContent.length, file.getContentType());
+            } else {
+                shrineJson = buildShrineJson(null, file.getOriginalFilename(),
+                        fileContent.length, file.getContentType());
+            }
+            if (shrineJson != null) {
+                importEntity.setImportFileData(shrineJson);
+                importRepository.save(importEntity);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to persist CSV file for import {}: {}", importEntity.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Build Shrine-compatible JSON for import_file_data column
+     */
+    private String buildShrineJson(String s3Key, String filename, long size, String contentType) {
+        try {
+            Map<String, Object> shrineData = new HashMap<>();
+            if (s3Key != null) {
+                shrineData.put("id", s3Key);
+            }
+            shrineData.put("storage", "store");
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("filename", filename);
+            metadata.put("size", size);
+            metadata.put("mime_type", contentType);
+            shrineData.put("metadata", metadata);
+            return objectMapper.writeValueAsString(shrineData);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to build Shrine JSON", e);
+            return null;
+        }
     }
 
     /**

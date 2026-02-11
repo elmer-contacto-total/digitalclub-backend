@@ -2,6 +2,7 @@ package com.digitalgroup.holape.web.admin;
 
 import com.digitalgroup.holape.domain.common.enums.ImportStatus;
 import com.digitalgroup.holape.domain.importdata.entity.Import;
+import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
 import com.digitalgroup.holape.domain.importdata.service.ImportService;
 import com.digitalgroup.holape.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
@@ -162,12 +163,34 @@ public class ImportAdminController {
 
         Map<String, Object> progress = importService.getImportProgress(id);
 
-        return ResponseEntity.ok(Map.of(
-                "id", id,
-                "valid_count", progress.get("valid_count"),
-                "invalid_count", progress.get("invalid_count"),
-                "status", progress.get("status")
-        ));
+        // Load TempImportUsers for preview table
+        List<TempImportUser> tempUserEntities = importService.getTempImportUsers(id);
+        List<Map<String, Object>> tempUsersList = tempUserEntities.stream()
+                .map(t -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", t.getId());
+                    m.put("codigo", t.getCodigo());
+                    m.put("firstName", t.getFirstName());
+                    m.put("lastName", t.getLastName());
+                    m.put("phone", t.getPhone());
+                    m.put("phoneCode", t.getPhoneCode());
+                    m.put("email", t.getEmail());
+                    m.put("managerEmail", t.getManagerEmail());
+                    m.put("crmFields", t.getCrmFields());
+                    m.put("errorMessage", t.getErrorMessage());
+                    m.put("role", t.getRole());
+                    return m;
+                })
+                .collect(Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", id);
+        response.put("validCount", progress.getOrDefault("valid_count", 0L));
+        response.put("invalidCount", progress.getOrDefault("invalid_count", 0L));
+        response.put("status", progress.get("status"));
+        response.put("tempUsers", tempUsersList);
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -176,14 +199,15 @@ public class ImportAdminController {
      */
     @GetMapping("/sample_csv")
     public ResponseEntity<String> sampleCsv(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false, defaultValue = "user") String importType) {
 
-        String csv = importService.generateSampleCsv(importType);
+        String csv = importService.generateSampleCsv(importType, currentUser.getClientId());
 
         return ResponseEntity.ok()
                 .header("Content-Type", "text/csv; charset=utf-8")
                 .header("Content-Disposition",
-                        "attachment; filename=sample_" + importType + "_import.csv")
+                        "attachment; filename=usuarios_muestra.csv")
                 .body(csv);
     }
 
