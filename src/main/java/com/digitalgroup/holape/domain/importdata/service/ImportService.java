@@ -6,7 +6,9 @@ import com.digitalgroup.holape.domain.common.enums.ImportStatus;
 import com.digitalgroup.holape.domain.common.enums.ImportType;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.importdata.entity.Import;
+import com.digitalgroup.holape.domain.importdata.entity.ImportMappingTemplate;
 import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
+import com.digitalgroup.holape.domain.importdata.repository.ImportMappingTemplateRepository;
 import com.digitalgroup.holape.domain.importdata.repository.ImportRepository;
 import com.digitalgroup.holape.domain.importdata.repository.TempImportUserRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -58,6 +60,7 @@ import com.digitalgroup.holape.integration.storage.S3StorageService;
 public class ImportService {
 
     private final ImportRepository importRepository;
+    private final ImportMappingTemplateRepository mappingTemplateRepository;
     private final TempImportUserRepository tempImportUserRepository;
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
@@ -1000,8 +1003,11 @@ public class ImportService {
                 case "role" -> tempUser.setRole(value);
                 case "manager_email" -> tempUser.setManagerEmail(value.toLowerCase());
                 default -> {
-                    // Check if it's a CRM field (starts with crm_)
-                    if (field.startsWith("crm_")) {
+                    if (field.startsWith("custom_field:")) {
+                        // Explicit custom field: use header name as key
+                        String key = field.substring("custom_field:".length());
+                        customFields.put(key, value);
+                    } else if (field.startsWith("crm_")) {
                         crmFields.put(field.substring(4), value);
                     } else {
                         customFields.put(field, value);
@@ -1233,55 +1239,23 @@ public class ImportService {
                     .ifPresent(user::setManager);
         }
 
-        // FOH imports: store CRM fields in customFields (JSONB)
-        if ("foh".equalsIgnoreCase(importType)) {
-            if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
-                Map<String, Object> customFields = user.getCustomFields();
-                if (customFields == null) {
-                    customFields = new HashMap<>();
-                }
-                customFields.putAll(tempUser.getCustomFields());
-                user.setCustomFields(customFields);
-            }
+        // Unified storage: ALL extra fields (CRM + custom) → user.custom_fields (JSONB)
+        // Both FOH and standard imports use the same storage now.
+        {
+            Map<String, Object> cf = user.getCustomFields();
+            if (cf == null) cf = new HashMap<>();
+
             if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
-                Map<String, Object> customFields = user.getCustomFields();
-                if (customFields == null) {
-                    customFields = new HashMap<>();
-                }
-                customFields.putAll(tempUser.getCrmFields());
-                user.setCustomFields(customFields);
+                cf.putAll(tempUser.getCrmFields());
             }
+            if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
+                cf.putAll(tempUser.getCustomFields());
+            }
+
+            user.setCustomFields(cf);
         }
 
         userRepository.save(user);
-
-        // Standard imports: create CrmInfo records
-        if (!"foh".equalsIgnoreCase(importType) && tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
-            // PARIDAD RAILS: user.crm_infos.destroy_all + rebuild
-            crmInfoRepository.deleteByUserId(user.getId());
-
-            for (Map.Entry<String, String> entry : tempUser.getCrmFields().entrySet()) {
-                String label = entry.getKey();
-                String value = entry.getValue();
-
-                Optional<CrmInfoSetting> settingOpt = crmInfoSettingRepository
-                        .findByClientIdAndColumnLabel(clientId, label);
-
-                if (settingOpt.isPresent()) {
-                    CrmInfoSetting setting = settingOpt.get();
-                    if (setting.getStatus() == CrmInfoSetting.Status.ACTIVE) {
-                        CrmInfo crmInfo = new CrmInfo();
-                        crmInfo.setUser(user);
-                        crmInfo.setCrmInfoSetting(setting);
-                        crmInfo.setColumnValue(value);
-                        crmInfo.setColumnPosition(setting.getColumnPosition());
-                        crmInfo.setColumnLabel(setting.getColumnLabel());
-                        crmInfo.setColumnVisible(setting.getColumnVisible());
-                        crmInfoRepository.save(crmInfo);
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -1830,5 +1804,73 @@ public class ImportService {
 
         // Trigger async processing
         processImportAsync(importId);
+    }
+
+    // ========== Mapping Templates ==========
+
+    /**
+     * Get all mapping templates for a client
+     */
+    public List<ImportMappingTemplate> getMappingTemplates(Long clientId) {
+        return mappingTemplateRepository.findByClientIdOrderByNameAsc(clientId);
+    }
+
+    /**
+     * Save a new mapping template
+     */
+    @Transactional
+    public ImportMappingTemplate saveMappingTemplate(Long clientId, String name, boolean isFoh,
+                                                      Map<String, String> columnMapping, List<String> headers) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
+
+        // Check for duplicate name
+        if (mappingTemplateRepository.findByClientIdAndName(clientId, name).isPresent()) {
+            throw new BusinessException("Ya existe un template con el nombre '" + name + "'");
+        }
+
+        ImportMappingTemplate template = new ImportMappingTemplate();
+        template.setClient(client);
+        template.setName(name);
+        template.setIsFoh(isFoh);
+        template.setColumnMapping(columnMapping);
+        template.setHeaders(headers);
+
+        template = mappingTemplateRepository.save(template);
+        log.info("Saved mapping template '{}' for client {}", name, clientId);
+        return template;
+    }
+
+    /**
+     * Delete a mapping template
+     */
+    @Transactional
+    public void deleteMappingTemplate(Long templateId) {
+        ImportMappingTemplate template = mappingTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new ResourceNotFoundException("ImportMappingTemplate", templateId));
+        mappingTemplateRepository.delete(template);
+        log.info("Deleted mapping template '{}' (id={})", template.getName(), templateId);
+    }
+
+    /**
+     * Find a matching template for the given CSV headers.
+     * Match is order-independent: template matches if the CSV has the same set of headers.
+     */
+    public ImportMappingTemplate findMatchingTemplate(Long clientId, List<String> csvHeaders, boolean isFoh) {
+        List<ImportMappingTemplate> templates = mappingTemplateRepository.findByClientIdAndIsFoh(clientId, isFoh);
+
+        Set<String> csvHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        csvHeaderSet.addAll(csvHeaders);
+
+        for (ImportMappingTemplate template : templates) {
+            if (template.getHeaders() == null) continue;
+            Set<String> templateHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            templateHeaderSet.addAll(template.getHeaders());
+
+            if (csvHeaderSet.equals(templateHeaderSet)) {
+                return template;
+            }
+        }
+        return null;
     }
 }

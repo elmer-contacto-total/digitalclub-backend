@@ -16,8 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * CRM Service
@@ -133,27 +135,75 @@ public class CrmService {
 
     // ========== CRM Info (User Values) Management ==========
 
+    /**
+     * @deprecated Use getVisibleCrmDataByUser(User) instead — reads from custom_fields
+     */
     public List<CrmInfo> getCrmInfoByUser(Long userId) {
         return crmInfoRepository.findActiveByUser(userId);
     }
 
+    /**
+     * @deprecated Use getVisibleCrmDataByUser(User) instead — reads from custom_fields
+     */
     public List<CrmInfo> getVisibleCrmInfoByUser(Long userId) {
         return crmInfoRepository.findVisibleByUser(userId);
     }
 
+    /**
+     * Get all CRM data for a user from custom_fields, using crm_info_settings as schema.
+     * This replaces the old getCrmInfoMapByUser that read from the crm_infos table.
+     */
     public Map<String, String> getCrmInfoMapByUser(Long userId) {
-        List<CrmInfo> crmInfos = crmInfoRepository.findActiveByUser(userId);
-        Map<String, String> result = new HashMap<>();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        return getCrmDataByUser(user);
+    }
 
-        for (CrmInfo info : crmInfos) {
-            if (info.getCrmInfoSetting() != null) {
-                result.put(info.getCrmInfoSetting().getColumnLabel(), info.getColumnValue());
+    /**
+     * Get all CRM data for a user from custom_fields, keyed by setting label.
+     */
+    public Map<String, String> getCrmDataByUser(User user) {
+        Long clientId = user.getClient().getId();
+        List<CrmInfoSetting> settings = settingRepository
+                .findByClientIdAndStatusOrderByColumnPositionAsc(clientId, CrmInfoSetting.Status.ACTIVE);
+
+        Map<String, Object> cf = user.getCustomFields();
+        if (cf == null) return Map.of();
+
+        Map<String, String> result = new LinkedHashMap<>();
+        for (CrmInfoSetting s : settings) {
+            if (cf.containsKey(s.getColumnLabel())) {
+                result.put(s.getColumnLabel(), String.valueOf(cf.get(s.getColumnLabel())));
             }
         }
-
         return result;
     }
 
+    /**
+     * Get visible CRM data for a user from custom_fields.
+     * Uses crm_info_settings to determine visibility and ordering.
+     */
+    public Map<String, String> getVisibleCrmDataByUser(User user) {
+        Long clientId = user.getClient().getId();
+        List<CrmInfoSetting> settings = settingRepository
+                .findByClientIdAndStatusOrderByColumnPositionAsc(clientId, CrmInfoSetting.Status.ACTIVE);
+
+        Map<String, Object> cf = user.getCustomFields();
+        if (cf == null) return Map.of();
+
+        Map<String, String> result = new LinkedHashMap<>();
+        for (CrmInfoSetting s : settings) {
+            if (Boolean.TRUE.equals(s.getColumnVisible()) && cf.containsKey(s.getColumnLabel())) {
+                result.put(s.getColumnLabel(), String.valueOf(cf.get(s.getColumnLabel())));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Set a CRM value for a user. Writes to custom_fields (unified storage).
+     * Also maintains CrmInfo table for backward compatibility during transition.
+     */
     @Transactional
     public CrmInfo setCrmInfo(Long userId, Long settingId, String value) {
         User user = userRepository.findById(userId)
@@ -177,6 +227,13 @@ public class CrmService {
         if (!crmInfo.isValueValid()) {
             throw new BusinessException("Value does not match expected type: " + setting.getColumnType());
         }
+
+        // Also write to custom_fields (unified storage)
+        Map<String, Object> cf = user.getCustomFields();
+        if (cf == null) cf = new HashMap<>();
+        cf.put(setting.getColumnLabel(), value);
+        user.setCustomFields(cf);
+        userRepository.save(user);
 
         return crmInfoRepository.save(crmInfo);
     }
@@ -232,7 +289,8 @@ public class CrmService {
     }
 
     /**
-     * Resolve template parameter value for a user
+     * Resolve template parameter value for a user.
+     * Reads CRM values from user.custom_fields (unified storage).
      */
     public String resolveFieldValue(User user, String fieldName) {
         if (fieldName == null) return "";
@@ -244,14 +302,16 @@ public class CrmService {
             case "phone" -> user.getPhone() != null ? user.getPhone() : "";
             case "email" -> user.getEmail() != null ? user.getEmail() : "";
             default -> {
-                // CRM field (format: crm_123)
+                // CRM field (format: crm_123) — resolve setting ID to label, then look in custom_fields
                 if (fieldName.startsWith("crm_")) {
                     try {
                         Long settingId = Long.parseLong(fieldName.substring(4));
-                        CrmInfo crmInfo = crmInfoRepository
-                                .findByUserIdAndCrmInfoSettingId(user.getId(), settingId)
-                                .orElse(null);
-                        yield crmInfo != null ? crmInfo.getColumnValue() : "";
+                        CrmInfoSetting setting = settingRepository.findById(settingId).orElse(null);
+                        if (setting != null && user.getCustomFields() != null) {
+                            Object val = user.getCustomFields().get(setting.getColumnLabel());
+                            yield val != null ? String.valueOf(val) : "";
+                        }
+                        yield "";
                     } catch (NumberFormatException e) {
                         yield "";
                     }

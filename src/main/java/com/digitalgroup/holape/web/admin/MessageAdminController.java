@@ -4,8 +4,8 @@ import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.entity.ClientSetting;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
-import com.digitalgroup.holape.domain.crm.entity.CrmInfo;
 import com.digitalgroup.holape.domain.crm.repository.CrmInfoRepository;
+import com.digitalgroup.holape.domain.crm.service.CrmService;
 import com.digitalgroup.holape.domain.media.entity.CapturedMedia;
 import com.digitalgroup.holape.domain.media.repository.CapturedMediaRepository;
 import com.digitalgroup.holape.domain.message.entity.Message;
@@ -49,6 +49,7 @@ public class MessageAdminController {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final CrmInfoRepository crmInfoRepository;
+    private final CrmService crmService;
     private final TicketRepository ticketRepository;
     private final ClientRepository clientRepository;
     private final ClientSettingRepository clientSettingRepository;
@@ -177,8 +178,8 @@ public class MessageAdminController {
         List<Message> messages = messageRepository.findBySenderIdOrRecipientIdOrderBySentAtAsc(
                 clientId, clientId);
 
-        // Get CRM fields for this client
-        List<CrmInfo> crmInfos = crmInfoRepository.findByUserId(clientId);
+        // Get CRM fields for this user from unified custom_fields storage
+        Map<String, String> visibleCrmData = crmService.getVisibleCrmDataByUser(client);
 
         // Get open ticket for this conversation
         // PARIDAD: Rails @show_close_button_flag = @messages_with_tickets.joins(:ticket).where(tickets: { status: 'open' }).exists?
@@ -289,19 +290,18 @@ public class MessageAdminController {
                 .collect(Collectors.toList());
         response.put("messages", messagesList);
 
-        // CRM fields
-        List<Map<String, Object>> crmFieldsList = crmInfos.stream()
-                .map(crm -> {
-                    Map<String, Object> m = new HashMap<>();
-                    m.put("columnLabel", crm.getColumnLabel());
-                    m.put("columnValue", crm.getColumnValue());
-                    m.put("columnVisible", crm.getColumnVisible());
-                    return m;
-                })
-                .collect(Collectors.toList());
+        // CRM fields — from unified custom_fields storage, filtered by crm_info_settings visibility
+        List<Map<String, Object>> crmFieldsList = new ArrayList<>();
+        for (Map.Entry<String, String> entry : visibleCrmData.entrySet()) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("columnLabel", entry.getKey());
+            m.put("columnValue", entry.getValue());
+            m.put("columnVisible", true);
+            crmFieldsList.add(m);
+        }
         response.put("crmFields", crmFieldsList);
 
-        // Custom fields
+        // Custom fields — all custom_fields for the user
         response.put("customFields", client.getCustomFields() != null ? client.getCustomFields() : Map.of());
 
         // Ticket info

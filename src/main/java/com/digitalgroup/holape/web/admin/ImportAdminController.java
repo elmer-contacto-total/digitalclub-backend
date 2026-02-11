@@ -2,6 +2,7 @@ package com.digitalgroup.holape.web.admin;
 
 import com.digitalgroup.holape.domain.common.enums.ImportStatus;
 import com.digitalgroup.holape.domain.importdata.entity.Import;
+import com.digitalgroup.holape.domain.importdata.entity.ImportMappingTemplate;
 import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
 import com.digitalgroup.holape.domain.importdata.service.ImportService;
 import com.digitalgroup.holape.security.CustomUserDetails;
@@ -351,6 +352,106 @@ public class ImportAdminController {
                 "errors_text", importEntity.getErrorsText() != null ?
                         importEntity.getErrorsText() : ""
         ));
+    }
+
+    // ========== Mapping Templates ==========
+
+    /**
+     * List mapping templates for the current client
+     */
+    @GetMapping("/mapping_templates")
+    public ResponseEntity<List<Map<String, Object>>> listMappingTemplates(
+            @AuthenticationPrincipal CustomUserDetails currentUser) {
+
+        List<ImportMappingTemplate> templates = importService.getMappingTemplates(currentUser.getClientId());
+        List<Map<String, Object>> result = templates.stream()
+                .map(this::mapTemplateToResponse)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Save a new mapping template
+     * Body: { "name": "FOH Estándar", "isFoh": true, "columnMapping": {...}, "headers": [...] }
+     */
+    @SuppressWarnings("unchecked")
+    @PostMapping("/mapping_templates")
+    public ResponseEntity<Map<String, Object>> saveMappingTemplate(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody Map<String, Object> body) {
+
+        String name = (String) body.get("name");
+        boolean isFoh = Boolean.TRUE.equals(body.get("isFoh"));
+        Map<String, String> columnMapping = (Map<String, String>) body.get("columnMapping");
+        List<String> headers = (List<String>) body.get("headers");
+
+        if (name == null || name.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "name is required"));
+        }
+        if (columnMapping == null || columnMapping.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "columnMapping is required"));
+        }
+        if (headers == null || headers.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "headers is required"));
+        }
+
+        ImportMappingTemplate template = importService.saveMappingTemplate(
+                currentUser.getClientId(), name, isFoh, columnMapping, headers);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", "success");
+        response.put("template", mapTemplateToResponse(template));
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Delete a mapping template
+     */
+    @DeleteMapping("/mapping_templates/{templateId}")
+    public ResponseEntity<Map<String, Object>> deleteMappingTemplate(@PathVariable Long templateId) {
+        importService.deleteMappingTemplate(templateId);
+        return ResponseEntity.ok(Map.of("result", "success", "message", "Template deleted"));
+    }
+
+    /**
+     * Find matching template for given headers
+     * Body: { "headers": [...], "isFoh": false }
+     */
+    @SuppressWarnings("unchecked")
+    @PostMapping("/mapping_templates/match")
+    public ResponseEntity<Map<String, Object>> findMatchingTemplate(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody Map<String, Object> body) {
+
+        List<String> headers = (List<String>) body.get("headers");
+        boolean isFoh = Boolean.TRUE.equals(body.get("isFoh"));
+
+        if (headers == null || headers.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "headers is required"));
+        }
+
+        ImportMappingTemplate match = importService.findMatchingTemplate(
+                currentUser.getClientId(), headers, isFoh);
+
+        Map<String, Object> response = new HashMap<>();
+        if (match != null) {
+            response.put("found", true);
+            response.put("template", mapTemplateToResponse(match));
+        } else {
+            response.put("found", false);
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    private Map<String, Object> mapTemplateToResponse(ImportMappingTemplate template) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", template.getId());
+        map.put("name", template.getName());
+        map.put("isFoh", template.getIsFoh());
+        map.put("columnMapping", template.getColumnMapping());
+        map.put("headers", template.getHeaders());
+        map.put("createdAt", template.getCreatedAt());
+        return map;
     }
 
     /**
