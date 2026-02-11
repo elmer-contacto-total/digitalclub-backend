@@ -128,7 +128,8 @@ public class ImportService {
     }
 
     /**
-     * Create new import and trigger validation
+     * Create new import — stores file and returns headers + suggestions for interactive mapping.
+     * Does NOT trigger validation — user must confirm mapping first via confirmMappingAndValidate().
      * PARIDAD RAILS: usa user_id, no created_by_id
      */
     @Transactional
@@ -157,17 +158,16 @@ public class ImportService {
             throw new BusinessException("Error reading file: " + e.getMessage());
         }
 
-        // Persist CSV file in S3 — PARIDAD RAILS: Shrine import_file_data
+        // Persist CSV file in S3 + inline base64 for re-reading at mapping confirmation
         persistCsvFile(importEntity, file, fileContent);
 
-        // Trigger async validation
-        validateImportAsync(importEntity.getId(), fileContent, assignToUserId);
-
+        // Status stays STATUS_NEW — no validation triggered
         return importEntity;
     }
 
     /**
-     * Create FOH-specific import
+     * Create FOH-specific import — stores file, does NOT trigger validation.
+     * User must confirm mapping first via confirmMappingAndValidate().
      */
     @Transactional
     public Import createFohImport(Long clientId, Long userId, MultipartFile file) {
@@ -193,12 +193,10 @@ public class ImportService {
             throw new BusinessException("Error reading file: " + e.getMessage());
         }
 
-        // Persist CSV file in S3 — PARIDAD RAILS: Shrine import_file_data
+        // Persist CSV file in S3 + inline base64
         persistCsvFile(importEntity, file, fileContent);
 
-        // Trigger FOH-specific validation
-        validateImportFohAsync(importEntity.getId(), fileContent);
-
+        // Status stays STATUS_NEW — no validation triggered
         return importEntity;
     }
 
@@ -969,8 +967,9 @@ public class ImportService {
         Map<String, Object> customFields = new HashMap<>();
         Map<String, String> crmFields = new HashMap<>();
 
-        for (int i = 0; i < values.length && i < columnMapping.size(); i++) {
+        for (int i = 0; i < values.length; i++) {
             String field = columnMapping.get(i);
+            if (field == null) continue;
             String value = cleanValue(values[i]);
 
             if (value == null || value.isEmpty()) continue;
@@ -986,6 +985,14 @@ public class ImportService {
                         tempUser.setLastName(tempUser.getLastName() + " " + value);
                     } else {
                         tempUser.setLastName(value);
+                    }
+                }
+                case "first_name_2" -> {
+                    // Segundo nombre: "#{NOMBRE1} #{NOMBRE2}"
+                    if (tempUser.getFirstName() != null && !tempUser.getFirstName().isEmpty()) {
+                        tempUser.setFirstName(tempUser.getFirstName() + " " + value);
+                    } else {
+                        tempUser.setFirstName(value);
                     }
                 }
                 case "email" -> tempUser.setEmail(value.toLowerCase());
@@ -1509,11 +1516,41 @@ public class ImportService {
                         fileContent.length, file.getContentType());
             }
             if (shrineJson != null) {
+                // Also store CSV content as base64 for re-reading at mapping confirmation
+                try {
+                    Map<String, Object> data = objectMapper.readValue(shrineJson,
+                            new TypeReference<Map<String, Object>>() {});
+                    data.put("csvBase64", Base64.getEncoder().encodeToString(fileContent));
+                    shrineJson = objectMapper.writeValueAsString(data);
+                } catch (JsonProcessingException e) {
+                    log.warn("Failed to add csvBase64 to shrine JSON", e);
+                }
                 importEntity.setImportFileData(shrineJson);
                 importRepository.save(importEntity);
             }
         } catch (Exception e) {
             log.warn("Failed to persist CSV file for import {}: {}", importEntity.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Retrieve CSV file content from stored base64 in import_file_data JSON.
+     */
+    private byte[] retrieveCsvContent(Import importEntity) {
+        String fileData = importEntity.getImportFileData();
+        if (fileData == null || fileData.isBlank()) {
+            throw new BusinessException("No CSV data stored for this import");
+        }
+        try {
+            Map<String, Object> data = objectMapper.readValue(fileData,
+                    new TypeReference<Map<String, Object>>() {});
+            String csvBase64 = (String) data.get("csvBase64");
+            if (csvBase64 == null || csvBase64.isBlank()) {
+                throw new BusinessException("No csvBase64 content found in import file data");
+            }
+            return Base64.getDecoder().decode(csvBase64);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("Failed to parse import file data: " + e.getMessage());
         }
     }
 
@@ -1537,6 +1574,242 @@ public class ImportService {
             log.warn("Failed to build Shrine JSON", e);
             return null;
         }
+    }
+
+    /**
+     * Get CSV headers and auto-suggested mapping for the interactive mapping page.
+     * Parses the stored CSV, reads headers, and applies COLUMN_ALIASES + FOH heuristics.
+     * Also returns sample data (first 2 rows) for each column.
+     */
+    public Map<String, Object> getHeadersAndSuggestions(Long importId, boolean isFoh) {
+        Import importEntity = findById(importId);
+        byte[] fileContent = retrieveCsvContent(importEntity);
+        String content = readAndEncodeFile(fileContent);
+        List<String[]> rows = parseCsv(content);
+
+        if (rows.isEmpty()) {
+            throw new BusinessException("Empty file or invalid CSV format");
+        }
+
+        String[] headers = rows.get(0);
+        Long clientId = importEntity.getClient().getId();
+
+        // Build auto-suggestions using existing alias logic
+        Map<Integer, String> autoMapping;
+        if (isFoh) {
+            autoMapping = mapFohColumnsWithDetection(headers, clientId).mapping();
+        } else {
+            autoMapping = mapColumnsWithDetection(headers, clientId).mapping();
+        }
+
+        // Build response: array of {index, header, suggestion, sampleData}
+        List<Map<String, Object>> columns = new ArrayList<>();
+        for (int i = 0; i < headers.length; i++) {
+            Map<String, Object> col = new HashMap<>();
+            col.put("index", i);
+            col.put("header", headers[i].trim());
+
+            // Determine suggestion — filter out unmatched_ prefixed as "no suggestion"
+            String mapped = autoMapping.get(i);
+            if (mapped != null && !mapped.startsWith("unmatched_")) {
+                if (mapped.startsWith("crm_")) {
+                    col.put("suggestion", "crm");
+                } else {
+                    col.put("suggestion", mapped);
+                }
+            }
+            // If no suggestion, key absent → serialized as null by frontend
+
+            // Sample data: values from first 2 data rows
+            List<String> samples = new ArrayList<>();
+            for (int r = 1; r <= Math.min(2, rows.size() - 1); r++) {
+                String[] rowValues = rows.get(r);
+                if (i < rowValues.length && rowValues[i] != null && !rowValues[i].trim().isEmpty()) {
+                    samples.add(rowValues[i].trim());
+                }
+            }
+            col.put("sampleData", samples);
+
+            columns.add(col);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("importId", importId);
+        result.put("columns", columns);
+        result.put("totalRows", rows.size() - 1);
+        return result;
+    }
+
+    /**
+     * Confirm user-provided column mapping and trigger validation.
+     * Called after the user reviews/adjusts column mapping on the mapping page.
+     *
+     * @param importId      the import ID
+     * @param columnMapping user-confirmed mapping: key = column index (as string), value = field name
+     * @param isFoh         whether this is a FOH import
+     */
+    @Transactional
+    public void confirmMappingAndValidate(Long importId, Map<String, String> columnMapping, boolean isFoh) {
+        Import importEntity = findById(importId);
+        byte[] fileContent = retrieveCsvContent(importEntity);
+
+        // Delete existing TempImportUsers if any (re-mapping case)
+        tempImportUserRepository.deleteByImportId(importId);
+
+        // Convert string keys to integer keys
+        Map<Integer, String> intMapping = new HashMap<>();
+        for (Map.Entry<String, String> entry : columnMapping.entrySet()) {
+            String field = entry.getValue();
+            if (field != null && !field.isBlank() && !"ignore".equals(field)) {
+                intMapping.put(Integer.parseInt(entry.getKey()), field);
+            }
+        }
+
+        if (isFoh) {
+            validateImportFohWithMapping(importId, fileContent, intMapping);
+        } else {
+            validateImportWithMapping(importId, fileContent, intMapping);
+        }
+    }
+
+    /**
+     * Validate import using a user-provided column mapping (standard imports).
+     */
+    @Transactional
+    public void validateImportWithMapping(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {
+        Import importEntity = findById(importId);
+        importEntity.setStatus(ImportStatus.STATUS_VALIDATING);
+        importRepository.save(importEntity);
+
+        String content = readAndEncodeFile(fileContent);
+        List<String[]> rows = parseCsv(content);
+
+        if (rows.isEmpty()) {
+            throw new BusinessException("Empty file or invalid CSV format");
+        }
+
+        importEntity.setTotRecords(rows.size() - 1);
+
+        List<Map<String, Object>> errors = new ArrayList<>();
+        int validCount = 0;
+        int invalidCount = 0;
+
+        for (int i = 1; i < rows.size(); i++) {
+            String[] values = rows.get(i);
+            int rowNumber = i + 1;
+
+            try {
+                TempImportUser tempUser = createTempImportUser(
+                        importEntity, columnMapping, values, rowNumber);
+
+                List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
+
+                if (validationErrors.isEmpty()) {
+                    validCount++;
+                } else {
+                    tempUser.setErrorMessage(String.join("; ", validationErrors));
+                    invalidCount++;
+
+                    Map<String, Object> errorDetail = new HashMap<>();
+                    errorDetail.put("row", rowNumber);
+                    errorDetail.put("errors", validationErrors);
+                    errorDetail.put("phone", tempUser.getPhone());
+                    errors.add(errorDetail);
+                }
+
+                tempImportUserRepository.save(tempUser);
+                importEntity.setProgress(importEntity.getProgress() + 1);
+
+            } catch (Exception e) {
+                invalidCount++;
+                Map<String, Object> errorDetail = new HashMap<>();
+                errorDetail.put("row", rowNumber);
+                errorDetail.put("errors", List.of(e.getMessage()));
+                errors.add(errorDetail);
+            }
+
+            if (i % 100 == 0) {
+                importRepository.save(importEntity);
+            }
+        }
+
+        importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
+        importEntity.setStatus(ImportStatus.STATUS_VALID);
+        importRepository.save(importEntity);
+
+        log.info("Import {} validated with user mapping: {} valid, {} invalid", importId, validCount, invalidCount);
+    }
+
+    /**
+     * Validate FOH import using a user-provided column mapping.
+     */
+    @Transactional
+    public void validateImportFohWithMapping(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {
+        Import importEntity = findById(importId);
+        importEntity.setStatus(ImportStatus.STATUS_VALIDATING);
+        importRepository.save(importEntity);
+
+        String content = readAndEncodeFile(fileContent);
+        List<String[]> rows = parseCsv(content);
+
+        if (rows.isEmpty()) {
+            throw new BusinessException("Empty file or invalid CSV format");
+        }
+
+        importEntity.setTotRecords(rows.size() - 1);
+
+        List<Map<String, Object>> errors = new ArrayList<>();
+        int validCount = 0;
+        int invalidCount = 0;
+
+        for (int i = 1; i < rows.size(); i++) {
+            String[] values = rows.get(i);
+            int rowNumber = i + 1;
+
+            try {
+                TempImportUser tempUser = createFohTempImportUser(
+                        importEntity, columnMapping, values, rowNumber);
+
+                String agentEmail = matchFohAgent(tempUser, importEntity.getClient().getId());
+                if (agentEmail != null && !agentEmail.isEmpty()) {
+                    tempUser.setManagerEmail(agentEmail);
+                }
+
+                List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
+
+                if (validationErrors.isEmpty()) {
+                    validCount++;
+                } else {
+                    tempUser.setErrorMessage(String.join("; ", validationErrors));
+                    invalidCount++;
+
+                    Map<String, Object> errorDetail = new HashMap<>();
+                    errorDetail.put("row", rowNumber);
+                    errorDetail.put("errors", validationErrors);
+                    errors.add(errorDetail);
+                }
+
+                tempImportUserRepository.save(tempUser);
+                importEntity.setProgress(importEntity.getProgress() + 1);
+
+            } catch (Exception e) {
+                invalidCount++;
+                Map<String, Object> errorDetail = new HashMap<>();
+                errorDetail.put("row", rowNumber);
+                errorDetail.put("errors", List.of(e.getMessage()));
+                errors.add(errorDetail);
+            }
+
+            if (i % 100 == 0) {
+                importRepository.save(importEntity);
+            }
+        }
+
+        importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
+        importEntity.setStatus(ImportStatus.STATUS_VALID);
+        importRepository.save(importEntity);
+
+        log.info("FOH Import {} validated with user mapping: {} valid, {} invalid", importId, validCount, invalidCount);
     }
 
     /**

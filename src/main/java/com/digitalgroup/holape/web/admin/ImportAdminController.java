@@ -82,7 +82,9 @@ public class ImportAdminController {
     }
 
     /**
-     * Create new import from CSV file
+     * Create new import from CSV file.
+     * Stores the file and returns headers + auto-suggestions for interactive mapping.
+     * Does NOT trigger validation — user must confirm mapping via POST /{id}/confirm_mapping.
      */
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(
@@ -99,16 +101,21 @@ public class ImportAdminController {
                 assignToUserId
         );
 
-        return ResponseEntity.ok(Map.of(
-                "result", "success",
-                "import", mapImportToResponse(importEntity),
-                "message", "Import created and processing started"
-        ));
+        // Get headers + auto-suggestions for the mapping page
+        Map<String, Object> mappingData = importService.getHeadersAndSuggestions(importEntity.getId(), false);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", "success");
+        response.put("import", mapImportToResponse(importEntity));
+        response.put("mapping", mappingData);
+        response.put("message", "Import created — map columns before validating");
+        return ResponseEntity.ok(response);
     }
 
     /**
-     * Create FOH-specific import
-     * Equivalent to Rails: Admin::ImportsController for Financiera Oh
+     * Create FOH-specific import.
+     * Stores the file and returns headers + auto-suggestions for interactive mapping.
+     * Does NOT trigger validation — user must confirm mapping via POST /{id}/confirm_mapping.
      */
     @PostMapping("/foh")
     public ResponseEntity<Map<String, Object>> createFoh(
@@ -121,10 +128,54 @@ public class ImportAdminController {
                 file
         );
 
+        // Get headers + auto-suggestions for the mapping page (isFoh=true)
+        Map<String, Object> mappingData = importService.getHeadersAndSuggestions(importEntity.getId(), true);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", "success");
+        response.put("import", mapImportToResponse(importEntity));
+        response.put("mapping", mappingData);
+        response.put("message", "FOH import created — map columns before validating");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get headers + suggestions for an existing import (e.g. on page reload).
+     */
+    @GetMapping("/{id}/mapping")
+    public ResponseEntity<Map<String, Object>> getMapping(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "false") boolean isFoh) {
+
+        Map<String, Object> mappingData = importService.getHeadersAndSuggestions(id, isFoh);
+        return ResponseEntity.ok(mappingData);
+    }
+
+    /**
+     * Confirm user-provided column mapping and trigger validation.
+     * Body: { "columnMapping": {"0": "phone", "2": "first_name", ...}, "isFoh": false }
+     */
+    @SuppressWarnings("unchecked")
+    @PostMapping("/{id}/confirm_mapping")
+    public ResponseEntity<Map<String, Object>> confirmMapping(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+
+        Map<String, String> columnMapping = (Map<String, String>) body.get("columnMapping");
+        boolean isFoh = Boolean.TRUE.equals(body.get("isFoh"));
+
+        if (columnMapping == null || columnMapping.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", "columnMapping is required"
+            ));
+        }
+
+        importService.confirmMappingAndValidate(id, columnMapping, isFoh);
+
         return ResponseEntity.ok(Map.of(
                 "result", "success",
-                "import", mapImportToResponse(importEntity),
-                "message", "FOH import created and validation started"
+                "message", "Mapping confirmed — validation started"
         ));
     }
 
