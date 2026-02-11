@@ -4,6 +4,7 @@ import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.common.enums.ImportStatus;
 import com.digitalgroup.holape.domain.common.enums.ImportType;
+import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.importdata.entity.Import;
 import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
 import com.digitalgroup.holape.domain.importdata.repository.ImportRepository;
@@ -20,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -63,22 +65,7 @@ public class ImportService {
     private final CrmInfoRepository crmInfoRepository;
     private final CrmInfoSettingRepository crmInfoSettingRepository;
     private final S3StorageService s3StorageService;
-
-    /**
-     * FOH Agent mapping - PARIDAD RAILS
-     * Maps import identifiers to agent EMAILS (not phones)
-     * Source: Rails Import.match_foh_agent (lines 17-44)
-     */
-    private static final Map<String, String> FOH_AGENT_MAPPING = Map.of(
-            "MARCADOR BIG TICKET WSP - RVILLANUEVA", "rosy.villanueva@somosoh.pe",
-            "MARCADOR BIG TICKET WSP - YRAMIREZ", "yuli.ramirez@somosoh.pe",
-            "MARCADOR BIG TICKET WSP - JMONJE", "joselin.monje@somosoh.pe",
-            "MARCADOR BIG TICKET WSP - MGRANDE", "maria.grande@somosoh.pe",
-            "JAPAZA", "jackeline.apaza@somosoh.pe",
-            "NTICLLASUCA", "nancy.ticllasuca@somosoh.pe",
-            "YHUERTA", "yeymi.huerta@somosoh.pe",
-            "NCONTRERAS", "nelly.contreras@somosoh.pe"
-    );
+    private final PasswordEncoder passwordEncoder;
 
     // Standard column mappings
     private static final Map<String, String> COLUMN_ALIASES = Map.ofEntries(
@@ -260,7 +247,9 @@ public class ImportService {
         }
 
         String[] headers = rows.get(0);
-        Map<Integer, String> columnMapping = mapColumns(headers, importEntity.getClient().getId());
+        ColumnMappingResult mappingResult = mapColumnsWithDetection(headers, importEntity.getClient().getId());
+        Map<Integer, String> columnMapping = mappingResult.mapping();
+        List<Map<String, Object>> unmatchedColumns = mappingResult.unmatchedColumns();
         importEntity.setTotRecords(rows.size() - 1);
 
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -312,13 +301,13 @@ public class ImportService {
             }
         }
 
-        // Store errors as JSON text
-        importEntity.setErrorsText(serializeErrors(errors));
+        // Store errors and unmatched columns as JSON
+        importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
         importEntity.setStatus(ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
 
-        log.info("Import {} validated: {} valid, {} invalid",
-                importId, validCount, invalidCount);
+        log.info("Import {} validated: {} valid, {} invalid, {} unmatched columns",
+                importId, validCount, invalidCount, unmatchedColumns.size());
     }
 
     /**
@@ -338,7 +327,10 @@ public class ImportService {
         }
 
         String[] headers = rows.get(0);
-        Map<Integer, String> columnMapping = mapFohColumns(headers);
+        // Phase E: FOH also detects CRM columns via CrmInfoSetting
+        ColumnMappingResult mappingResult = mapFohColumnsWithDetection(headers, importEntity.getClient().getId());
+        Map<Integer, String> columnMapping = mappingResult.mapping();
+        List<Map<String, Object>> unmatchedColumns = mappingResult.unmatchedColumns();
         importEntity.setTotRecords(rows.size() - 1);
 
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -353,7 +345,7 @@ public class ImportService {
                 TempImportUser tempUser = createFohTempImportUser(
                         importEntity, columnMapping, values, rowNumber);
 
-                // Match FOH agent - PARIDAD RAILS: Retorna email directamente
+                // Match FOH agent - Retorna email directamente
                 String agentEmail = matchFohAgent(tempUser, importEntity.getClient().getId());
                 if (agentEmail != null && !agentEmail.isEmpty()) {
                     tempUser.setManagerEmail(agentEmail);
@@ -361,10 +353,7 @@ public class ImportService {
 
                 List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
 
-                // PARIDAD RAILS: La validez se determina por error_message
-                // error_message IS NULL → válido, error_message IS NOT NULL → inválido
                 if (validationErrors.isEmpty()) {
-                    // tempUser.errorMessage permanece null → considerado válido
                     validCount++;
                 } else {
                     tempUser.setErrorMessage(String.join("; ", validationErrors));
@@ -392,12 +381,13 @@ public class ImportService {
             }
         }
 
-        importEntity.setErrorsText(serializeErrors(errors));
+        // Phase E: Store unmatched columns for interactive selection
+        importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
         importEntity.setStatus(ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
 
-        log.info("FOH Import {} validated: {} valid, {} invalid",
-                importId, validCount, invalidCount);
+        log.info("FOH Import {} validated: {} valid, {} invalid, {} unmatched columns",
+                importId, validCount, invalidCount, unmatchedColumns.size());
     }
 
     /**
@@ -490,17 +480,191 @@ public class ImportService {
     }
 
     /**
-     * Parse errors_text JSON back to list
+     * Parse errors_text JSON back to list.
+     * Handles both old format (JSON array) and new format (JSON object with "errors" key).
      */
     private List<Map<String, Object>> parseErrorsText(String errorsText) {
         if (errorsText == null || errorsText.isEmpty()) {
             return new ArrayList<>();
         }
         try {
+            // New format: {"errors": [...], "unmatchedColumns": [...]}
+            if (errorsText.trim().startsWith("{")) {
+                Map<String, Object> wrapper = objectMapper.readValue(errorsText,
+                        new TypeReference<Map<String, Object>>() {});
+                Object errorsObj = wrapper.get("errors");
+                if (errorsObj instanceof List<?> list) {
+                    List<Map<String, Object>> result = new ArrayList<>();
+                    for (Object item : list) {
+                        if (item instanceof Map<?, ?> map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> typedMap = (Map<String, Object>) map;
+                            result.add(typedMap);
+                        }
+                    }
+                    return result;
+                }
+                return new ArrayList<>();
+            }
+            // Old format: JSON array
             return objectMapper.readValue(errorsText, new TypeReference<List<Map<String, Object>>>() {});
         } catch (JsonProcessingException e) {
             log.warn("Failed to parse errors_text", e);
             return new ArrayList<>();
+        }
+    }
+
+    /**
+     * Serialize validation result including both errors and unmatched columns.
+     */
+    private String serializeValidationResult(List<Map<String, Object>> errors,
+                                              List<Map<String, Object>> unmatchedColumns) {
+        if ((errors == null || errors.isEmpty()) && (unmatchedColumns == null || unmatchedColumns.isEmpty())) {
+            return null;
+        }
+        try {
+            Map<String, Object> result = new HashMap<>();
+            result.put("errors", errors != null ? errors : List.of());
+            if (unmatchedColumns != null && !unmatchedColumns.isEmpty()) {
+                result.put("unmatchedColumns", unmatchedColumns);
+            }
+            return objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize validation result", e);
+            return serializeErrors(errors);
+        }
+    }
+
+    /**
+     * Extract unmatched columns from errorsText JSON.
+     */
+    public List<Map<String, Object>> getUnmatchedColumns(Long importId) {
+        Import importEntity = findById(importId);
+        String errorsText = importEntity.getErrorsText();
+        if (errorsText == null || errorsText.isEmpty() || !errorsText.trim().startsWith("{")) {
+            return List.of();
+        }
+        try {
+            Map<String, Object> wrapper = objectMapper.readValue(errorsText,
+                    new TypeReference<Map<String, Object>>() {});
+            Object unmatchedObj = wrapper.get("unmatchedColumns");
+            if (unmatchedObj instanceof List<?> list) {
+                List<Map<String, Object>> result = new ArrayList<>();
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> typedMap = (Map<String, Object>) map;
+                        result.add(typedMap);
+                    }
+                }
+                return result;
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to parse unmatched columns from errors_text", e);
+        }
+        return List.of();
+    }
+
+    /**
+     * Accept unmatched columns: create CrmInfoSettings for selected columns
+     * and re-mark those columns as CRM in the stored data.
+     */
+    @Transactional
+    public void acceptUnmatchedColumns(Long importId, List<String> columnNames) {
+        Import importEntity = findById(importId);
+        Long clientId = importEntity.getClient().getId();
+
+        for (String colName : columnNames) {
+            // Check if CrmInfoSetting already exists
+            Optional<CrmInfoSetting> existing = crmInfoSettingRepository
+                    .findByClientIdAndColumnLabel(clientId, colName);
+
+            if (existing.isEmpty()) {
+                // Create new CrmInfoSetting
+                Integer maxPos = crmInfoSettingRepository.findMaxPositionByClient(clientId);
+                int nextPosition = (maxPos != null ? maxPos : 0) + 1;
+
+                CrmInfoSetting setting = new CrmInfoSetting();
+                setting.setClient(importEntity.getClient());
+                setting.setColumnLabel(colName);
+                setting.setColumnPosition(nextPosition);
+                setting.setColumnType(CrmInfoSetting.ColumnType.TEXT);
+                setting.setColumnVisible(true);
+                setting.setStatus(CrmInfoSetting.Status.ACTIVE);
+                crmInfoSettingRepository.save(setting);
+            }
+        }
+
+        // Remove accepted columns from unmatched list in errorsText
+        String errorsText = importEntity.getErrorsText();
+        if (errorsText != null && errorsText.trim().startsWith("{")) {
+            try {
+                Map<String, Object> wrapper = objectMapper.readValue(errorsText,
+                        new TypeReference<Map<String, Object>>() {});
+                Set<String> acceptedSet = new HashSet<>(columnNames);
+
+                Object unmatchedObj = wrapper.get("unmatchedColumns");
+                if (unmatchedObj instanceof List<?> list) {
+                    List<Map<String, Object>> remaining = new ArrayList<>();
+                    for (Object item : list) {
+                        if (item instanceof Map<?, ?> map) {
+                            Object name = map.get("name");
+                            if (name != null && !acceptedSet.contains(name.toString())) {
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> typedMap = (Map<String, Object>) map;
+                                remaining.add(typedMap);
+                            }
+                        }
+                    }
+                    if (remaining.isEmpty()) {
+                        wrapper.remove("unmatchedColumns");
+                    } else {
+                        wrapper.put("unmatchedColumns", remaining);
+                    }
+                }
+
+                importEntity.setErrorsText(objectMapper.writeValueAsString(wrapper));
+                importRepository.save(importEntity);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to update errorsText after accepting columns", e);
+            }
+        }
+
+        // Re-map accepted columns in TempImportUser records:
+        // Move data from customFields "unmatched_X" to crmFields "X"
+        List<TempImportUser> tempUsers = tempImportUserRepository.findByUserImportId(importId);
+        for (TempImportUser tempUser : tempUsers) {
+            Map<String, Object> customFields = tempUser.getCustomFields();
+            if (customFields == null) continue;
+
+            Map<String, String> crmFields = tempUser.getCrmFields();
+            if (crmFields == null) {
+                crmFields = new HashMap<>();
+            }
+
+            boolean changed = false;
+            for (String colName : columnNames) {
+                // The unmatched columns were stored with key = normalized column name
+                // in customFields during createTempImportUser
+                String unmatchedKey = normalizeColumnName(colName);
+                if (customFields.containsKey(unmatchedKey)) {
+                    crmFields.put(colName, String.valueOf(customFields.get(unmatchedKey)));
+                    customFields.remove(unmatchedKey);
+                    changed = true;
+                }
+                // Also check with "unmatched_" prefix in case stored that way
+                if (customFields.containsKey("unmatched_" + colName)) {
+                    crmFields.put(colName, String.valueOf(customFields.get("unmatched_" + colName)));
+                    customFields.remove("unmatched_" + colName);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                tempUser.setCrmFields(crmFields);
+                tempUser.setCustomFields(customFields.isEmpty() ? null : customFields);
+                tempImportUserRepository.save(tempUser);
+            }
         }
     }
 
@@ -664,13 +828,78 @@ public class ImportService {
     }
 
     /**
+     * Result of column mapping — separates known, CRM, and unmatched columns
+     */
+    private record ColumnMappingResult(
+            Map<Integer, String> mapping,
+            List<Map<String, Object>> unmatchedColumns
+    ) {}
+
+    /**
      * Map column headers to standard field names
      * PARIDAD RAILS: Detects CRM columns by matching against CrmInfoSetting labels
+     * Phase D: Now tracks unmatched columns for interactive selection
      */
-    private Map<Integer, String> mapColumns(String[] headers, Long clientId) {
+    private ColumnMappingResult mapColumnsWithDetection(String[] headers, Long clientId) {
         Map<Integer, String> mapping = new HashMap<>();
+        List<Map<String, Object>> unmatchedColumns = new ArrayList<>();
 
         // Fetch CRM labels for this client (case-insensitive lookup)
+        Set<String> crmLabels = new HashSet<>();
+        if (clientId != null) {
+            crmInfoSettingRepository.findByClientIdAndStatusOrderByColumnPositionAsc(
+                    clientId, CrmInfoSetting.Status.ACTIVE)
+                    .forEach(s -> crmLabels.add(s.getColumnLabel().toLowerCase().trim()));
+        }
+
+        // Collect all known standard field names
+        Set<String> knownFields = new HashSet<>(COLUMN_ALIASES.values());
+
+        for (int i = 0; i < headers.length; i++) {
+            String headerOriginal = headers[i].trim();
+            String header = normalizeColumnName(headerOriginal);
+            String mappedField = COLUMN_ALIASES.get(header);
+
+            if (mappedField != null) {
+                // Known standard field
+                mapping.put(i, mappedField);
+            } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
+                // CRM field detected by label match
+                mapping.put(i, "crm_" + headerOriginal);
+            } else if (!header.isEmpty()) {
+                // Unmatched column — not a known field and not an existing CRM setting
+                mapping.put(i, "unmatched_" + headerOriginal);
+                Map<String, Object> col = new HashMap<>();
+                col.put("index", i);
+                col.put("name", headerOriginal);
+                unmatchedColumns.add(col);
+            }
+        }
+
+        return new ColumnMappingResult(mapping, unmatchedColumns);
+    }
+
+    /**
+     * Convenience wrapper that discards unmatched info (for backward compat)
+     */
+    private Map<Integer, String> mapColumns(String[] headers, Long clientId) {
+        return mapColumnsWithDetection(headers, clientId).mapping();
+    }
+
+    /**
+     * Map FOH-specific columns with CRM detection
+     * Phase E: FOH also uses CrmInfoSetting for extra columns
+     */
+    private ColumnMappingResult mapFohColumnsWithDetection(String[] headers, Long clientId) {
+        Map<Integer, String> mapping = new HashMap<>();
+        List<Map<String, Object>> unmatchedColumns = new ArrayList<>();
+
+        // FOH-specific known fields
+        Set<String> fohKnownFields = new HashSet<>(COLUMN_ALIASES.values());
+        fohKnownFields.add("agent_name");
+        fohKnownFields.add("phone_order");
+
+        // Fetch CRM labels for this client
         Set<String> crmLabels = new HashSet<>();
         if (clientId != null) {
             crmInfoSettingRepository.findByClientIdAndStatusOrderByColumnPositionAsc(
@@ -681,29 +910,6 @@ public class ImportService {
         for (int i = 0; i < headers.length; i++) {
             String headerOriginal = headers[i].trim();
             String header = normalizeColumnName(headerOriginal);
-            String mappedField = COLUMN_ALIASES.get(header);
-
-            if (mappedField != null) {
-                mapping.put(i, mappedField);
-            } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
-                // CRM field detected by label match
-                mapping.put(i, "crm_" + headerOriginal);
-            } else {
-                mapping.put(i, header);
-            }
-        }
-
-        return mapping;
-    }
-
-    /**
-     * Map FOH-specific columns
-     */
-    private Map<Integer, String> mapFohColumns(String[] headers) {
-        Map<Integer, String> mapping = new HashMap<>();
-
-        for (int i = 0; i < headers.length; i++) {
-            String header = normalizeColumnName(headers[i]);
 
             // FOH-specific mappings
             if (header.contains("agente") || header.contains("agent")) {
@@ -711,12 +917,29 @@ public class ImportService {
             } else if (header.contains("orden") || header.contains("order")) {
                 mapping.put(i, "phone_order");
             } else {
-                String mappedField = COLUMN_ALIASES.getOrDefault(header, header);
-                mapping.put(i, mappedField);
+                String mappedField = COLUMN_ALIASES.get(header);
+                if (mappedField != null) {
+                    mapping.put(i, mappedField);
+                } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
+                    mapping.put(i, "crm_" + headerOriginal);
+                } else if (!header.isEmpty()) {
+                    mapping.put(i, "unmatched_" + headerOriginal);
+                    Map<String, Object> col = new HashMap<>();
+                    col.put("index", i);
+                    col.put("name", headerOriginal);
+                    unmatchedColumns.add(col);
+                }
             }
         }
 
-        return mapping;
+        return new ColumnMappingResult(mapping, unmatchedColumns);
+    }
+
+    /**
+     * Convenience wrapper for backward compat
+     */
+    private Map<Integer, String> mapFohColumns(String[] headers) {
+        return mapFohColumnsWithDetection(headers, null).mapping();
     }
 
     /**
@@ -787,11 +1010,18 @@ public class ImportService {
             tempUser.setCrmFields(crmFields);
         }
 
+        // PARIDAD RAILS: Auto-generate email if empty — "#{phone}@#{client.name.parameterize}.com"
+        if ((tempUser.getEmail() == null || tempUser.getEmail().isEmpty()) && tempUser.getPhone() != null) {
+            String clientSlug = parameterize(importEntity.getClient().getName());
+            tempUser.setEmail(tempUser.getPhone() + "@" + clientSlug + ".com");
+        }
+
         return tempUser;
     }
 
     /**
      * Create FOH-specific TempImportUser
+     * PARIDAD RAILS: FOH overrides email to phone@foh.com, defaults role and phoneCode
      */
     private TempImportUser createFohTempImportUser(Import importEntity,
                                                     Map<Integer, String> columnMapping,
@@ -812,18 +1042,28 @@ public class ImportService {
             }
         }
 
+        // PARIDAD RAILS: FOH email override — phone@foh.com
+        if (tempUser.getPhone() != null) {
+            tempUser.setEmail(tempUser.getPhone() + "@foh.com");
+        }
+
+        // PARIDAD RAILS: Default role to standard if empty
+        if (tempUser.getRole() == null || tempUser.getRole().isBlank()) {
+            tempUser.setRole("standard");
+        }
+
+        // PARIDAD RAILS: Default phoneCode to 51 (Peru) if empty
+        if (tempUser.getPhoneCode() == null || tempUser.getPhoneCode().isBlank()) {
+            tempUser.setPhoneCode("51");
+        }
+
         return tempUser;
     }
 
     /**
-     * Match FOH agent by name - PARIDAD RAILS
-     * Returns agent EMAIL (not phone) to match Rails behavior
-     * Source: Rails Import.match_foh_agent (lines 17-44)
-     *
-     * PARIDAD RAILS:
-     * 1. Primero busca en el mapeo hardcodeado (case statement en Rails)
-     * 2. Si no encuentra, busca por import_string en la base de datos
-     * 3. Retorna EMAIL del agente (no teléfono)
+     * Match FOH agent by name — DB-only lookup via import_string
+     * PREREQUISITE: Agents must have their import_string field populated in the DB.
+     * Returns agent EMAIL or empty string if not found.
      */
     private String matchFohAgent(TempImportUser tempUser, Long clientId) {
         Map<String, Object> customFields = tempUser.getCustomFields();
@@ -832,78 +1072,96 @@ public class ImportService {
         String agentName = (String) customFields.get("agent_name");
         if (agentName == null || agentName.isEmpty()) return null;
 
-        // Normalize and match
         String trimmedName = agentName.trim();
-        String normalizedName = trimmedName.toUpperCase();
 
-        // 1. Direct match in hardcoded mapping (Rails case statement)
-        if (FOH_AGENT_MAPPING.containsKey(trimmedName)) {
-            return FOH_AGENT_MAPPING.get(trimmedName);
-        }
-        if (FOH_AGENT_MAPPING.containsKey(normalizedName)) {
-            return FOH_AGENT_MAPPING.get(normalizedName);
-        }
-
-        // 2. Partial match in mapping
-        for (Map.Entry<String, String> entry : FOH_AGENT_MAPPING.entrySet()) {
-            if (normalizedName.contains(entry.getKey().toUpperCase()) ||
-                    entry.getKey().toUpperCase().contains(normalizedName)) {
-                return entry.getValue();
-            }
-        }
-
-        // 3. PARIDAD RAILS: Fallback - buscar por import_string en la base de datos
-        // Rails: found_user = User.find_by(import_string: trimmed_email)
         Optional<User> foundUser = userRepository.findByImportStringAndClientId(trimmedName, clientId);
-        if (foundUser.isPresent()) {
-            return foundUser.get().getEmail();
-        }
-
-        // No match found - return empty string like Rails
-        return "";
+        return foundUser.map(User::getEmail).orElse("");
     }
 
     /**
      * Validate TempImportUser
+     * PARIDAD RAILS: validate_temp_import_users — full validation including name, manager, email uniqueness
      */
     private List<String> validateTempUser(TempImportUser tempUser, Long clientId) {
         List<String> errors = new ArrayList<>();
 
         // Required field validation
         if (tempUser.getPhone() == null || tempUser.getPhone().isEmpty()) {
-            errors.add("Phone is required");
+            errors.add("El teléfono no puede estar en blanco");
+        }
+
+        // B1: Require firstName and lastName
+        if (tempUser.getFirstName() == null || tempUser.getFirstName().isBlank()) {
+            errors.add("El nombre no puede estar en blanco");
+        }
+        if (tempUser.getLastName() == null || tempUser.getLastName().isBlank()) {
+            errors.add("El apellido no puede estar en blanco");
         }
 
         // Phone format validation
         if (tempUser.getPhone() != null && !isValidPhone(tempUser.getPhone())) {
-            errors.add("Invalid phone format: " + tempUser.getPhone());
+            errors.add("Formato de teléfono inválido: " + tempUser.getPhone());
         }
 
         // Email format validation
         if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty() &&
                 !isValidEmail(tempUser.getEmail())) {
-            errors.add("Invalid email format: " + tempUser.getEmail());
+            errors.add("Formato de email inválido: " + tempUser.getEmail());
         }
 
-        // Check for duplicate phone in database
-        if (tempUser.getPhone() != null) {
-            String normalizedPhone = tempUser.getNormalizedPhone();
-            if (userRepository.findByPhoneAndClientId(normalizedPhone, clientId).isPresent()) {
-                errors.add("User with phone " + tempUser.getPhone() + " already exists");
-            }
-        }
+        // Check for duplicate phone in database (existing user = update, not error)
+        // NOTE: Removed — duplicate phone means UPDATE, not an error in Rails parity.
+        // The createOrUpdateUser method handles updates.
 
-        // Check for duplicate in same import
+        // Check for duplicate phone in same import
         if (tempUser.getPhone() != null && tempUser.getUserImport() != null) {
             List<TempImportUser> duplicates = tempImportUserRepository.findByImportAndPhone(
                     tempUser.getUserImport().getId(), tempUser.getPhone());
-            // Exclude self
             duplicates = duplicates.stream()
                     .filter(d -> !Objects.equals(d.getId(), tempUser.getId()))
                     .toList();
             if (!duplicates.isEmpty()) {
-                // PARIDAD RAILS: Usar phoneOrder como indicador de fila
-                errors.add("Duplicate phone in import: row " + duplicates.get(0).getPhoneOrder());
+                errors.add("Teléfono duplicado en importación: fila " + duplicates.get(0).getPhoneOrder());
+            }
+        }
+
+        // B3: Check for duplicate email in same import
+        if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty() && tempUser.getUserImport() != null) {
+            List<TempImportUser> emailDuplicates = tempImportUserRepository.findByImportAndEmail(
+                    tempUser.getUserImport().getId(), tempUser.getEmail());
+            emailDuplicates = emailDuplicates.stream()
+                    .filter(d -> !Objects.equals(d.getId(), tempUser.getId()))
+                    .toList();
+            if (!emailDuplicates.isEmpty()) {
+                errors.add("Email duplicado en importación: " + tempUser.getEmail());
+            }
+
+            // Check email uniqueness in DB (only if not the same user being updated by phone)
+            Optional<User> existingByEmail = userRepository.findByEmailAndClientId(tempUser.getEmail(), clientId);
+            if (existingByEmail.isPresent()) {
+                // If this phone resolves to the same user, it's an update — no error
+                boolean isSameUser = tempUser.getPhone() != null &&
+                        existingByEmail.get().getPhone() != null &&
+                        existingByEmail.get().getPhone().equals(tempUser.getNormalizedPhone());
+                if (!isSameUser) {
+                    errors.add("El email ya está en uso por otro usuario: " + tempUser.getEmail());
+                }
+            }
+        }
+
+        // B2: Validate manager exists
+        if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isBlank()) {
+            String managerEmail = tempUser.getManagerEmail().trim();
+            Optional<User> managerByEmail = userRepository.findByEmailAndClientId(managerEmail, clientId);
+            if (managerByEmail.isEmpty()) {
+                // Fallback: search by import_string
+                Optional<User> managerByImportString = userRepository.findByImportStringAndClientId(managerEmail, clientId);
+                if (managerByImportString.isPresent()) {
+                    // Update tempUser's managerEmail to the real email
+                    tempUser.setManagerEmail(managerByImportString.get().getEmail());
+                } else {
+                    errors.add("El agente asignado no existe: " + managerEmail);
+                }
             }
         }
 
@@ -912,15 +1170,20 @@ public class ImportService {
 
     /**
      * Create or update user from TempImportUser
+     * PARIDAD RAILS: create_user_import_worker.rb — aplica TODOS los campos del CSV
      */
     private void createOrUpdateUser(Import importEntity, TempImportUser tempUser) {
         String normalizedPhone = tempUser.getNormalizedPhone();
+        Long clientId = importEntity.getClient().getId();
+        String importType = importEntity.getImportType() != null
+                ? importEntity.getImportType().name().toLowerCase() : "users";
 
         // Check if user exists
-        Optional<User> existingUser = userRepository.findByPhoneAndClientId(
-                normalizedPhone, importEntity.getClient().getId());
+        Optional<User> existingUser = userRepository.findByPhoneAndClientId(normalizedPhone, clientId);
 
         User user;
+        boolean isNewUser = existingUser.isEmpty();
+
         if (existingUser.isPresent()) {
             user = existingUser.get();
             // Update existing user
@@ -935,29 +1198,59 @@ public class ImportService {
             user.setFirstName(tempUser.getFirstName());
             user.setLastName(tempUser.getLastName());
             user.setEmail(tempUser.getEmail());
+
+            // PARIDAD RAILS: New users need encrypted_password (NOT NULL constraint)
+            String randomPassword = UUID.randomUUID().toString().substring(0, 12);
+            user.setEncryptedPassword(passwordEncoder.encode(randomPassword));
+            user.setUuidToken(UUID.randomUUID().toString());
         }
+
+        // PARIDAD RAILS: Apply role from CSV
+        if (tempUser.getRole() != null && !tempUser.getRole().isBlank()) {
+            user.setRole(UserRole.fromString(tempUser.getRole()));
+        } else if (isNewUser) {
+            user.setRole(UserRole.STANDARD);
+        }
+
+        // PARIDAD RAILS: Apply codigo from CSV
+        if (tempUser.getCodigo() != null && !tempUser.getCodigo().isBlank()) {
+            user.setCodigo(tempUser.getCodigo());
+        }
+
+        // PARIDAD RAILS: Apply importId
+        user.setImportId(importEntity.getId());
 
         // Set manager if specified
         if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isEmpty()) {
-            userRepository.findByEmailAndClientId(tempUser.getManagerEmail(), importEntity.getClient().getId())
+            userRepository.findByEmailAndClientId(tempUser.getManagerEmail(), clientId)
                     .ifPresent(user::setManager);
         }
 
-        // Set CRM fields in customFields for FOH compatibility
-        if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
-            Map<String, Object> customFields = user.getCustomFields();
-            if (customFields == null) {
-                customFields = new HashMap<>();
+        // FOH imports: store CRM fields in customFields (JSONB)
+        if ("foh".equalsIgnoreCase(importType)) {
+            if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
+                Map<String, Object> customFields = user.getCustomFields();
+                if (customFields == null) {
+                    customFields = new HashMap<>();
+                }
+                customFields.putAll(tempUser.getCustomFields());
+                user.setCustomFields(customFields);
             }
-            customFields.putAll(tempUser.getCrmFields());
-            user.setCustomFields(customFields);
+            if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
+                Map<String, Object> customFields = user.getCustomFields();
+                if (customFields == null) {
+                    customFields = new HashMap<>();
+                }
+                customFields.putAll(tempUser.getCrmFields());
+                user.setCustomFields(customFields);
+            }
         }
 
         userRepository.save(user);
 
-        // PARIDAD RAILS: Create CrmInfo records (user.crm_infos.destroy_all + rebuild)
-        if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
-            Long clientId = importEntity.getClient().getId();
+        // Standard imports: create CrmInfo records
+        if (!"foh".equalsIgnoreCase(importType) && tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
+            // PARIDAD RAILS: user.crm_infos.destroy_all + rebuild
             crmInfoRepository.deleteByUserId(user.getId());
 
             for (Map.Entry<String, String> entry : tempUser.getCrmFields().entrySet()) {
@@ -982,6 +1275,23 @@ public class ImportService {
                 }
             }
         }
+    }
+
+    /**
+     * Convert string to URL-friendly slug
+     * PARIDAD RAILS: ActiveSupport parameterize — "Financiera Oh" → "financiera_oh"
+     */
+    private String parameterize(String input) {
+        if (input == null || input.isBlank()) return "import";
+        return input.trim().toLowerCase()
+                .replaceAll("[áàäâ]", "a")
+                .replaceAll("[éèëê]", "e")
+                .replaceAll("[íìïî]", "i")
+                .replaceAll("[óòöô]", "o")
+                .replaceAll("[úùüû]", "u")
+                .replaceAll("[ñ]", "n")
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_|_$", "");
     }
 
     /**
@@ -1134,9 +1444,29 @@ public class ImportService {
                 csv.append('\n');
             }
             case "foh" -> {
-                csv.append("phone,first_name,last_name,agent_name,phone_order\n");
-                csv.append("987654321,Juan,Perez,ANDREA GARCIA,1\n");
-                csv.append("987654322,Maria,Garcia,BRENDA GONZALEZ,2\n");
+                // Phase E3: Dynamic FOH sample with CRM columns
+                List<CrmInfoSetting> fohCrmSettings = clientId != null ?
+                        crmInfoSettingRepository.findByClientIdAndStatusOrderByColumnPositionAsc(
+                                clientId, CrmInfoSetting.Status.ACTIVE) :
+                        List.of();
+
+                csv.append("phone,first_name,last_name,agent_name,phone_order");
+                for (CrmInfoSetting setting : fohCrmSettings) {
+                    csv.append(',').append(setting.getColumnLabel());
+                }
+                csv.append('\n');
+
+                csv.append("987654321,Juan,Perez,ANDREA GARCIA,1");
+                for (int i = 0; i < fohCrmSettings.size(); i++) {
+                    csv.append(",Valor ").append(i + 1);
+                }
+                csv.append('\n');
+
+                csv.append("987654322,Maria,Garcia,BRENDA GONZALEZ,2");
+                for (int i = 0; i < fohCrmSettings.size(); i++) {
+                    csv.append(",Valor ").append(i + 1);
+                }
+                csv.append('\n');
             }
             case "prospect" -> {
                 csv.append("phone,first_name,last_name,email,company,notes\n");

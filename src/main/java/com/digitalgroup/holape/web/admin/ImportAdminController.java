@@ -140,9 +140,20 @@ public class ImportAdminController {
     /**
      * Confirm validated import and start processing
      * Equivalent to Rails: Admin::ImportsController#create_import_user
+     * Phase F3: Accepts sendInvitationEmail parameter (actual sending deferred to future)
      */
     @PostMapping("/{id}/confirm")
-    public ResponseEntity<Map<String, Object>> confirm(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> confirm(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> body) {
+
+        boolean sendInvitationEmail = false;
+        if (body != null && body.containsKey("sendInvitationEmail")) {
+            sendInvitationEmail = Boolean.TRUE.equals(body.get("sendInvitationEmail"));
+        }
+
+        // TODO: Pass sendInvitationEmail to processImport when email sending is implemented
+        log.info("Confirming import {} with sendInvitationEmail={}", id, sendInvitationEmail);
         importService.confirmImport(id);
 
         return ResponseEntity.ok(Map.of(
@@ -154,6 +165,7 @@ public class ImportAdminController {
     /**
      * Get validated users preview before processing
      * Equivalent to Rails: Admin::ImportsController#validated_import_user
+     * Phase D: Includes unmatchedColumns for interactive column selection
      */
     @GetMapping("/{id}/validated_users")
     public ResponseEntity<Map<String, Object>> validatedUsers(
@@ -190,7 +202,35 @@ public class ImportAdminController {
         response.put("status", progress.get("status"));
         response.put("tempUsers", tempUsersList);
 
+        // Phase D: Include unmatched columns for interactive selection
+        List<Map<String, Object>> unmatchedColumns = importService.getUnmatchedColumns(id);
+        if (!unmatchedColumns.isEmpty()) {
+            response.put("unmatchedColumns", unmatchedColumns);
+        }
+
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Accept selected unmatched columns — creates CrmInfoSettings and re-maps data
+     * Phase D: Interactive column selection endpoint
+     */
+    @PostMapping("/{id}/accept_columns")
+    public ResponseEntity<Map<String, Object>> acceptColumns(
+            @PathVariable Long id,
+            @RequestBody Map<String, List<String>> body) {
+
+        List<String> columns = body.getOrDefault("columns", List.of());
+        if (columns.isEmpty()) {
+            return ResponseEntity.ok(Map.of("result", "success", "message", "No columns to accept"));
+        }
+
+        importService.acceptUnmatchedColumns(id, columns);
+
+        return ResponseEntity.ok(Map.of(
+                "result", "success",
+                "message", columns.size() + " column(s) accepted as CRM fields"
+        ));
     }
 
     /**

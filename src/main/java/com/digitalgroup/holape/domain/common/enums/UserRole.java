@@ -30,6 +30,28 @@ public enum UserRole {
         throw new IllegalArgumentException("Unknown UserRole value: " + value);
     }
 
+    /**
+     * Parse role from string name (case-insensitive).
+     * PARIDAD RAILS: Import CSV may contain role names like "standard", "agent", etc.
+     * Returns STANDARD for null/blank/unknown values.
+     */
+    public static UserRole fromString(String roleName) {
+        if (roleName == null || roleName.isBlank()) return STANDARD;
+        return switch (roleName.trim().toLowerCase()) {
+            case "standard" -> STANDARD;
+            case "super_admin" -> SUPER_ADMIN;
+            case "admin" -> ADMIN;
+            case "manager_level_1" -> MANAGER_LEVEL_1;
+            case "manager_level_2" -> MANAGER_LEVEL_2;
+            case "manager_level_3" -> MANAGER_LEVEL_3;
+            case "manager_level_4" -> MANAGER_LEVEL_4;
+            case "agent" -> AGENT;
+            case "staff" -> STAFF;
+            case "whatsapp_business" -> WHATSAPP_BUSINESS;
+            default -> STANDARD;
+        };
+    }
+
     public boolean isAdmin() {
         return this == SUPER_ADMIN || this == ADMIN;
     }
