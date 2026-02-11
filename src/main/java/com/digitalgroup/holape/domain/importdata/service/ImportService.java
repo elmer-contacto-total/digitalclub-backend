@@ -422,6 +422,9 @@ public class ImportService {
         List<Map<String, Object>> errors = parseErrorsText(importEntity.getErrorsText());
         int successCount = 0;
 
+        // Auto-sync: create CrmInfoSettings for any new custom_field keys
+        syncCrmInfoSettings(importEntity.getClient(), validUsers);
+
         // PARIDAD RAILS: Deshabilitar auditoría durante imports (without_auditing block)
         try {
             AuditEntityListener.disableAuditing();
@@ -862,8 +865,8 @@ public class ImportService {
                 // Known standard field
                 mapping.put(i, mappedField);
             } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
-                // CRM field detected by label match
-                mapping.put(i, "crm_" + headerOriginal);
+                // CRM field detected by label match → suggest as custom_field
+                mapping.put(i, "custom_field:" + headerOriginal);
             } else if (!header.isEmpty()) {
                 // Unmatched column — not a known field and not an existing CRM setting
                 mapping.put(i, "unmatched_" + headerOriginal);
@@ -919,7 +922,8 @@ public class ImportService {
                 if (mappedField != null) {
                     mapping.put(i, mappedField);
                 } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
-                    mapping.put(i, "crm_" + headerOriginal);
+                    // CRM field detected by label match → suggest as custom_field
+                    mapping.put(i, "custom_field:" + headerOriginal);
                 } else if (!header.isEmpty()) {
                     mapping.put(i, "unmatched_" + headerOriginal);
                     Map<String, Object> col = new HashMap<>();
@@ -1565,8 +1569,8 @@ public class ImportService {
             // Determine suggestion — filter out unmatched_ prefixed as "no suggestion"
             String mapped = autoMapping.get(i);
             if (mapped != null && !mapped.startsWith("unmatched_")) {
-                if (mapped.startsWith("crm_")) {
-                    col.put("suggestion", "crm");
+                if (mapped.startsWith("custom_field:")) {
+                    col.put("suggestion", "custom_field");
                 } else {
                     col.put("suggestion", mapped);
                 }
@@ -1780,6 +1784,65 @@ public class ImportService {
 
         // Trigger async processing
         processImportAsync(importId);
+    }
+
+    // ========== CRM Info Settings Auto-Sync ==========
+
+    /**
+     * Auto-create CrmInfoSettings for custom_field keys that don't have one yet.
+     * Called before user creation so that new fields are immediately visible in CRM settings UI.
+     * Handles concurrent imports by checking existence before creating (idempotent).
+     */
+    private void syncCrmInfoSettings(Client client, List<TempImportUser> tempUsers) {
+        Long clientId = client.getId();
+
+        // Collect all unique field keys from customFields and crmFields across all temp users
+        Set<String> allFieldKeys = new LinkedHashSet<>();
+        for (TempImportUser tempUser : tempUsers) {
+            if (tempUser.getCustomFields() != null) {
+                allFieldKeys.addAll(tempUser.getCustomFields().keySet());
+            }
+            if (tempUser.getCrmFields() != null) {
+                allFieldKeys.addAll(tempUser.getCrmFields().keySet());
+            }
+        }
+
+        if (allFieldKeys.isEmpty()) return;
+
+        // Fetch existing CrmInfoSettings for this client (all, not just active)
+        Set<String> existingLabels = new HashSet<>();
+        crmInfoSettingRepository.findByClientIdOrderByColumnPositionAsc(clientId)
+                .forEach(s -> existingLabels.add(s.getColumnLabel()));
+
+        // Find keys that don't have a CrmInfoSetting yet
+        List<String> newKeys = allFieldKeys.stream()
+                .filter(key -> !existingLabels.contains(key))
+                .toList();
+
+        if (newKeys.isEmpty()) return;
+
+        // Get current max position for this client
+        Integer maxPos = crmInfoSettingRepository.findMaxPositionByClient(clientId);
+        int nextPosition = (maxPos != null ? maxPos : 0) + 1;
+
+        for (String key : newKeys) {
+            // Double-check existence (handles concurrent imports)
+            Optional<CrmInfoSetting> existing = crmInfoSettingRepository
+                    .findByClientIdAndColumnLabel(clientId, key);
+
+            if (existing.isEmpty()) {
+                CrmInfoSetting setting = new CrmInfoSetting();
+                setting.setClient(client);
+                setting.setColumnLabel(key);
+                setting.setColumnPosition(nextPosition++);
+                setting.setColumnType(CrmInfoSetting.ColumnType.TEXT);
+                setting.setColumnVisible(true);
+                setting.setStatus(CrmInfoSetting.Status.ACTIVE);
+                crmInfoSettingRepository.save(setting);
+                log.info("Auto-created CrmInfoSetting '{}' for client {} (position {})",
+                        key, clientId, setting.getColumnPosition());
+            }
+        }
     }
 
     // ========== Mapping Templates ==========
