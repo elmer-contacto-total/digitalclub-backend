@@ -51,10 +51,15 @@ public class CapturedMediaService {
             // Calculate SHA-256 hash
             String hash = calculateSha256(fileData);
 
-            // Check for duplicates
-            if (mediaRepository.existsBySha256Hash(hash)) {
-                log.info("[CapturedMediaService] Duplicate media ignored: {}", hash.substring(0, 16));
-                return Optional.empty();
+            // Check for existing file with same content — reuse S3 path, create new DB record
+            String filePath = null;
+            String publicUrl = null;
+            Optional<CapturedMedia> existingByHash = mediaRepository.findFirstBySha256Hash(hash);
+            if (existingByHash.isPresent()) {
+                // Same content already uploaded — reuse S3 file (no re-upload)
+                filePath = existingByHash.get().getFilePath();
+                publicUrl = existingByHash.get().getPublicUrl();
+                log.info("[CapturedMediaService] Reusing existing S3 file for duplicate content: {}", hash.substring(0, 16));
             }
 
             // Parse media type
@@ -66,29 +71,28 @@ public class CapturedMediaService {
                 mediaType = CapturedMediaType.IMAGE;
             }
 
-            // Generate storage path
-            LocalDateTime now = LocalDateTime.now();
-            String year = String.valueOf(now.getYear());
-            String month = String.format("%02d", now.getMonthValue());
-            String day = String.format("%02d", now.getDayOfMonth());
-            String extension = getExtension(request.getMimeType());
-            String storagePath = String.format("%s/%s/%s/%s/%s/%s.%s",
-                    request.getUserId(),
-                    mediaType.name().toLowerCase(),
-                    year, month, day,
-                    request.getMediaId(),
-                    extension
-            );
+            // Upload to storage (only if no existing file with same content)
+            if (filePath == null) {
+                LocalDateTime now = LocalDateTime.now();
+                String year = String.valueOf(now.getYear());
+                String month = String.format("%02d", now.getMonthValue());
+                String day = String.format("%02d", now.getDayOfMonth());
+                String extension = getExtension(request.getMimeType());
+                String storagePath = String.format("%s/%s/%s/%s/%s/%s.%s",
+                        request.getUserId(),
+                        mediaType.name().toLowerCase(),
+                        year, month, day,
+                        request.getMediaId(),
+                        extension
+                );
 
-            // Upload to storage
-            String filePath = null;
-            String publicUrl = null;
-            if (storageService.isEnabled()) {
-                filePath = storageService.upload(fileData, storagePath, request.getMimeType());
-                publicUrl = storageService.getPublicUrl(filePath);
-            } else {
-                log.warn("[CapturedMediaService] Storage not enabled, media will be saved without file");
-                filePath = storagePath; // Store path even if not actually uploaded
+                if (storageService.isEnabled()) {
+                    filePath = storageService.upload(fileData, storagePath, request.getMimeType());
+                    publicUrl = storageService.getPublicUrl(filePath);
+                } else {
+                    log.warn("[CapturedMediaService] Storage not enabled, media will be saved without file");
+                    filePath = storagePath;
+                }
             }
 
             // Parse capture timestamp

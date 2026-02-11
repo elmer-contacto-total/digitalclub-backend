@@ -32,6 +32,11 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
 
     boolean existsBySha256Hash(String sha256Hash);
 
+    /**
+     * Find first media with same SHA-256 hash (for reusing S3 file path on duplicate content)
+     */
+    Optional<CapturedMedia> findFirstBySha256Hash(String sha256Hash);
+
     long countByUserFingerprint(String userFingerprint);
 
     long countByMediaType(CapturedMediaType mediaType);
