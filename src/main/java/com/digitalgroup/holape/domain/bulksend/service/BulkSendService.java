@@ -9,6 +9,8 @@ import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRuleRepository
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
+import com.digitalgroup.holape.domain.message.entity.BulkMessage;
+import com.digitalgroup.holape.domain.message.repository.BulkMessageRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.BusinessException;
@@ -34,6 +36,7 @@ public class BulkSendService {
     private final BulkSendRuleRepository ruleRepository;
     private final UserRepository userRepository;
     private final ClientRepository clientRepository;
+    private final BulkMessageRepository bulkMessageRepository;
 
     private final Set<Long> pausedSends = ConcurrentHashMap.newKeySet();
     private final Set<Long> cancelledSends = ConcurrentHashMap.newKeySet();
@@ -192,6 +195,18 @@ public class BulkSendService {
             return Optional.empty();
         }
 
+        // Check daily limit for assigned agent
+        if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
+            BulkSendRule rules = getOrCreateRules(bulkSend.getClient().getId());
+            long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
+                    bulkSend.getAssignedAgent().getId(),
+                    LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
+            if (sentToday >= rules.getMaxDailyMessages()) {
+                log.info("Daily limit reached for agent {} ({}/{})", bulkSend.getAssignedAgent().getId(), sentToday, rules.getMaxDailyMessages());
+                return Optional.empty();
+            }
+        }
+
         // Start if still pending
         if ("PENDING".equals(bulkSend.getStatus())) {
             bulkSend.setStatus("PROCESSING");
@@ -318,6 +333,14 @@ public class BulkSendService {
                     .map(List::of)
                     .orElse(List.of());
         }
+    }
+
+    /**
+     * Find a BulkMessage by ID
+     */
+    public BulkMessage findBulkMessage(Long id) {
+        return bulkMessageRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkMessage", id));
     }
 
     /**

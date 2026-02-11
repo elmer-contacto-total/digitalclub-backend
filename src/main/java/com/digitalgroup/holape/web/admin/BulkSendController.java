@@ -28,6 +28,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -282,21 +285,85 @@ public class BulkSendController {
     }
 
     /**
+     * Create a BulkSend from a BulkMessage template text + provided recipients.
+     * The BulkMessage only provides the message text; recipients come from the request body.
+     */
+    @PostMapping("/from-bulk-message/{bulkMessageId}")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> createFromBulkMessage(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long bulkMessageId,
+            @RequestBody FromBulkMessageRequest request) {
+
+        com.digitalgroup.holape.domain.message.entity.BulkMessage bulkMessage =
+                bulkSendService.findBulkMessage(bulkMessageId);
+
+        if (request.recipients() == null || request.recipients().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Se requiere al menos un destinatario"));
+        }
+
+        List<BulkSendService.CsvRecipientDTO> recipients = request.recipients().stream()
+                .filter(r -> r.phone() != null && !r.phone().isBlank())
+                .map(r -> new BulkSendService.CsvRecipientDTO(r.phone(), r.name() != null ? r.name() : "", Map.of()))
+                .collect(Collectors.toList());
+
+        if (recipients.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No se encontraron destinatarios válidos"));
+        }
+
+        BulkSend bulkSend = bulkSendService.createFromCsv(
+                currentUser.getId(),
+                currentUser.getClientId(),
+                bulkMessage.getMessage(),
+                null, null, null, null,
+                recipients,
+                request.assignedAgentId()
+        );
+
+        log.info("BulkSend {} created from BulkMessage {} with {} recipients",
+                bulkSend.getId(), bulkMessageId, recipients.size());
+
+        return ResponseEntity.ok(Map.of(
+                "result", "success",
+                "bulk_send", mapBulkSendToResponse(bulkSend),
+                "message", "Envío masivo creado desde mensaje predefinido"
+        ));
+    }
+
+    /**
      * Get next pending recipient for Electron polling
      */
     @GetMapping("/{id}/next-recipient")
     public ResponseEntity<Map<String, Object>> nextRecipient(@PathVariable Long id) {
+        BulkSend bulkSend = bulkSendRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
+
         Optional<Map<String, Object>> next = bulkSendService.getNextRecipient(id);
 
         if (next.isEmpty()) {
-            return ResponseEntity.ok(Map.of(
-                    "has_next", false,
-                    "message", "No hay más destinatarios pendientes"
-            ));
+            Map<String, Object> emptyResponse = new HashMap<>();
+            emptyResponse.put("has_next", false);
+            emptyResponse.put("total_recipients", bulkSend.getTotalRecipients());
+            emptyResponse.put("message", "No hay más destinatarios pendientes");
+
+            // Check if it was due to daily limit
+            if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
+                BulkSendRule rules = bulkSendService.getOrCreateRules(bulkSend.getClient().getId());
+                long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
+                        bulkSend.getAssignedAgent().getId(),
+                        LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
+                if (sentToday >= rules.getMaxDailyMessages()) {
+                    emptyResponse.put("daily_limit_reached", true);
+                    emptyResponse.put("message", "Límite diario de mensajes alcanzado (" + rules.getMaxDailyMessages() + ")");
+                }
+            }
+
+            return ResponseEntity.ok(emptyResponse);
         }
 
         Map<String, Object> response = new HashMap<>(next.get());
         response.put("has_next", true);
+        response.put("total_recipients", bulkSend.getTotalRecipients());
         return ResponseEntity.ok(response);
     }
 
@@ -489,5 +556,15 @@ public class BulkSendController {
             Long recipientId,
             boolean success,
             String errorMessage
+    ) {}
+
+    public record FromBulkMessageRecipient(
+            String phone,
+            String name
+    ) {}
+
+    public record FromBulkMessageRequest(
+            List<FromBulkMessageRecipient> recipients,
+            Long assignedAgentId
     ) {}
 }

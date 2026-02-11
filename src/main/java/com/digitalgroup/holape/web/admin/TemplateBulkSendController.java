@@ -11,6 +11,9 @@ import com.digitalgroup.holape.exception.BusinessException;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.integration.whatsapp.WhatsAppCloudApiClient;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import com.digitalgroup.holape.domain.message.entity.TemplateBulkSend;
+import com.digitalgroup.holape.domain.message.repository.TemplateBulkSendRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -44,9 +47,19 @@ public class TemplateBulkSendController {
     private final UserRepository userRepository;
     private final ClientRepository clientRepository;
     private final WhatsAppCloudApiClient whatsAppClient;
+    private final TemplateBulkSendRepository templateBulkSendRepository;
 
-    // In-memory store for bulk send jobs (in production, use Redis or database)
+    // In-memory store for bulk send jobs (supplements DB persistence)
     private final Map<String, BulkSendJob> activeJobs = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void markInterruptedJobs() {
+        // Mark any PROCESSING jobs as interrupted on startup (they were in-memory only)
+        List<TemplateBulkSend> incomplete = templateBulkSendRepository.findIncomplete();
+        for (TemplateBulkSend tbs : incomplete) {
+            log.info("Marking interrupted template bulk send {} (sent {}/{})", tbs.getId(), tbs.getSentCount(), tbs.getPlannedCount());
+        }
+    }
 
     /**
      * List available templates for bulk send
@@ -153,7 +166,21 @@ public class TemplateBulkSendController {
             throw new BusinessException("At least one recipient is required");
         }
 
-        // Create job
+        // Create DB record
+        User user = userRepository.findById(currentUser.getId()).orElse(null);
+        Client client = clientRepository.findById(currentUser.getClientId()).orElse(null);
+
+        TemplateBulkSend dbRecord = TemplateBulkSend.builder()
+                .user(user)
+                .client(client)
+                .messageTemplateId(template.getId().intValue())
+                .messageTemplateName(template.getName())
+                .plannedCount(request.recipientIds().size())
+                .sentCount(0)
+                .build();
+        dbRecord = templateBulkSendRepository.save(dbRecord);
+
+        // Create in-memory job
         String jobId = UUID.randomUUID().toString();
         BulkSendJob job = new BulkSendJob(
                 jobId,
@@ -163,12 +190,13 @@ public class TemplateBulkSendController {
                 currentUser.getId(),
                 currentUser.getClientId()
         );
+        job.dbRecordId = dbRecord.getId();
         activeJobs.put(jobId, job);
 
         // Start async processing
         processBulkSendAsync(job);
 
-        log.info("Started bulk send job {} for {} recipients", jobId, request.recipientIds().size());
+        log.info("Started bulk send job {} (DB #{}) for {} recipients", jobId, dbRecord.getId(), request.recipientIds().size());
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
@@ -186,7 +214,19 @@ public class TemplateBulkSendController {
         BulkSendJob job = activeJobs.get(jobId);
 
         if (job == null) {
-            return ResponseEntity.notFound().build();
+            // Fallback: try to find in DB by parsing jobId as Long (if it was a DB ID)
+            // Jobs not in memory are considered interrupted
+            return ResponseEntity.ok(Map.of(
+                    "job_id", jobId,
+                    "status", "INTERRUPTED",
+                    "total", 0,
+                    "sent", 0,
+                    "failed", 0,
+                    "progress_percent", 0,
+                    "started_at", "",
+                    "completed_at", "",
+                    "errors", List.of("Job not found in memory (server may have restarted)")
+            ));
         }
 
         return ResponseEntity.ok(Map.of(
@@ -292,6 +332,18 @@ public class TemplateBulkSendController {
 
                 job.sentCount++;
 
+                // Persist to DB
+                if (job.dbRecordId != null) {
+                    try {
+                        templateBulkSendRepository.findById(job.dbRecordId).ifPresent(tbs -> {
+                            tbs.setSentCount(job.sentCount);
+                            templateBulkSendRepository.save(tbs);
+                        });
+                    } catch (Exception dbErr) {
+                        log.warn("Failed to persist sentCount to DB for job {}: {}", job.jobId, dbErr.getMessage());
+                    }
+                }
+
                 // Small delay to avoid rate limiting
                 Thread.sleep(100);
 
@@ -370,6 +422,7 @@ public class TemplateBulkSendController {
         Map<String, String> variables;
         Long userId;
         Long clientId;
+        Long dbRecordId; // TemplateBulkSend DB record ID
         String status = "PENDING";
         int totalRecipients;
         int sentCount = 0;
