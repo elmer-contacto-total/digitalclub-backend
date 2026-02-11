@@ -20,6 +20,8 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
 
     Optional<CapturedMedia> findByWhatsappMessageId(String whatsappMessageId);
 
+    List<CapturedMedia> findAllByWhatsappMessageId(String whatsappMessageId);
+
     List<CapturedMedia> findByChatPhoneAndMediaTypeInOrderByCapturedAtDesc(
             String chatPhone, List<CapturedMediaType> types);
 

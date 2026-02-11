@@ -184,20 +184,28 @@ public class CapturedMediaService {
      */
     @Transactional
     public Optional<CapturedMedia> markAsDeleted(String whatsappMessageId) {
-        Optional<CapturedMedia> mediaOpt = mediaRepository.findByWhatsappMessageId(whatsappMessageId);
-        if (mediaOpt.isPresent()) {
-            CapturedMedia media = mediaOpt.get();
-            if (!Boolean.TRUE.equals(media.getDeleted())) {
-                media.setDeleted(true);
-                media.setDeletedAt(LocalDateTime.now());
-                CapturedMedia saved = mediaRepository.save(media);
-                log.info("[CapturedMediaService] Media marked as deleted: whatsappMessageId={}", whatsappMessageId);
-                return Optional.of(saved);
-            }
-            log.info("[CapturedMediaService] Media already marked as deleted: whatsappMessageId={}", whatsappMessageId);
+        List<CapturedMedia> mediaList = mediaRepository.findAllByWhatsappMessageId(whatsappMessageId);
+        if (mediaList.isEmpty()) {
+            log.warn("[CapturedMediaService] Media not found for whatsappMessageId={}", whatsappMessageId);
             return Optional.empty();
         }
-        log.warn("[CapturedMediaService] Media not found for whatsappMessageId={}", whatsappMessageId);
+
+        CapturedMedia firstUpdated = null;
+        LocalDateTime now = LocalDateTime.now();
+        for (CapturedMedia media : mediaList) {
+            if (!Boolean.TRUE.equals(media.getDeleted())) {
+                media.setDeleted(true);
+                media.setDeletedAt(now);
+                CapturedMedia saved = mediaRepository.save(media);
+                if (firstUpdated == null) firstUpdated = saved;
+            }
+        }
+
+        if (firstUpdated != null) {
+            log.info("[CapturedMediaService] Marked {} media as deleted: whatsappMessageId={}", mediaList.size(), whatsappMessageId);
+            return Optional.of(firstUpdated);
+        }
+        log.info("[CapturedMediaService] Media already marked as deleted: whatsappMessageId={}", whatsappMessageId);
         return Optional.empty();
     }
 
