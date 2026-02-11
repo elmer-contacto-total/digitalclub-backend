@@ -346,11 +346,8 @@ public class ImportService {
                 TempImportUser tempUser = createFohTempImportUser(
                         importEntity, columnMapping, values, rowNumber);
 
-                // Match FOH agent - Retorna email directamente
-                String agentEmail = matchFohAgent(tempUser, importEntity.getClient().getId());
-                if (agentEmail != null && !agentEmail.isEmpty()) {
-                    tempUser.setManagerEmail(agentEmail);
-                }
+                // Agent linking is now handled generically by validateTempUser
+                // (manager_email → email lookup → import_string fallback)
 
                 List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
 
@@ -897,7 +894,7 @@ public class ImportService {
 
         // FOH-specific known fields
         Set<String> fohKnownFields = new HashSet<>(COLUMN_ALIASES.values());
-        fohKnownFields.add("agent_name");
+        fohKnownFields.add("manager_email");
         fohKnownFields.add("phone_order");
 
         // Fetch CRM labels for this client
@@ -912,9 +909,9 @@ public class ImportService {
             String headerOriginal = headers[i].trim();
             String header = normalizeColumnName(headerOriginal);
 
-            // FOH-specific mappings
+            // FOH-specific mappings — agent columns map to unified manager_email
             if (header.contains("agente") || header.contains("agent")) {
-                mapping.put(i, "agent_name");
+                mapping.put(i, "manager_email");
             } else if (header.contains("orden") || header.contains("order")) {
                 mapping.put(i, "phone_order");
             } else {
@@ -1001,7 +998,7 @@ public class ImportService {
                 case "email" -> tempUser.setEmail(value.toLowerCase());
                 case "codigo" -> tempUser.setCodigo(value);
                 case "role" -> tempUser.setRole(value);
-                case "manager_email" -> tempUser.setManagerEmail(value.toLowerCase());
+                case "manager_email" -> tempUser.setManagerEmail(value.trim());
                 default -> {
                     if (field.startsWith("custom_field:")) {
                         // Explicit custom field: use header name as key
@@ -1071,24 +1068,6 @@ public class ImportService {
         }
 
         return tempUser;
-    }
-
-    /**
-     * Match FOH agent by name — DB-only lookup via import_string
-     * PREREQUISITE: Agents must have their import_string field populated in the DB.
-     * Returns agent EMAIL or empty string if not found.
-     */
-    private String matchFohAgent(TempImportUser tempUser, Long clientId) {
-        Map<String, Object> customFields = tempUser.getCustomFields();
-        if (customFields == null) return null;
-
-        String agentName = (String) customFields.get("agent_name");
-        if (agentName == null || agentName.isEmpty()) return null;
-
-        String trimmedName = agentName.trim();
-
-        Optional<User> foundUser = userRepository.findByImportStringAndClientId(trimmedName, clientId);
-        return foundUser.map(User::getEmail).orElse("");
     }
 
     /**
@@ -1744,10 +1723,7 @@ public class ImportService {
                 TempImportUser tempUser = createFohTempImportUser(
                         importEntity, columnMapping, values, rowNumber);
 
-                String agentEmail = matchFohAgent(tempUser, importEntity.getClient().getId());
-                if (agentEmail != null && !agentEmail.isEmpty()) {
-                    tempUser.setManagerEmail(agentEmail);
-                }
+                // Agent linking is now handled generically by validateTempUser
 
                 List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
 

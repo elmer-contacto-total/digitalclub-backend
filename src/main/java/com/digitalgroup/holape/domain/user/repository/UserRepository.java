@@ -175,9 +175,8 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query("SELECT u FROM User u WHERE u.codigo = :codigo AND u.client.id = :clientId")
     Optional<User> findByCodigoAndClientId(@Param("codigo") String codigo, @Param("clientId") Long clientId);
 
-    // PARIDAD RAILS: Find by import_string and client (for FOH agent matching fallback)
-    // Rails: User.find_by(import_string: trimmed_email)
-    @Query("SELECT u FROM User u WHERE u.importString = :importString AND u.client.id = :clientId")
+    // Find by import_string and client (case-insensitive, for agent linking)
+    @Query("SELECT u FROM User u WHERE LOWER(u.importString) = LOWER(:importString) AND u.client.id = :clientId")
     Optional<User> findByImportStringAndClientId(@Param("importString") String importString, @Param("clientId") Long clientId);
 
     // ==================== RAILS SCOPE EQUIVALENTS ====================
