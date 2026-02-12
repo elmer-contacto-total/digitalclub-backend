@@ -375,7 +375,7 @@ public class BulkSendController {
             @PathVariable Long id,
             @RequestBody RecipientResultRequest request) {
 
-        bulkSendService.reportRecipientResult(id, request.recipientId(), request.success(), request.errorMessage());
+        bulkSendService.reportRecipientResult(id, request.recipientId(), request.success(), request.errorMessage(), request.action());
 
         BulkSend bulkSend = bulkSendRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
@@ -555,7 +555,8 @@ public class BulkSendController {
     public record RecipientResultRequest(
             Long recipientId,
             boolean success,
-            String errorMessage
+            String errorMessage,
+            String action
     ) {}
 
     public record FromBulkMessageRecipient(

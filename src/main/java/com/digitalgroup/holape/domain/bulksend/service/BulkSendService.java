@@ -243,7 +243,7 @@ public class BulkSendService {
      * Report result for a recipient (Electron polling)
      */
     @Transactional
-    public void reportRecipientResult(Long bulkSendId, Long recipientId, boolean success, String errorMessage) {
+    public void reportRecipientResult(Long bulkSendId, Long recipientId, boolean success, String errorMessage, String action) {
         BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
 
@@ -257,6 +257,9 @@ public class BulkSendService {
         if (success) {
             recipient.markSent();
             bulkSend.incrementSent();
+        } else if ("SKIP".equals(action)) {
+            recipient.markSkipped(errorMessage);
+            bulkSend.incrementFailed();
         } else {
             recipient.markFailed(errorMessage);
             bulkSend.incrementFailed();
