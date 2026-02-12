@@ -212,8 +212,8 @@ public class ClientAdminController {
         Map<String, Object> whatsappConfig = new HashMap<>();
 
         String phoneNumberId = clientService.getClientSettingValue(id, "whatsapp_phone_number_id");
-        String businessAccountId = clientService.getClientSettingValue(id, "whatsapp_business_account_id");
-        String accessToken = clientService.getClientSettingValue(id, "whatsapp_access_token");
+        String businessAccountId = clientService.getClientSettingValueWithFallback(id, "whatsapp_business_account_id", "whatsapp_account_id");
+        String accessToken = clientService.getClientSettingValueWithFallback(id, "whatsapp_access_token", "whatsapp_api_token");
         String webhookVerifyToken = clientService.getClientSettingValue(id, "whatsapp_webhook_verify_token");
 
         whatsappConfig.put("whatsapp_phone_number_id", phoneNumberId);

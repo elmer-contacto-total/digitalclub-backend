@@ -35,7 +35,7 @@ public class WhatsAppCloudApiClient {
      */
     public Mono<WhatsAppResponse> sendTextMessage(Client client, String toPhone, String message) {
         String phoneNumberId = getClientSetting(client.getId(), "whatsapp_phone_number_id");
-        String accessToken = getClientSetting(client.getId(), "whatsapp_api_token");
+        String accessToken = getClientSettingWithFallback(client.getId(), "whatsapp_access_token", "whatsapp_api_token");
 
         if (phoneNumberId == null || accessToken == null) {
             log.error("WhatsApp not configured for client: {}", client.getId());
@@ -58,7 +58,7 @@ public class WhatsAppCloudApiClient {
                                                        String templateName, String language,
                                                        List<Map<String, Object>> components) {
         String phoneNumberId = getClientSetting(client.getId(), "whatsapp_phone_number_id");
-        String accessToken = getClientSetting(client.getId(), "whatsapp_api_token");
+        String accessToken = getClientSettingWithFallback(client.getId(), "whatsapp_access_token", "whatsapp_api_token");
 
         if (phoneNumberId == null || accessToken == null) {
             log.error("WhatsApp not configured for client: {}", client.getId());
@@ -108,7 +108,7 @@ public class WhatsAppCloudApiClient {
                                                     String mediaUrl, String mediaType,
                                                     String caption) {
         String phoneNumberId = getClientSetting(client.getId(), "whatsapp_phone_number_id");
-        String accessToken = getClientSetting(client.getId(), "whatsapp_api_token");
+        String accessToken = getClientSettingWithFallback(client.getId(), "whatsapp_access_token", "whatsapp_api_token");
 
         if (phoneNumberId == null || accessToken == null) {
             log.error("WhatsApp not configured for client: {}", client.getId());
@@ -143,7 +143,7 @@ public class WhatsAppCloudApiClient {
      */
     public Mono<Void> markMessageAsRead(Client client, String messageId) {
         String phoneNumberId = getClientSetting(client.getId(), "whatsapp_phone_number_id");
-        String accessToken = getClientSetting(client.getId(), "whatsapp_api_token");
+        String accessToken = getClientSettingWithFallback(client.getId(), "whatsapp_access_token", "whatsapp_api_token");
 
         if (phoneNumberId == null || accessToken == null) {
             return Mono.empty();
@@ -172,7 +172,7 @@ public class WhatsAppCloudApiClient {
      */
     public Mono<List<Map<String, Object>>> getAllTemplates(Client client) {
         String businessId = client.getWhatsappBusinessId();
-        String accessToken = getClientSetting(client.getId(), "whatsapp_api_token");
+        String accessToken = getClientSettingWithFallback(client.getId(), "whatsapp_access_token", "whatsapp_api_token");
 
         if (businessId == null || accessToken == null) {
             log.error("WhatsApp not configured for client: {}", client.getId());
@@ -214,6 +214,14 @@ public class WhatsAppCloudApiClient {
     private String getClientSetting(Long clientId, String name) {
         return clientSettingRepository.findStringValueByClientAndName(clientId, name)
                 .orElse(null);
+    }
+
+    private String getClientSettingWithFallback(Long clientId, String primary, String legacy) {
+        String value = clientSettingRepository.findStringValueByClientAndName(clientId, primary).orElse(null);
+        if (value == null || value.isBlank()) {
+            value = clientSettingRepository.findStringValueByClientAndName(clientId, legacy).orElse(null);
+        }
+        return value;
     }
 
     private String normalizePhone(String phone) {

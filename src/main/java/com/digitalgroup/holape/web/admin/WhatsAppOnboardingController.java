@@ -40,9 +40,9 @@ public class WhatsAppOnboardingController {
 
         Long clientId = currentUser.getClientId();
 
-        String accessToken = clientService.getClientSettingValue(clientId, "whatsapp_access_token");
+        String accessToken = clientService.getClientSettingValueWithFallback(clientId, "whatsapp_access_token", "whatsapp_api_token");
         String phoneNumberId = clientService.getClientSettingValue(clientId, "whatsapp_phone_number_id");
-        String businessAccountId = clientService.getClientSettingValue(clientId, "whatsapp_business_account_id");
+        String businessAccountId = clientService.getClientSettingValueWithFallback(clientId, "whatsapp_business_account_id", "whatsapp_account_id");
 
         boolean isConnected = accessToken != null && !accessToken.isEmpty();
 
@@ -97,7 +97,7 @@ public class WhatsAppOnboardingController {
             @AuthenticationPrincipal CustomUserDetails currentUser) {
 
         Long clientId = currentUser.getClientId();
-        String accessToken = clientService.getClientSettingValue(clientId, "whatsapp_access_token");
+        String accessToken = clientService.getClientSettingValueWithFallback(clientId, "whatsapp_access_token", "whatsapp_api_token");
 
         if (accessToken == null || accessToken.isEmpty()) {
             throw new BusinessException("Access token not found. Please exchange code first.");

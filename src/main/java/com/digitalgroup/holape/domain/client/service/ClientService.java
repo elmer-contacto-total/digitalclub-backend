@@ -114,6 +114,26 @@ public class ClientService {
         // 4. create_user_from_prospect = false
         setBooleanSettingIfNotExists(clientId, "create_user_from_prospect", false);
 
+        // 5. agents_go_offline = true
+        setBooleanSettingIfNotExists(clientId, "agents_go_offline",
+                "Los Agentes tienen horarios fuera de línea", true);
+
+        // 6-12. Horarios por día (Lun-Vie: "9am - 6pm", Sab-Dom: "")
+        setStringSettingIfNotExists(clientId, "online_monday",
+                "Horario en línea lunes (ej. 9am - 5pm)", "9am - 6pm");
+        setStringSettingIfNotExists(clientId, "online_tuesday",
+                "Horario en línea martes (ej. 9am - 5pm)", "9am - 6pm");
+        setStringSettingIfNotExists(clientId, "online_wednesday",
+                "Horario en línea miércoles (ej. 9am - 5pm)", "9am - 6pm");
+        setStringSettingIfNotExists(clientId, "online_thursday",
+                "Horario en línea jueves (ej. 9am - 5pm)", "9am - 6pm");
+        setStringSettingIfNotExists(clientId, "online_friday",
+                "Horario en línea viernes (ej. 9am - 5pm)", "9am - 6pm");
+        setStringSettingIfNotExists(clientId, "online_saturday",
+                "Horario en línea sábado (ej. en blanco)", "");
+        setStringSettingIfNotExists(clientId, "online_sunday",
+                "Horario en línea domingo (ej. en blanco)", "");
+
         log.debug("Created default settings for client {}", clientId);
     }
 
@@ -132,6 +152,30 @@ public class ClientService {
     private void setHashSettingIfNotExists(Long clientId, String name, Map<String, Object> value) {
         if (clientSettingRepository.findByClientIdAndName(clientId, name).isEmpty()) {
             setHashSetting(clientId, name, value);
+        }
+    }
+
+    private void setBooleanSettingIfNotExists(Long clientId, String name, String localizedName, Boolean value) {
+        if (clientSettingRepository.findByClientIdAndName(clientId, name).isEmpty()) {
+            ClientSetting setting = new ClientSetting();
+            setting.setClient(findById(clientId));
+            setting.setName(name);
+            setting.setLocalizedName(localizedName);
+            setting.setDataType(4); // Boolean
+            setting.setBooleanValue(value);
+            clientSettingRepository.save(setting);
+        }
+    }
+
+    private void setStringSettingIfNotExists(Long clientId, String name, String localizedName, String value) {
+        if (clientSettingRepository.findByClientIdAndName(clientId, name).isEmpty()) {
+            ClientSetting setting = new ClientSetting();
+            setting.setClient(findById(clientId));
+            setting.setName(name);
+            setting.setLocalizedName(localizedName);
+            setting.setDataType(0); // String
+            setting.setStringValue(value);
+            clientSettingRepository.save(setting);
         }
     }
 
@@ -189,6 +233,14 @@ public class ClientService {
         return clientSettingRepository.findByClientIdAndName(clientId, name)
                 .map(ClientSetting::getStringValue)
                 .orElse(null);
+    }
+
+    public String getClientSettingValueWithFallback(Long clientId, String primary, String legacy) {
+        String value = getClientSettingValue(clientId, primary);
+        if (value == null || value.isBlank()) {
+            value = getClientSettingValue(clientId, legacy);
+        }
+        return value;
     }
 
     public Integer getClientSettingIntValue(Long clientId, String name) {

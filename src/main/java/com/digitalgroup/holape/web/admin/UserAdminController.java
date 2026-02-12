@@ -2,7 +2,9 @@ package com.digitalgroup.holape.web.admin;
 
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.entity.ClientStructure;
+import com.digitalgroup.holape.domain.client.entity.ClientSetting;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
+import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
 import com.digitalgroup.holape.domain.audit.entity.Audit;
 import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
 import com.digitalgroup.holape.domain.common.enums.Status;
@@ -64,6 +66,7 @@ public class UserAdminController {
     private final ProspectRepository prospectRepository;
     private final TicketRepository ticketRepository;
     private final AuditRepository auditRepository;
+    private final ClientSettingRepository clientSettingRepository;
 
     /**
      * List users with standard REST pagination
@@ -792,6 +795,10 @@ public class UserAdminController {
         // Normalize phone (remove +, spaces, dashes)
         String normalizedPhone = phone.replaceAll("[^0-9]", "");
 
+        // Fetch ticket_close_types from client_settings (per client, not per contact)
+        // PARIDAD RAILS: @current_client.client_settings.find_by(name: 'ticket_close_types').hash_value
+        List<Map<String, String>> closeTypesMapped = fetchCloseTypes(currentUser.getClientId());
+
         // Search for user by phone within the current client
         Optional<User> userOpt = userRepository.findByPhoneAndClientId(normalizedPhone, currentUser.getClientId());
 
@@ -810,7 +817,10 @@ public class UserAdminController {
         }
 
         if (userOpt.isEmpty()) {
-            return ResponseEntity.ok(Map.of("found", false));
+            Map<String, Object> response = new HashMap<>();
+            response.put("found", false);
+            response.put("closeTypes", closeTypesMapped);
+            return ResponseEntity.ok(response);
         }
 
         User user = userOpt.get();
@@ -849,10 +859,46 @@ public class UserAdminController {
             contact.put("openTicketId", null);
         }
 
-        return ResponseEntity.ok(Map.of(
-                "found", true,
-                "contact", contact
-        ));
+        Map<String, Object> response = new HashMap<>();
+        response.put("found", true);
+        response.put("contact", contact);
+        response.put("closeTypes", closeTypesMapped);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Fetch ticket close types from client_settings
+     * PARIDAD RAILS: client_settings.find_by(name: 'ticket_close_types').hash_value
+     */
+    private List<Map<String, String>> fetchCloseTypes(Long clientId) {
+        List<Map<String, Object>> closeTypes = new ArrayList<>();
+        Optional<ClientSetting> closeTypesSetting = clientSettingRepository.findByClientIdAndName(
+                clientId, "ticket_close_types");
+        if (closeTypesSetting.isPresent() && closeTypesSetting.get().getHashValue() != null) {
+            Object hashValue = closeTypesSetting.get().getHashValue();
+            if (hashValue instanceof List<?> list) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> typesList = (List<Map<String, Object>>) list;
+                closeTypes = typesList;
+            } else if (hashValue instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typesMap = (Map<String, Object>) map;
+                if (typesMap.containsKey("types") && typesMap.get("types") instanceof List<?>) {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> typesList = (List<Map<String, Object>>) typesMap.get("types");
+                    closeTypes = typesList;
+                }
+            }
+        }
+
+        return closeTypes.stream()
+                .map(ct -> {
+                    Map<String, String> m = new HashMap<>();
+                    m.put("name", String.valueOf(ct.get("name")));
+                    m.put("kpiName", String.valueOf(ct.get("kpi_name")));
+                    return m;
+                })
+                .collect(Collectors.toList());
     }
 
     /**

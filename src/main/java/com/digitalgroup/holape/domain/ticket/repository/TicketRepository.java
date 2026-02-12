@@ -196,6 +196,19 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     // Find open tickets by agent (for migration verification)
     List<Ticket> findByAgentIdAndStatus(Long agentId, TicketStatus status);
 
+    // ==================== TICKET CLOSE PARITY ====================
+
+    /**
+     * Close all open tickets for a user
+     * PARIDAD RAILS: Ticket.where(user_id: ticket.user_id, status: 'open')
+     *   .update_all(status: 'closed', closed_at: Time.now, close_type: close_type)
+     */
+    @Modifying
+    @Query("UPDATE Ticket t SET t.status = com.digitalgroup.holape.domain.common.enums.TicketStatus.CLOSED, " +
+           "t.closedAt = CURRENT_TIMESTAMP, t.closeType = :closeType " +
+           "WHERE t.user.id = :userId AND t.status = com.digitalgroup.holape.domain.common.enums.TicketStatus.OPEN")
+    void closeAllOpenByUserId(@Param("userId") Long userId, @Param("closeType") String closeType);
+
     // ==================== RAILS PARITY QUERIES ====================
 
     /**

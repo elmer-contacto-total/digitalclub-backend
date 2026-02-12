@@ -92,12 +92,20 @@ public class TicketService {
         long tmoMinutes = calculateTmoMinutes(ticket);
         createKpiWithValue(ticket, KpiType.TMO, (int) tmoMinutes);
 
-        // Create specific close type KPI
-        if ("con_acuerdo".equals(closeType)) {
-            createKpi(ticket, KpiType.CLOSED_CON_ACUERDO);
-        } else if ("sin_acuerdo".equals(closeType)) {
-            createKpi(ticket, KpiType.CLOSED_SIN_ACUERDO);
+        // Create specific close type KPI (dynamic - supports any configured close type)
+        if (closeType != null && !closeType.isBlank()) {
+            String kpiName = closeType.startsWith("closed_") ? closeType : "closed_" + closeType;
+            try {
+                KpiType kpiType = KpiType.valueOf(kpiName.toUpperCase());
+                createKpi(ticket, kpiType);
+            } catch (IllegalArgumentException e) {
+                log.warn("Unknown KpiType for closeType '{}', skipping specific KPI", closeType);
+            }
         }
+
+        // PARIDAD RAILS: close ALL open tickets for the same user
+        // Rails: Ticket.where(user_id: ticket.user_id, status: 'open').update_all(...)
+        ticketRepository.closeAllOpenByUserId(ticket.getUser().getId(), closeType);
 
         // Update user's require_close_ticket flag
         User user = ticket.getUser();

@@ -143,7 +143,7 @@ public class MessageTemplateService {
         }
 
         // Get client WhatsApp settings
-        String accessToken = getClientSettingValue(template.getClient().getId(), "whatsapp_access_token");
+        String accessToken = getClientSettingValueWithFallback(template.getClient().getId(), "whatsapp_access_token", "whatsapp_api_token");
         if (accessToken == null || accessToken.isBlank()) {
             throw new BusinessException("WhatsApp access token not configured");
         }
@@ -169,8 +169,8 @@ public class MessageTemplateService {
      */
     @Transactional
     public int syncWithCloudApi(Long clientId) {
-        String accessToken = getClientSettingValue(clientId, "whatsapp_access_token");
-        String businessAccountId = getClientSettingValue(clientId, "whatsapp_business_account_id");
+        String accessToken = getClientSettingValueWithFallback(clientId, "whatsapp_access_token", "whatsapp_api_token");
+        String businessAccountId = getClientSettingValueWithFallback(clientId, "whatsapp_business_account_id", "whatsapp_account_id");
 
         if (accessToken == null || accessToken.isBlank() ||
             businessAccountId == null || businessAccountId.isBlank()) {
@@ -277,5 +277,13 @@ public class MessageTemplateService {
         return clientSettingRepository.findByClientIdAndName(clientId, settingName)
                 .map(ClientSetting::getStringValue)
                 .orElse(null);
+    }
+
+    private String getClientSettingValueWithFallback(Long clientId, String primary, String legacy) {
+        String value = getClientSettingValue(clientId, primary);
+        if (value == null || value.isBlank()) {
+            value = getClientSettingValue(clientId, legacy);
+        }
+        return value;
     }
 }

@@ -119,8 +119,8 @@ VALUES
     (8, 2, 'online_sunday', '8. Horario en línea domingo (ej. en blanco)', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (9, 2, 'ticket_close_types', 'Tipos de cierre de casos', false, 5, NULL, NULL, NULL, '[{"name": "Con Acuerdo", "kpi_name": "closed_con_acuerdo"}, {"name": "Sin Acuerdo", "kpi_name": "closed_sin_acuerdo"}]', 0, NOW(), NOW()),
     (10, 2, 'alert_time_not_responded_conversation', 'Tiempo en min para Alerta de Mensaje no Respondido', false, 1, NULL, 15, NULL, '{}', 0, NOW(), NOW()),
-    (11, 2, 'whatsapp_api_token', 'Token Whatsapp API', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
-    (12, 2, 'whatsapp_account_id', 'Id de la Cuenta Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
+    (11, 2, 'whatsapp_access_token', 'Token de Acceso Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
+    (12, 2, 'whatsapp_business_account_id', 'Id de la Cuenta Business Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (13, 2, 'whatsapp_phone_number_id', 'Id del número móvil Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (14, 2, 'create_user_from_prospect', 'Una comunicación de un prospecto crea a un usuario', true, 4, NULL, NULL, false, '{}', 0, NOW(), NOW()),
 
@@ -135,8 +135,8 @@ VALUES
     (22, 3, 'online_sunday', '8. Horario en línea domingo (ej. en blanco)', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (23, 3, 'ticket_close_types', 'Tipos de cierre de casos', false, 5, NULL, NULL, NULL, '[{"name": "Con Acuerdo", "kpi_name": "closed_con_acuerdo"}, {"name": "Sin Acuerdo", "kpi_name": "closed_sin_acuerdo"}]', 0, NOW(), NOW()),
     (24, 3, 'alert_time_not_responded_conversation', 'Tiempo en min para Alerta de Mensaje no Respondido', false, 1, NULL, 15, NULL, '{}', 0, NOW(), NOW()),
-    (25, 3, 'whatsapp_api_token', 'Token Whatsapp API', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
-    (26, 3, 'whatsapp_account_id', 'Id de la Cuenta Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
+    (25, 3, 'whatsapp_access_token', 'Token de Acceso Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
+    (26, 3, 'whatsapp_business_account_id', 'Id de la Cuenta Business Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (27, 3, 'whatsapp_phone_number_id', 'Id del número móvil Whatsapp', false, 0, '', NULL, NULL, '{}', 0, NOW(), NOW()),
     (28, 3, 'create_user_from_prospect', 'Una comunicación de un prospecto crea a un usuario', true, 4, NULL, NULL, false, '{}', 0, NOW(), NOW());
 
