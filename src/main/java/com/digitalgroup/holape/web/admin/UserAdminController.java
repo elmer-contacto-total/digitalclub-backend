@@ -1029,7 +1029,9 @@ public class UserAdminController {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", audit.getId());
                     map.put("action", audit.getAction());
-                    map.put("username", audit.getUsername()); // Agent who performed the action
+                    // Prefer agent's full name over email
+                    String displayName = audit.getUser() != null ? audit.getUser().getNameOrEmail() : audit.getUsername();
+                    map.put("username", displayName);
                     map.put("auditedChanges", audit.getAuditedChanges());
                     map.put("auditableType", audit.getAuditableType()); // "User" or "Ticket"
                     map.put("comment", audit.getComment());
