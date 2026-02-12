@@ -2,6 +2,7 @@ package com.digitalgroup.holape.domain.audit.service;
 
 import com.digitalgroup.holape.domain.audit.entity.Audit;
 import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
+import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.multitenancy.TenantContext;
 import com.digitalgroup.holape.security.CustomUserDetails;
@@ -210,6 +211,38 @@ public class AuditService {
             return user;
         }
         return null;
+    }
+
+    /**
+     * Log ticket close action for audit trail
+     * Creates an audit record so the close appears in the user's action history
+     */
+    @Async
+    @Transactional
+    public void logTicketClose(Ticket ticket, User agent, String closeType) {
+        try {
+            Audit audit = new Audit();
+            audit.setAuditableType("Ticket");
+            audit.setAuditableId(ticket.getId());
+            audit.setAssociatedType("User");
+            audit.setAssociatedId(ticket.getUser().getId());
+            audit.setUser(agent);
+            audit.setUsername(agent != null ? agent.getEmail() : null);
+            audit.setAction("update");
+            audit.setAuditedChanges(Map.of(
+                    "status", List.of("open", "closed"),
+                    "close_type", List.of(null, closeType != null ? closeType : "manual")
+            ));
+            audit.setComment("Ticket #" + ticket.getId() + " cerrado" +
+                    (closeType != null ? " — " + closeType : ""));
+            long version = auditRepository.countByAuditableTypeAndAuditableId("Ticket", ticket.getId());
+            audit.setVersion((int) version + 1);
+            auditRepository.save(audit);
+            log.debug("Logged ticket close audit for ticket {} by {}", ticket.getId(),
+                    agent != null ? agent.getEmail() : "unknown");
+        } catch (Exception e) {
+            log.error("Failed to log ticket close audit for ticket {}", ticket.getId(), e);
+        }
     }
 
     private String getRemoteAddress() {

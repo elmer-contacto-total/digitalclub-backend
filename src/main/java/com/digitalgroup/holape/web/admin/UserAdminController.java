@@ -1021,8 +1021,8 @@ public class UserAdminController {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
 
-        // Find audits where auditableType='User' and auditableId=userId
-        Page<Audit> auditsPage = auditRepository.findByAuditableTypeAndAuditableId("User", id, pageable);
+        // Find audits for this user (User audits + Ticket audits associated to user)
+        Page<Audit> auditsPage = auditRepository.findByUserOrAssociatedUser(id, pageable);
 
         List<Map<String, Object>> data = auditsPage.getContent().stream()
                 .map(audit -> {
@@ -1031,6 +1031,8 @@ public class UserAdminController {
                     map.put("action", audit.getAction());
                     map.put("username", audit.getUsername()); // Agent who performed the action
                     map.put("auditedChanges", audit.getAuditedChanges());
+                    map.put("auditableType", audit.getAuditableType()); // "User" or "Ticket"
+                    map.put("comment", audit.getComment());
                     map.put("createdAt", audit.getCreatedAt());
                     return map;
                 })

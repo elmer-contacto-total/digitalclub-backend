@@ -10,6 +10,7 @@ import com.digitalgroup.holape.domain.message.repository.MessageRepository;
 import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import com.digitalgroup.holape.domain.ticket.repository.TicketRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
+import com.digitalgroup.holape.domain.audit.service.AuditService;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.util.WorkingHoursUtils;
@@ -38,6 +39,7 @@ public class TicketService {
     private final MessageRepository messageRepository;
     private final KpiRepository kpiRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     private static final int MAX_TMO_MINUTES = 2880; // 48 hours
 
@@ -120,6 +122,9 @@ public class TicketService {
         user.setRequireCloseTicket(false);
         userRepository.save(user);
 
+        // Create audit record for ticket close
+        auditService.logTicketClose(ticket, ticket.getAgent(), closeType);
+
         log.info("Closed ticket {} with type {}", ticketId, closeType);
 
         return ticket;
@@ -161,6 +166,9 @@ public class TicketService {
         User user = ticket.getUser();
         user.setRequireCloseTicket(false);
         userRepository.save(user);
+
+        // Create audit record for auto-close
+        auditService.logTicketClose(ticket, ticket.getAgent(), "auto_closed");
 
         log.info("Auto-closed ticket {}", ticketId);
         return ticket;

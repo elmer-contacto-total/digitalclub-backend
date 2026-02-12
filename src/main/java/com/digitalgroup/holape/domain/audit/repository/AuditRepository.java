@@ -41,6 +41,14 @@ public interface AuditRepository extends JpaRepository<Audit, Long> {
 
     long countByAuditableTypeAndAuditableId(String auditableType, Long auditableId);
 
+    @Query("""
+        SELECT a FROM Audit a WHERE
+        (a.auditableType = 'User' AND a.auditableId = :userId)
+        OR (a.associatedType = 'User' AND a.associatedId = :userId)
+        ORDER BY a.createdAt DESC
+        """)
+    Page<Audit> findByUserOrAssociatedUser(@Param("userId") Long userId, Pageable pageable);
+
     // Find audits by client and date range (for export - returns List)
     @Query("SELECT a FROM Audit a JOIN a.user u WHERE u.client.id = :clientId " +
            "AND a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")

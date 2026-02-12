@@ -16,7 +16,8 @@ public enum KpiType {
     CLOSED_CON_ACUERDO(9),
     CLOSED_SIN_ACUERDO(10),
     TMO(11),
-    UNIQUE_RESPONDED_TO_CLIENT(12);
+    UNIQUE_RESPONDED_TO_CLIENT(12),
+    CLOSED_INTERESADO(13);
 
     private final int value;
 
