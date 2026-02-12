@@ -187,6 +187,13 @@ public class MessageService {
         message.setStatus(MessageStatus.SENT);
         message.setProcessed(true);
 
+        // PARIDAD RAILS: messages_controller.rb:199
+        // @message.whatsapp_business_routed = current_user.client.client_type == "whatsapp_business"
+        Client senderClient = sender.getClient();
+        if (senderClient != null && senderClient.isWhatsAppBusiness()) {
+            message.setWhatsappBusinessRouted(true);
+        }
+
         // Save historic sender name
         message.setHistoricSenderName(sender.getFullName());
 
