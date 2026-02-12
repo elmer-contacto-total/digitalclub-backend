@@ -229,10 +229,10 @@ public class AuditService {
             audit.setUser(agent);
             audit.setUsername(agent != null ? agent.getEmail() : null);
             audit.setAction("update");
-            audit.setAuditedChanges(Map.of(
-                    "status", List.of("open", "closed"),
-                    "close_type", List.of(null, closeType != null ? closeType : "manual")
-            ));
+            Map<String, Object> changes = new HashMap<>();
+            changes.put("status", List.of("open", "closed"));
+            changes.put("close_type", java.util.Arrays.asList(null, closeType != null ? closeType : "manual"));
+            audit.setAuditedChanges(changes);
             audit.setComment("Ticket #" + ticket.getId() + " cerrado" +
                     (closeType != null ? " — " + closeType : ""));
             long version = auditRepository.countByAuditableTypeAndAuditableId("Ticket", ticket.getId());
