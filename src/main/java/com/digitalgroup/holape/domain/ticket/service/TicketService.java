@@ -1,7 +1,5 @@
 package com.digitalgroup.holape.domain.ticket.service;
 
-import com.digitalgroup.holape.domain.client.entity.ClientSetting;
-import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
 import com.digitalgroup.holape.domain.common.enums.KpiType;
 import com.digitalgroup.holape.domain.common.enums.MessageDirection;
 import com.digitalgroup.holape.domain.common.enums.TicketStatus;
@@ -19,12 +17,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,10 +38,7 @@ public class TicketService {
     private final MessageRepository messageRepository;
     private final KpiRepository kpiRepository;
     private final UserRepository userRepository;
-    private final ClientSettingRepository clientSettingRepository;
 
-    private static final int DEFAULT_AUTO_CLOSE_HOURS = 24;
-    private static final String SETTING_TIME_FOR_TICKET_AUTOCLOSE = "time_for_ticket_autoclose";
     private static final int MAX_TMO_MINUTES = 2880; // 48 hours
 
     @Transactional(readOnly = true)
@@ -75,11 +68,26 @@ public class TicketService {
      */
     @Transactional
     public Ticket closeTicket(Long ticketId, String closeType) {
+        return closeTicket(ticketId, closeType, null);
+    }
+
+    /**
+     * Closes a ticket with the specified close type and optional notes
+     * Equivalent to Rails Ticket#close_ticket
+     */
+    @Transactional
+    public Ticket closeTicket(Long ticketId, String closeType, String notes) {
         Ticket ticket = findById(ticketId);
 
         if (ticket.isClosed()) {
             log.warn("Ticket {} is already closed", ticketId);
             return ticket;
+        }
+
+        // Append notes if provided
+        if (notes != null && !notes.isBlank()) {
+            String existing = ticket.getNotes() != null ? ticket.getNotes() : "";
+            ticket.setNotes(existing.isEmpty() ? notes : existing + "\n\n" + notes);
         }
 
         ticket.close(closeType);
@@ -118,102 +126,44 @@ public class TicketService {
     }
 
     /**
-     * Auto-closes expired tickets
-     * Equivalent to Rails Ticket.close_expired_tickets
-     * Runs every hour
-     *
-     * Logic matches Rails:
-     * 1. Read time_for_ticket_autoclose from ClientSetting per client
-     * 2. Check if last message was responded (if incoming, must have outgoing response)
-     * 3. Only close if conditions are met
+     * Close a ticket via auto-close (inactivity).
+     * PARIDAD RAILS: close_expired_tickets in ticket.rb
+     * Creates: closed_ticket + tmo + auto_closed_ticket KPIs
+     * Does NOT call closeAllOpenByUserId (the job evaluates each ticket individually)
      */
-    @Scheduled(cron = "0 0 * * * *") // Every hour
     @Transactional
-    public void closeExpiredTickets() {
-        log.info("Checking for expired tickets to auto-close");
+    public Ticket closeTicketAutoClose(Long ticketId) {
+        Ticket ticket = findById(ticketId);
 
-        // Get all open tickets and process per client (to respect per-client settings)
-        List<Ticket> openTickets = ticketRepository.findByStatus(TicketStatus.OPEN);
-        int closedCount = 0;
-
-        for (Ticket ticket : openTickets) {
-            try {
-                if (shouldAutoCloseTicket(ticket)) {
-                    ticket.close("auto");
-                    ticket.setNotes("Ticket cerrado automáticamente por inactividad");
-                    ticketRepository.save(ticket);
-
-                    // Create auto-closed ticket KPI
-                    createKpi(ticket, KpiType.AUTO_CLOSED_TICKET);
-
-                    // Create TMO KPI
-                    long tmoMinutes = calculateTmoMinutes(ticket);
-                    createKpiWithValue(ticket, KpiType.TMO, (int) tmoMinutes);
-
-                    log.info("Auto-closed expired ticket {}", ticket.getId());
-                    closedCount++;
-                }
-            } catch (Exception e) {
-                log.error("Failed to auto-close ticket {}: {}", ticket.getId(), e.getMessage());
-            }
+        if (ticket.isClosed()) {
+            log.warn("Ticket {} is already closed", ticketId);
+            return ticket;
         }
 
-        if (closedCount > 0) {
-            log.info("Auto-closed {} expired tickets", closedCount);
-        }
-    }
+        // PARIDAD RAILS: previous_notes = ticket.notes; ticket.update(notes: "#{previous_notes} \n\n ...")
+        String previousNotes = ticket.getNotes() != null ? ticket.getNotes() : "";
+        ticket.setNotes(previousNotes + " \n\n Ticket cerrado automáticamente por inactividad");
 
-    /**
-     * Determines if a ticket should be auto-closed
-     * Equivalent to Rails logic in close_expired_tickets
-     */
-    private boolean shouldAutoCloseTicket(Ticket ticket) {
-        Long clientId = ticket.getUser() != null && ticket.getUser().getClient() != null
-                ? ticket.getUser().getClient().getId()
-                : null;
+        // Close without close_type (Rails auto-close doesn't set close_type)
+        ticket.close(null);
+        ticket = ticketRepository.save(ticket);
 
-        if (clientId == null) {
-            return false;
-        }
+        // PARIDAD RAILS: after_commit creates closed_ticket + tmo
+        createKpi(ticket, KpiType.CLOSED_TICKET);
 
-        // Get hours_to_close from ClientSetting (equivalent to Rails: ClientSetting.find_by(..., name: 'time_for_ticket_autoclose'))
-        Integer hoursToClose = clientSettingRepository
-                .findIntegerValueByClientAndName(clientId, SETTING_TIME_FOR_TICKET_AUTOCLOSE)
-                .orElse(null);
+        long tmoMinutes = calculateTmoMinutes(ticket);
+        createKpiWithValue(ticket, KpiType.TMO, (int) tmoMinutes);
 
-        // If setting not configured or is 0, don't auto-close
-        if (hoursToClose == null || hoursToClose <= 0) {
-            return false;
-        }
+        // PARIDAD RAILS: Kpi.create(...kpi_type: 'auto_closed_ticket'...)
+        createKpi(ticket, KpiType.AUTO_CLOSED_TICKET);
 
-        // Get last message in ticket
-        Message lastMessage = messageRepository.findLastByTicketId(ticket.getId()).orElse(null);
+        // Update user's require_close_ticket flag
+        User user = ticket.getUser();
+        user.setRequireCloseTicket(false);
+        userRepository.save(user);
 
-        if (lastMessage == null || lastMessage.getSentAt() == null) {
-            return false;
-        }
-
-        // Check if last message is older than hours_to_close
-        LocalDateTime cutoffTime = LocalDateTime.now().minusHours(hoursToClose);
-        if (!lastMessage.getSentAt().isBefore(cutoffTime)) {
-            return false; // Last message is too recent
-        }
-
-        // Rails: if last_message.direction == 'incoming', verify it was responded
-        if (lastMessage.getDirection() == MessageDirection.INCOMING) {
-            // Check if there's any outgoing message after the last incoming
-            Message lastOutgoing = messageRepository
-                    .findFirstByTicketIdAndDirectionOrderByCreatedAtAsc(ticket.getId(), MessageDirection.OUTGOING)
-                    .orElse(null);
-
-            if (lastOutgoing == null) {
-                // No response to last incoming message - DON'T close
-                log.debug("Ticket {} not closed: last incoming message has not been responded to", ticket.getId());
-                return false;
-            }
-        }
-
-        return true;
+        log.info("Auto-closed ticket {}", ticketId);
+        return ticket;
     }
 
     /**
@@ -335,6 +285,28 @@ public class TicketService {
     }
 
     public record TicketTranscript(Long ticketId, String filename, String content) {}
+
+    /**
+     * Find tickets with advanced filters (for index endpoint)
+     */
+    @Transactional(readOnly = true)
+    public Page<Ticket> findTicketsFiltered(Long clientId, TicketStatus status, Long agentId,
+            String search, LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
+        return ticketRepository.findTicketsFiltered(clientId, status, agentId, search, startDate, endDate, pageable);
+    }
+
+    /**
+     * Find ticket IDs for export with filters (when no explicit ticketIds provided)
+     */
+    @Transactional(readOnly = true)
+    public List<Long> findTicketsForExport(Long clientId, String status, Long agentId,
+            LocalDateTime startDate, LocalDateTime endDate) {
+        TicketStatus ticketStatus = (status != null && !"all".equals(status))
+                ? ("closed".equalsIgnoreCase(status) ? TicketStatus.CLOSED : TicketStatus.OPEN)
+                : null;
+        return ticketRepository.findTicketsForExportFiltered(clientId, ticketStatus, agentId, startDate, endDate)
+                .stream().map(Ticket::getId).toList();
+    }
 
     /**
      * Calculates TMO time in formatted string DD:HH:MM

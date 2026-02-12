@@ -231,4 +231,47 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             @Param("status") TicketStatus status,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
+
+    // ==================== FILTERED QUERIES (Angular frontend support) ====================
+
+    /**
+     * Find tickets with advanced filters (paginated)
+     * Supports: agentId, search (subject/phone/name), date range
+     */
+    @Query("""
+            SELECT t FROM Ticket t WHERE t.agent.client.id = :clientId AND t.status = :status
+            AND (:agentId IS NULL OR t.agent.id = :agentId)
+            AND (:search IS NULL OR LOWER(t.subject) LIKE LOWER(CONCAT('%', :search, '%'))
+                 OR LOWER(t.user.phone) LIKE LOWER(CONCAT('%', :search, '%'))
+                 OR LOWER(t.user.firstName) LIKE LOWER(CONCAT('%', :search, '%'))
+                 OR LOWER(t.user.lastName) LIKE LOWER(CONCAT('%', :search, '%')))
+            AND (:startDate IS NULL OR t.createdAt >= :startDate)
+            AND (:endDate IS NULL OR t.createdAt <= :endDate)
+            """)
+    Page<Ticket> findTicketsFiltered(
+            @Param("clientId") Long clientId,
+            @Param("status") TicketStatus status,
+            @Param("agentId") Long agentId,
+            @Param("search") String search,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate,
+            Pageable pageable);
+
+    /**
+     * Find tickets for export with filters (no pagination, status nullable for "all")
+     */
+    @Query("""
+            SELECT t FROM Ticket t WHERE t.agent.client.id = :clientId
+            AND (:status IS NULL OR t.status = :status)
+            AND (:agentId IS NULL OR t.agent.id = :agentId)
+            AND (:startDate IS NULL OR t.createdAt >= :startDate)
+            AND (:endDate IS NULL OR t.createdAt <= :endDate)
+            ORDER BY t.createdAt DESC
+            """)
+    List<Ticket> findTicketsForExportFiltered(
+            @Param("clientId") Long clientId,
+            @Param("status") TicketStatus status,
+            @Param("agentId") Long agentId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
 }

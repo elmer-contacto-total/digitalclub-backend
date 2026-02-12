@@ -3,6 +3,9 @@ package com.digitalgroup.holape.job;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.client.service.ClientService;
+import com.digitalgroup.holape.domain.common.enums.MessageDirection;
+import com.digitalgroup.holape.domain.message.entity.Message;
+import com.digitalgroup.holape.domain.message.repository.MessageRepository;
 import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import com.digitalgroup.holape.domain.ticket.repository.TicketRepository;
 import com.digitalgroup.holape.domain.ticket.service.TicketService;
@@ -14,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Ticket Auto Close Job
@@ -33,56 +37,81 @@ public class TicketAutoCloseJob {
     private final TicketService ticketService;
     private final ClientRepository clientRepository;
     private final ClientService clientService;
-
-    private static final int DEFAULT_AUTO_CLOSE_HOURS = 24;
+    private final MessageRepository messageRepository;
 
     /**
      * Auto-close expired tickets
-     * Runs every hour
+     * PARIDAD RAILS: close_expired_tickets in ticket.rb
+     * Runs every hour — single scheduled entry point (removed duplicate from TicketService)
      */
     @Scheduled(cron = "0 0 * * * *") // Every hour at minute 0
     @Transactional
     public void closeExpiredTickets() {
         log.info("Starting auto-close job for expired tickets");
 
-        // Get all active clients
         List<Client> activeClients = clientService.findAllActive();
-
         int totalClosed = 0;
 
         for (Client client : activeClients) {
             try {
-                // Get the auto-close hours setting for this client
                 Integer autoCloseHours = clientService.getTicketAutoCloseHours(client.getId());
-                if (autoCloseHours == null) {
-                    autoCloseHours = DEFAULT_AUTO_CLOSE_HOURS;
+                if (autoCloseHours == null || autoCloseHours <= 0) {
+                    continue;
                 }
 
-                LocalDateTime threshold = LocalDateTime.now().minusHours(autoCloseHours);
+                LocalDateTime cutoffTime = LocalDateTime.now().minusHours(autoCloseHours);
 
-                List<Ticket> expiredTickets = ticketRepository.findExpiredTickets(
-                        client.getId(), threshold);
+                // PARIDAD RAILS: client.tickets.open.each do |ticket|
+                List<Ticket> openTickets = ticketRepository.findOpenTicketsByClient(client.getId());
 
-                for (Ticket ticket : expiredTickets) {
+                for (Ticket ticket : openTickets) {
                     try {
-                        ticketService.closeTicket(ticket.getId(), "auto_inactivity");
-                        totalClosed++;
+                        if (shouldAutoClose(ticket, cutoffTime)) {
+                            ticketService.closeTicketAutoClose(ticket.getId());
+                            totalClosed++;
+                        }
                     } catch (Exception e) {
                         log.error("Failed to auto-close ticket {}", ticket.getId(), e);
                     }
                 }
-
-                if (!expiredTickets.isEmpty()) {
-                    log.info("Auto-closed {} tickets for client {}",
-                            expiredTickets.size(), client.getId());
-                }
-
             } catch (Exception e) {
                 log.error("Error processing auto-close for client {}", client.getId(), e);
             }
         }
 
         log.info("Auto-close job completed. Total closed: {}", totalClosed);
+    }
+
+    /**
+     * PARIDAD RAILS: close_expired_tickets inner logic
+     * - Checks last_message.sent_at < cutoffTime
+     * - If last message is incoming, verifies it was responded to
+     */
+    private boolean shouldAutoClose(Ticket ticket, LocalDateTime cutoffTime) {
+        // PARIDAD RAILS: last_message = ticket.messages.order(:sent_at, :id).last
+        Message lastMessage = messageRepository.findLastByTicketId(ticket.getId()).orElse(null);
+
+        if (lastMessage == null || lastMessage.getSentAt() == null) {
+            return false;
+        }
+
+        // PARIDAD RAILS: if last_message.sent_at < hours_to_close.hours.ago
+        if (!lastMessage.getSentAt().isBefore(cutoffTime)) {
+            return false;
+        }
+
+        // PARIDAD RAILS: if last_message.direction == 'incoming' → check responded
+        if (lastMessage.getDirection() == MessageDirection.INCOMING) {
+            Optional<Message> anyOutgoing = messageRepository
+                    .findFirstByTicketIdAndDirectionOrderByCreatedAtAsc(
+                            ticket.getId(), MessageDirection.OUTGOING);
+            if (anyOutgoing.isEmpty()) {
+                log.debug("Ticket {} not closed: last incoming not responded to", ticket.getId());
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

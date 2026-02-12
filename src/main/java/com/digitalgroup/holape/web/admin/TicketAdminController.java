@@ -1,10 +1,13 @@
 package com.digitalgroup.holape.web.admin;
 
+import com.digitalgroup.holape.domain.client.entity.ClientSetting;
+import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
 import com.digitalgroup.holape.domain.common.enums.TicketStatus;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import com.digitalgroup.holape.domain.ticket.service.TicketService;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,9 +27,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -42,16 +49,22 @@ import java.util.zip.ZipOutputStream;
 public class TicketAdminController {
 
     private final TicketService ticketService;
+    private final ClientSettingRepository clientSettingRepository;
 
     /**
-     * List tickets with standard REST pagination
+     * List tickets with standard REST pagination and advanced filters
      */
     @GetMapping
     public ResponseEntity<PagedResponse<Map<String, Object>>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false, defaultValue = "open") String status,
             @RequestParam(required = false, defaultValue = "1") int page,
-            @RequestParam(required = false, defaultValue = "10") int pageSize) {
+            @RequestParam(required = false, defaultValue = "10") int pageSize,
+            @RequestParam(name = "agent_id", required = false) Long agentId,
+            @RequestParam(name = "client_id", required = false) Long clientId,
+            @RequestParam(required = false) String search,
+            @RequestParam(name = "date_from", required = false) String dateFrom,
+            @RequestParam(name = "date_to", required = false) String dateTo) {
 
         TicketStatus ticketStatus = "closed".equalsIgnoreCase(status)
                 ? TicketStatus.CLOSED
@@ -59,11 +72,20 @@ public class TicketAdminController {
 
         Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("createdAt").descending());
 
+        boolean hasAdvancedFilters = agentId != null || search != null || dateFrom != null || dateTo != null;
+
         Page<Ticket> ticketsPage;
         if (currentUser.getRole().equals("SUPER_ADMIN") ||
             currentUser.getRole().equals("ADMIN") ||
             currentUser.getRole().equals("STAFF")) {
-            ticketsPage = ticketService.findByClient(currentUser.getClientId(), ticketStatus, pageable);
+            Long effectiveClientId = clientId != null ? clientId : currentUser.getClientId();
+            if (hasAdvancedFilters) {
+                LocalDateTime startDate = dateFrom != null ? LocalDate.parse(dateFrom).atStartOfDay() : null;
+                LocalDateTime endDate = dateTo != null ? LocalDate.parse(dateTo).atTime(23, 59, 59) : null;
+                ticketsPage = ticketService.findTicketsFiltered(effectiveClientId, ticketStatus, agentId, search, startDate, endDate, pageable);
+            } else {
+                ticketsPage = ticketService.findByClient(effectiveClientId, ticketStatus, pageable);
+            }
         } else {
             ticketsPage = ticketService.findByAgent(currentUser.getId(), ticketStatus, pageable);
         }
@@ -73,6 +95,17 @@ public class TicketAdminController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(PagedResponse.of(data, ticketsPage.getTotalElements(), page, pageSize));
+    }
+
+    /**
+     * Get ticket close types for the current client
+     * Equivalent to Rails: close_types from client_settings
+     */
+    @GetMapping("/close_types")
+    public ResponseEntity<Map<String, Object>> getCloseTypes(
+            @AuthenticationPrincipal CustomUserDetails currentUser) {
+        List<Map<String, String>> closeTypes = fetchCloseTypes(currentUser.getClientId());
+        return ResponseEntity.ok(Map.of("close_types", closeTypes));
     }
 
     /**
@@ -101,7 +134,7 @@ public class TicketAdminController {
     public ResponseEntity<Map<String, Object>> closeTicket(
             @RequestBody CloseTicketRequest request) {
 
-        Ticket ticket = ticketService.closeTicket(request.ticketId(), request.closeType());
+        Ticket ticket = ticketService.closeTicket(request.ticketId(), request.closeType(), request.notes());
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
@@ -110,16 +143,17 @@ public class TicketAdminController {
     }
 
     /**
-     * Legacy close ticket endpoint
+     * Close ticket by path ID
      * Only agents, managers, and admins can close tickets
      */
     @PostMapping("/{id}/close")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT')")
     public ResponseEntity<Map<String, Object>> closeTicketById(
             @PathVariable Long id,
-            @RequestParam(required = false, defaultValue = "manual") String closeType) {
+            @RequestBody CloseTicketByIdRequest request) {
 
-        Ticket ticket = ticketService.closeTicket(id, closeType);
+        String closeType = request.closeType() != null ? request.closeType() : "manual";
+        Ticket ticket = ticketService.closeTicket(id, closeType, request.notes());
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
@@ -147,7 +181,9 @@ public class TicketAdminController {
         ));
     }
 
-    public record ReassignTicketRequest(Long newAgentId) {}
+    public record ReassignTicketRequest(
+            @JsonProperty("new_agent_id") Long newAgentId
+    ) {}
 
     private Map<String, Object> mapTicketToResponse(Ticket ticket) {
         Map<String, Object> map = new HashMap<>();
@@ -183,17 +219,80 @@ public class TicketAdminController {
         return map;
     }
 
-    public record CloseTicketRequest(Long ticketId, String closeType) {}
+    /**
+     * Fetch ticket close types from client_settings
+     * PARIDAD RAILS: client_settings.find_by(name: 'ticket_close_types').hash_value
+     */
+    private List<Map<String, String>> fetchCloseTypes(Long clientId) {
+        List<Map<String, Object>> closeTypes = new ArrayList<>();
+        Optional<ClientSetting> closeTypesSetting = clientSettingRepository.findByClientIdAndName(
+                clientId, "ticket_close_types");
+        if (closeTypesSetting.isPresent() && closeTypesSetting.get().getHashValue() != null) {
+            Object hashValue = closeTypesSetting.get().getHashValue();
+            if (hashValue instanceof List<?> list) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> typesList = (List<Map<String, Object>>) list;
+                closeTypes = typesList;
+            } else if (hashValue instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typesMap = (Map<String, Object>) map;
+                if (typesMap.containsKey("types") && typesMap.get("types") instanceof List<?>) {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> typesList = (List<Map<String, Object>>) typesMap.get("types");
+                    closeTypes = typesList;
+                }
+            }
+        }
+
+        return closeTypes.stream()
+                .map(ct -> {
+                    Map<String, String> m = new HashMap<>();
+                    m.put("name", String.valueOf(ct.get("name")));
+                    m.put("kpiName", String.valueOf(ct.get("kpi_name")));
+                    return m;
+                })
+                .collect(Collectors.toList());
+    }
+
+    public record CloseTicketRequest(
+            @JsonProperty("ticket_id") Long ticketId,
+            @JsonProperty("close_type") String closeType,
+            @JsonProperty("notes") String notes
+    ) {}
+
+    public record CloseTicketByIdRequest(
+            @JsonProperty("close_type") String closeType,
+            @JsonProperty("notes") String notes
+    ) {}
 
     /**
      * Export ticket transcripts to ZIP file
      * Equivalent to Rails: Admin::TicketsController#export_ticket_transcripts
      * Creates a ZIP file containing text transcripts of each ticket
+     * Supports both explicit ticketIds and filter-based export
      */
     @PostMapping("/export_transcripts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
-    public ResponseEntity<byte[]> exportTicketTranscripts(@RequestBody ExportTranscriptsRequest request) {
-        List<TicketService.TicketTranscript> transcripts = ticketService.exportTicketTranscripts(request.ticketIds());
+    public ResponseEntity<byte[]> exportTicketTranscripts(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody ExportTranscriptsRequest request) {
+
+        // Resolve ticket IDs: use explicit list or query by filters
+        List<Long> ticketIds = request.ticketIds();
+        if (ticketIds == null || ticketIds.isEmpty()) {
+            Long effectiveClientId = request.clientId() != null ? request.clientId() : currentUser.getClientId();
+            LocalDateTime startDate = request.dateFrom() != null ? LocalDate.parse(request.dateFrom()).atStartOfDay() : null;
+            LocalDateTime endDate = request.dateTo() != null ? LocalDate.parse(request.dateTo()).atTime(23, 59, 59) : null;
+            ticketIds = ticketService.findTicketsForExport(effectiveClientId, request.status(), request.agentId(), startDate, endDate);
+        }
+
+        if (ticketIds.isEmpty()) {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .body("{\"error\": \"No tickets found for the given filters\"}".getBytes(StandardCharsets.UTF_8));
+        }
+
+        List<TicketService.TicketTranscript> transcripts = ticketService.exportTicketTranscripts(ticketIds);
 
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -231,9 +330,18 @@ public class TicketAdminController {
      */
     @GetMapping("/export_transcripts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
-    public ResponseEntity<byte[]> exportTicketTranscriptsGet(@RequestParam List<Long> ticketIds) {
-        return exportTicketTranscripts(new ExportTranscriptsRequest(ticketIds));
+    public ResponseEntity<byte[]> exportTicketTranscriptsGet(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam List<Long> ticketIds) {
+        return exportTicketTranscripts(currentUser, new ExportTranscriptsRequest(ticketIds, null, null, null, null, null));
     }
 
-    public record ExportTranscriptsRequest(List<Long> ticketIds) {}
+    public record ExportTranscriptsRequest(
+            @JsonProperty("ticket_ids") List<Long> ticketIds,
+            @JsonProperty("status") String status,
+            @JsonProperty("agent_id") Long agentId,
+            @JsonProperty("client_id") Long clientId,
+            @JsonProperty("date_from") String dateFrom,
+            @JsonProperty("date_to") String dateTo
+    ) {}
 }
