@@ -128,8 +128,8 @@ public class TicketAutoCloseJob {
         for (Client client : activeClients) {
             try {
                 Integer autoCloseHours = clientService.getTicketAutoCloseHours(client.getId());
-                if (autoCloseHours == null) {
-                    autoCloseHours = DEFAULT_AUTO_CLOSE_HOURS;
+                if (autoCloseHours == null || autoCloseHours <= 0) {
+                    continue;
                 }
 
                 // Warn 2 hours before expiration
