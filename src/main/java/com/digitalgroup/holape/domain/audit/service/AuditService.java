@@ -2,7 +2,6 @@ package com.digitalgroup.holape.domain.audit.service;
 
 import com.digitalgroup.holape.domain.audit.entity.Audit;
 import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
-import com.digitalgroup.holape.domain.ticket.entity.Ticket;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.multitenancy.TenantContext;
 import com.digitalgroup.holape.security.CustomUserDetails;
@@ -219,29 +218,31 @@ public class AuditService {
      */
     @Async
     @Transactional
-    public void logTicketClose(Ticket ticket, User agent, String closeType) {
+    public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName, String closeType) {
         try {
             Audit audit = new Audit();
             audit.setAuditableType("Ticket");
-            audit.setAuditableId(ticket.getId());
+            audit.setAuditableId(ticketId);
             audit.setAssociatedType("User");
-            audit.setAssociatedId(ticket.getUser().getId());
-            audit.setUser(agent);
-            audit.setUsername(agent != null ? agent.getEmail() : null);
+            audit.setAssociatedId(userId);
+            // Set agent by reference (avoids detached proxy issues in @Async)
+            User agentRef = new User();
+            agentRef.setId(agentId);
+            audit.setUser(agentRef);
+            audit.setUsername(agentName);
             audit.setAction("update");
             Map<String, Object> changes = new HashMap<>();
             changes.put("status", List.of("open", "closed"));
             changes.put("close_type", java.util.Arrays.asList(null, closeType != null ? closeType : "manual"));
             audit.setAuditedChanges(changes);
-            audit.setComment("Ticket #" + ticket.getId() + " cerrado" +
+            audit.setComment("Ticket #" + ticketId + " cerrado" +
                     (closeType != null ? " — " + closeType : ""));
-            long version = auditRepository.countByAuditableTypeAndAuditableId("Ticket", ticket.getId());
+            long version = auditRepository.countByAuditableTypeAndAuditableId("Ticket", ticketId);
             audit.setVersion((int) version + 1);
             auditRepository.save(audit);
-            log.debug("Logged ticket close audit for ticket {} by {}", ticket.getId(),
-                    agent != null ? agent.getEmail() : "unknown");
+            log.debug("Logged ticket close audit for ticket {} by {}", ticketId, agentName);
         } catch (Exception e) {
-            log.error("Failed to log ticket close audit for ticket {}", ticket.getId(), e);
+            log.error("Failed to log ticket close audit for ticket {}", ticketId, e);
         }
     }
 

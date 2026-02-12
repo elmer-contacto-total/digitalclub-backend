@@ -122,8 +122,12 @@ public class TicketService {
         user.setRequireCloseTicket(false);
         userRepository.save(user);
 
-        // Create audit record for ticket close
-        auditService.logTicketClose(ticket, ticket.getAgent(), closeType);
+        // Create audit record for ticket close (pass primitives to avoid detached proxy in @Async)
+        User agent = ticket.getAgent();
+        auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
+                agent != null ? agent.getId() : null,
+                agent != null ? agent.getNameOrEmail() : null,
+                closeType);
 
         log.info("Closed ticket {} with type {}", ticketId, closeType);
 
@@ -167,8 +171,12 @@ public class TicketService {
         user.setRequireCloseTicket(false);
         userRepository.save(user);
 
-        // Create audit record for auto-close
-        auditService.logTicketClose(ticket, ticket.getAgent(), "auto_closed");
+        // Create audit record for auto-close (pass primitives to avoid detached proxy in @Async)
+        User autoAgent = ticket.getAgent();
+        auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
+                autoAgent != null ? autoAgent.getId() : null,
+                autoAgent != null ? autoAgent.getNameOrEmail() : null,
+                "auto_closed");
 
         log.info("Auto-closed ticket {}", ticketId);
         return ticket;
