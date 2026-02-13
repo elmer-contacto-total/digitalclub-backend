@@ -176,7 +176,7 @@ public class TicketService {
         auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
                 autoAgent != null ? autoAgent.getId() : null,
                 autoAgent != null ? autoAgent.getNameOrEmail() : null,
-                "auto_closed");
+                "auto_closed", null);
 
         log.info("Auto-closed ticket {}", ticketId);
         return ticket;
