@@ -1,9 +1,11 @@
 package com.digitalgroup.holape.job;
 
 import com.digitalgroup.holape.domain.common.enums.MessageDirection;
+import com.digitalgroup.holape.domain.common.enums.TicketStatus;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.message.repository.MessageRepository;
+import com.digitalgroup.holape.domain.ticket.repository.TicketRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ public class ReconstructRequireResponseUserFlagJob {
 
     private final UserRepository userRepository;
     private final MessageRepository messageRepository;
+    private final TicketRepository ticketRepository;
     private final DelayedJobService delayedJobService;
 
     /**
@@ -114,6 +117,19 @@ public class ReconstructRequireResponseUserFlagJob {
         // PARIDAD RAILS: requireResponseAt no existe, se infiere de lastMessageAt
         boolean currentFlag = Boolean.TRUE.equals(user.getRequireResponse());
         if (currentFlag != requiresResponse) {
+            // Guard: don't override false→true for STANDARD users with open tickets.
+            // The agent may have responded via WhatsApp Web (no Message record created).
+            // activateIncomingTicket() handles setting true on new incoming messages.
+            if (requiresResponse && !currentFlag && user.getRole() == UserRole.STANDARD) {
+                boolean hasOpenTicket = ticketRepository
+                        .findFirstByUserIdAndStatusOrderByCreatedAtDesc(user.getId(), TicketStatus.OPEN)
+                        .isPresent();
+                if (hasOpenTicket) {
+                    log.debug("Skipping false→true reconstruction for user {} (has open ticket, agent may have responded via WhatsApp Web)",
+                            user.getId());
+                    return;
+                }
+            }
             user.setRequireResponse(requiresResponse);
             if (requiresResponse) {
                 user.setLastMessageAt(lastMessage.getCreatedAt());

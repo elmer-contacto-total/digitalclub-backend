@@ -618,6 +618,29 @@ public class MessageAdminController {
             Long clientId
     ) {}
 
+    /**
+     * Mark that the agent has responded to a client via WhatsApp Web.
+     * Clears the requireResponse flag so close ticket buttons are enabled.
+     * Used by Electron when it detects an outgoing message in the BrowserView.
+     */
+    @PostMapping("/mark_agent_responded")
+    public ResponseEntity<Map<String, Object>> markAgentResponded(
+            @RequestBody MarkRespondedRequest request) {
+        try {
+            messageService.markAgentResponded(request.clientPhone(), request.clientId());
+            log.info("Marked agent responded for phone={} clientId={}", request.clientPhone(), request.clientId());
+            return ResponseEntity.ok(Map.of("result", "success"));
+        } catch (Exception e) {
+            log.error("mark_agent_responded failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    public record MarkRespondedRequest(String clientPhone, Long clientId) {}
+
     public record SendMessageRequest(Long recipientId, String content) {}
 
     public record SendTemplateRequest(

@@ -320,6 +320,21 @@ public class MessageService {
     }
 
     /**
+     * Marks that the agent responded to a client via WhatsApp Web.
+     * Clears the requireResponse flag so close ticket buttons are enabled in Electron.
+     */
+    @Transactional
+    public void markAgentResponded(String clientPhone, Long clientId) {
+        String normalized = normalizePhone(clientPhone);
+        Optional<User> userOpt = userRepository.findByPhoneAndClientId(normalized, clientId);
+        if (userOpt.isPresent() && Boolean.TRUE.equals(userOpt.get().getRequireResponse())) {
+            userOpt.get().setRequireResponse(false);
+            userRepository.save(userOpt.get());
+            log.info("Cleared requireResponse for user {} (phone={})", userOpt.get().getId(), normalized);
+        }
+    }
+
+    /**
      * Process incoming message asynchronously
      * Equivalent to ProcessMessageWorker
      */
