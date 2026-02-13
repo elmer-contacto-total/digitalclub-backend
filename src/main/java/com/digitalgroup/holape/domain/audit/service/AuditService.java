@@ -218,7 +218,7 @@ public class AuditService {
      */
     @Async
     @Transactional
-    public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName, String closeType) {
+    public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName, String closeType, String notes) {
         try {
             Audit audit = new Audit();
             audit.setAuditableType("Ticket");
@@ -234,6 +234,9 @@ public class AuditService {
             Map<String, Object> changes = new HashMap<>();
             changes.put("status", List.of("open", "closed"));
             changes.put("close_type", java.util.Arrays.asList(null, closeType != null ? closeType : "manual"));
+            if (notes != null && !notes.isBlank()) {
+                changes.put("notes", java.util.Arrays.asList(null, notes));
+            }
             audit.setAuditedChanges(changes);
             audit.setComment("Ticket #" + ticketId + " cerrado" +
                     (closeType != null ? " — " + closeType : ""));

@@ -127,7 +127,7 @@ public class TicketService {
         auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
                 agent != null ? agent.getId() : null,
                 agent != null ? agent.getNameOrEmail() : null,
-                closeType);
+                closeType, notes);
 
         log.info("Closed ticket {} with type {}", ticketId, closeType);
 

@@ -854,6 +854,7 @@ public class UserAdminController {
         if (openTicket.isPresent()) {
             contact.put("hasOpenTicket", true);
             contact.put("openTicketId", openTicket.get().getId());
+            contact.put("issueNotes", openTicket.get().getNotes());
         } else {
             contact.put("hasOpenTicket", false);
             contact.put("openTicketId", null);
@@ -954,6 +955,7 @@ public class UserAdminController {
         if (openTicket.isPresent()) {
             contact.put("hasOpenTicket", true);
             contact.put("openTicketId", openTicket.get().getId());
+            contact.put("issueNotes", openTicket.get().getNotes());
         } else {
             contact.put("hasOpenTicket", false);
             contact.put("openTicketId", null);
