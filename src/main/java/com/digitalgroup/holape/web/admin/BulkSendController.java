@@ -390,10 +390,10 @@ public class BulkSendController {
     }
 
     /**
-     * Get send rules (supervisors only)
+     * Get send rules (all roles — agents need to read rules during bulk send)
      */
     @GetMapping("/rules")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<Map<String, Object>> getRules(
             @AuthenticationPrincipal CustomUserDetails currentUser) {
         BulkSendRule rules = bulkSendService.getOrCreateRules(currentUser.getClientId());
