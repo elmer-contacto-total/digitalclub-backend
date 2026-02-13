@@ -274,9 +274,9 @@ public class MessageService {
         // Determine the effective agent (sticky agent or recipient)
         User agent = (sender.getManager() != null) ? sender.getManager() : recipient;
 
-        // Find open ticket between user and agent
-        Optional<Ticket> existingOpenTicket = ticketRepository.findOpenTicketBetweenUsers(
-                sender.getId(), agent.getId(), TicketStatus.OPEN);
+        // Find ANY open ticket for this user (regardless of assigned agent)
+        Optional<Ticket> existingOpenTicket = ticketRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                sender.getId(), TicketStatus.OPEN);
 
         Ticket ticket;
         boolean created = false;
