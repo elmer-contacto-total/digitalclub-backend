@@ -1494,6 +1494,29 @@ public class UserAdminController {
 
     public record UpdateTempPasswordRequest(String password, String passwordConfirmation) {}
 
+    /**
+     * Update issue notes for a user's open ticket
+     * PARIDAD ELECTRON: CRM panel "Notas del Cliente"
+     * Saves notes to the open ticket's notes column
+     */
+    @PatchMapping("/{id}/issue_notes")
+    public ResponseEntity<Map<String, Object>> updateIssueNotes(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request) {
+
+        Optional<Ticket> openTicket = ticketRepository
+            .findFirstByUserIdAndStatusOrderByCreatedAtDesc(id, TicketStatus.OPEN);
+
+        if (openTicket.isPresent()) {
+            Ticket ticket = openTicket.get();
+            ticket.setNotes(request.get("notes"));
+            ticketRepository.save(ticket);
+            return ResponseEntity.ok(Map.of("success", true));
+        }
+
+        return ResponseEntity.ok(Map.of("success", false));
+    }
+
     // ==================== PROFILE ENDPOINTS ====================
 
     /**
