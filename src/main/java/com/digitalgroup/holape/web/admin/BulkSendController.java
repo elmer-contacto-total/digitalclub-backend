@@ -16,6 +16,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -282,6 +287,40 @@ public class BulkSendController {
     public ResponseEntity<Map<String, Object>> cancel(@PathVariable Long id) {
         bulkSendService.cancelBulkSend(id);
         return ResponseEntity.ok(Map.of("result", "success", "message", "Envío cancelado"));
+    }
+
+    /**
+     * Download the attachment file for a bulk send.
+     * Electron clients call this to get the file locally before sending via WhatsApp.
+     */
+    @GetMapping("/{id}/attachment/download")
+    public ResponseEntity<Resource> downloadAttachment(@PathVariable Long id) {
+        BulkSend bulkSend = bulkSendRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
+
+        if (!bulkSend.hasAttachment() || bulkSend.getAttachmentPath() == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Path filePath = Path.of(bulkSend.getAttachmentPath());
+        if (!Files.exists(filePath)) {
+            return ResponseEntity.notFound().build();
+        }
+
+        try {
+            byte[] content = Files.readAllBytes(filePath);
+            ByteArrayResource resource = new ByteArrayResource(content);
+            String mimeType = Files.probeContentType(filePath);
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(mimeType != null ? mimeType : "application/octet-stream"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + bulkSend.getAttachmentOriginalName() + "\"")
+                    .body(resource);
+        } catch (IOException e) {
+            log.error("Error reading attachment for bulk send {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     /**
