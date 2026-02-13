@@ -585,6 +585,39 @@ public class MessageAdminController {
             Long clientId
     ) {}
 
+    /**
+     * Activate/create ticket for incoming message without creating a Message record.
+     * Used by Electron when it detects an incoming WhatsApp message.
+     */
+    @PostMapping("/activate_incoming_ticket")
+    public ResponseEntity<Map<String, Object>> activateIncomingTicket(
+            @RequestBody ActivateTicketRequest request) {
+        try {
+            Map<String, Object> result = messageService.activateIncomingTicket(
+                    request.senderPhone(),
+                    request.recipientId(),
+                    request.clientId()
+            );
+
+            log.info("Activated incoming ticket for phone={} recipientId={} clientId={}",
+                    request.senderPhone(), request.recipientId(), request.clientId());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("activate_incoming_ticket failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    public record ActivateTicketRequest(
+            String senderPhone,
+            Long recipientId,
+            Long clientId
+    ) {}
+
     public record SendMessageRequest(Long recipientId, String content) {}
 
     public record SendTemplateRequest(

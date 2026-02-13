@@ -21,6 +21,7 @@ import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.integration.whatsapp.WhatsAppCloudApiClient;
 import com.digitalgroup.holape.integration.firebase.FirebaseCloudMessagingService;
 import com.digitalgroup.holape.util.WorkingHoursUtils;
+import com.digitalgroup.holape.websocket.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -70,6 +71,7 @@ public class MessageService {
     private final WhatsAppCloudApiClient whatsAppClient;
     private final FirebaseCloudMessagingService firebaseService;
     private final ApplicationEventPublisher eventPublisher;
+    private final WebSocketService webSocketService;
 
     // Delayed job dependencies - injected via @Lazy to avoid circular dependencies
     private final org.springframework.context.ApplicationContext applicationContext;
@@ -246,6 +248,75 @@ public class MessageService {
         afterMessageCreated(savedMessage);
 
         return savedMessage;
+    }
+
+    /**
+     * Activates/creates a ticket for an incoming WhatsApp message without creating a Message record.
+     * Used by Electron when it detects an incoming message — only needs to ensure the ticket
+     * exists and the user is flagged as requiring a response.
+     *
+     * @return Map with ticketId, userId, requireResponse
+     */
+    @Transactional
+    public Map<String, Object> activateIncomingTicket(String senderPhone, Long recipientId, Long clientId) {
+        User recipient = userRepository.findById(recipientId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", recipientId));
+
+        // Ensure sender user exists (reuses existing private method)
+        User sender = ensureSenderExists(senderPhone, clientId, recipient);
+
+        // Only create tickets for standard users
+        if (sender.getRole() != UserRole.STANDARD) {
+            log.warn("activateIncomingTicket: sender {} is not STANDARD, skipping", sender.getId());
+            return Map.of("result", "skipped", "reason", "sender_not_standard");
+        }
+
+        // Determine the effective agent (sticky agent or recipient)
+        User agent = (sender.getManager() != null) ? sender.getManager() : recipient;
+
+        // Find open ticket between user and agent
+        Optional<Ticket> existingOpenTicket = ticketRepository.findOpenTicketBetweenUsers(
+                sender.getId(), agent.getId(), TicketStatus.OPEN);
+
+        Ticket ticket;
+        boolean created = false;
+        if (existingOpenTicket.isPresent()) {
+            ticket = existingOpenTicket.get();
+        } else {
+            // No open ticket — create a new one (same logic as assignToTicket for incoming)
+            ticket = new Ticket();
+            ticket.setUser(sender);
+            ticket.setAgent(agent);
+            ticket.setStatus(TicketStatus.OPEN);
+            ticket.setSubject("Incoming message from " + senderPhone);
+            ticket = ticketRepository.save(ticket);
+            created = true;
+
+            // Log new_ticket KPI
+            Long senderClientId = sender.getClient() != null ? sender.getClient().getId() : clientId;
+            logKpi(senderClientId, agent.getId(), KpiType.NEW_TICKET, 1L, ticket.getId());
+
+            log.info("Activated incoming ticket {} (new) for user {} agent {}", ticket.getId(), sender.getId(), agent.getId());
+        }
+
+        // Set requireResponse = true on the sender (client user)
+        sender.setRequireResponse(true);
+        userRepository.save(sender);
+
+        // Notify via WebSocket
+        webSocketService.sendTicketUpdate(ticket);
+
+        if (!created) {
+            log.info("Activated incoming ticket {} (existing) for user {} agent {}", ticket.getId(), sender.getId(), agent.getId());
+        }
+
+        return Map.of(
+                "result", "success",
+                "ticketId", ticket.getId(),
+                "userId", sender.getId(),
+                "requireResponse", true,
+                "created", created
+        );
     }
 
     /**
