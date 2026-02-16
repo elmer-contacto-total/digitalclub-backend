@@ -18,6 +18,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -386,13 +387,12 @@ public class DashboardController {
 
         Long clientId = user.getClientId();
 
-        List<User> contacts;
+        // Use native query with LEFT JOIN to avoid loading full User entities and N+1 on manager
+        List<Object[]> contacts;
         if (managerId != null) {
-            // Filter by specific manager/agent
-            contacts = userRepository.findByClient_IdAndManager_IdAndRole(clientId, managerId, UserRole.STANDARD);
+            contacts = userRepository.findContactsForExportByManager(clientId, managerId, UserRole.STANDARD.getValue());
         } else {
-            // All standard users for the client
-            contacts = userRepository.findByClient_IdAndRole(clientId, UserRole.STANDARD);
+            contacts = userRepository.findContactsForExport(clientId, UserRole.STANDARD.getValue());
         }
 
         // Build CSV with BOM
@@ -402,16 +402,17 @@ public class DashboardController {
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-        for (User contact : contacts) {
-            csv.append(contact.getId()).append(",");
-            csv.append(escapeCSV(contact.getCodigo())).append(",");
-            csv.append(escapeCSV(contact.getFirstName())).append(",");
-            csv.append(escapeCSV(contact.getLastName())).append(",");
-            csv.append(escapeCSV(contact.getPhone())).append(",");
-            csv.append(escapeCSV(contact.getEmail())).append(",");
-            csv.append(contact.getManager() != null ? escapeCSV(contact.getManager().getFullName()) : "").append(",");
-            csv.append(contact.getLastMessageAt() != null ? contact.getLastMessageAt().format(formatter) : "").append(",");
-            csv.append(contact.getCreatedAt() != null ? contact.getCreatedAt().format(formatter) : "");
+        // Each row: [id, codigo, first_name, last_name, phone, email, manager_name, last_message_at, created_at]
+        for (Object[] row : contacts) {
+            csv.append(row[0]).append(",");
+            csv.append(escapeCSV(str(row[1]))).append(",");
+            csv.append(escapeCSV(str(row[2]))).append(",");
+            csv.append(escapeCSV(str(row[3]))).append(",");
+            csv.append(escapeCSV(str(row[4]))).append(",");
+            csv.append(escapeCSV(str(row[5]))).append(",");
+            csv.append(escapeCSV(str(row[6]))).append(",");
+            csv.append(row[7] != null ? ((Timestamp) row[7]).toLocalDateTime().format(formatter) : "").append(",");
+            csv.append(row[8] != null ? ((Timestamp) row[8]).toLocalDateTime().format(formatter) : "");
             csv.append("\n");
         }
 
@@ -435,6 +436,10 @@ public class DashboardController {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
+    }
+
+    private String str(Object o) {
+        return o != null ? o.toString() : "";
     }
 
     /**

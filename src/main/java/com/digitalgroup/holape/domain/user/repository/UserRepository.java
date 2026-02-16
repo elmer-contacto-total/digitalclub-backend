@@ -50,6 +50,27 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     List<User> findByClient_IdAndManager_IdAndRole(Long clientId, Long managerId, UserRole role);
 
+    /**
+     * Lightweight native query for contact export — returns only needed columns with manager name via JOIN.
+     * Avoids loading full User entities and N+1 queries on manager relationship.
+     * PARIDAD RAILS: Admin::DashboardController#export_contacts
+     */
+    @Query(value = "SELECT u.id, u.codigo, u.first_name, u.last_name, u.phone, u.email, " +
+            "CONCAT(COALESCE(m.first_name,''), ' ', COALESCE(m.last_name,'')) as manager_name, " +
+            "u.last_message_at, u.created_at " +
+            "FROM users u LEFT JOIN users m ON u.manager_id = m.id " +
+            "WHERE u.client_id = :clientId AND u.role = :role " +
+            "ORDER BY u.id", nativeQuery = true)
+    List<Object[]> findContactsForExport(@Param("clientId") Long clientId, @Param("role") int role);
+
+    @Query(value = "SELECT u.id, u.codigo, u.first_name, u.last_name, u.phone, u.email, " +
+            "CONCAT(COALESCE(m.first_name,''), ' ', COALESCE(m.last_name,'')) as manager_name, " +
+            "u.last_message_at, u.created_at " +
+            "FROM users u LEFT JOIN users m ON u.manager_id = m.id " +
+            "WHERE u.client_id = :clientId AND u.manager_id = :managerId AND u.role = :role " +
+            "ORDER BY u.id", nativeQuery = true)
+    List<Object[]> findContactsForExportByManager(@Param("clientId") Long clientId, @Param("managerId") Long managerId, @Param("role") int role);
+
     List<User> findByClient_IdAndRoleIn(Long clientId, List<UserRole> roles);
 
     // PARIDAD RAILS: Query para reconstruir flags de todos los usuarios por rol
