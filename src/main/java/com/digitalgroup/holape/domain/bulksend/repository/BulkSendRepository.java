@@ -30,6 +30,49 @@ public interface BulkSendRepository extends JpaRepository<BulkSend, Long> {
     @Query("SELECT COALESCE(SUM(b.sentCount), 0) FROM BulkSend b WHERE b.user.id = :userId AND b.createdAt >= :since")
     long sumSentByUserSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
+    // --- Supervisor-scoped queries (own sends + agents' sends) ---
+
+    @Query(value = """
+            SELECT b.* FROM bulk_sends b
+            WHERE b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               )
+            ORDER BY b.created_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(b.id) FROM bulk_sends b
+            WHERE b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               )
+            """,
+            nativeQuery = true)
+    Page<BulkSend> findBySupervisorScope(@Param("supervisorId") Long supervisorId, Pageable pageable);
+
+    @Query(value = """
+            SELECT b.* FROM bulk_sends b
+            WHERE (b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               ))
+            AND b.status = :status
+            ORDER BY b.created_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(b.id) FROM bulk_sends b
+            WHERE (b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               ))
+            AND b.status = :status
+            """,
+            nativeQuery = true)
+    Page<BulkSend> findBySupervisorScopeAndStatus(
+            @Param("supervisorId") Long supervisorId,
+            @Param("status") String status,
+            Pageable pageable);
+
     // --- Assigned agent queries ---
 
     Page<BulkSend> findByAssignedAgentIdOrderByCreatedAtDesc(Long agentId, Pageable pageable);

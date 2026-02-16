@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.bulksend.entity;
 
 import com.digitalgroup.holape.domain.client.entity.Client;
+import com.digitalgroup.holape.domain.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "bulk_send_rules", uniqueConstraints = {
-        @UniqueConstraint(columnNames = "client_id")
+        @UniqueConstraint(columnNames = {"client_id", "user_id"})
 })
 @Getter
 @Setter
@@ -29,6 +30,10 @@ public class BulkSendRule {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;  // nullable — null means client-level default
 
     @Column(name = "max_daily_messages", nullable = false)
     @Builder.Default

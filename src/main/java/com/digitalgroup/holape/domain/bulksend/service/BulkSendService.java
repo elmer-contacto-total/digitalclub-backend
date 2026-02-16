@@ -278,7 +278,7 @@ public class BulkSendService {
     }
 
     /**
-     * Get or create default rules for a client
+     * Get or create default rules for a client (used by Electron polling)
      */
     public BulkSendRule getOrCreateRules(Long clientId) {
         return ruleRepository.findByClientId(clientId)
@@ -293,12 +293,45 @@ public class BulkSendService {
     }
 
     /**
-     * Update rules for a client
+     * Get or create rules for a specific supervisor
+     */
+    @Transactional
+    public BulkSendRule getOrCreateRules(Long clientId, Long userId) {
+        return ruleRepository.findByClientIdAndUserId(clientId, userId)
+                .orElseGet(() -> {
+                    Client client = clientRepository.findById(clientId)
+                            .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
+                    User user = userRepository.findById(userId)
+                            .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+                    BulkSendRule defaults = BulkSendRule.builder()
+                            .client(client)
+                            .user(user)
+                            .build();
+                    return ruleRepository.save(defaults);
+                });
+    }
+
+    /**
+     * Update rules for a specific supervisor
+     */
+    @Transactional
+    public BulkSendRule updateRules(Long clientId, Long userId, Map<String, Object> updates) {
+        BulkSendRule rules = getOrCreateRules(clientId, userId);
+        applyRuleUpdates(rules, updates);
+        return ruleRepository.save(rules);
+    }
+
+    /**
+     * Update rules for a client (backward compatibility)
      */
     @Transactional
     public BulkSendRule updateRules(Long clientId, Map<String, Object> updates) {
         BulkSendRule rules = getOrCreateRules(clientId);
+        applyRuleUpdates(rules, updates);
+        return ruleRepository.save(rules);
+    }
 
+    private void applyRuleUpdates(BulkSendRule rules, Map<String, Object> updates) {
         if (updates.containsKey("max_daily_messages"))
             rules.setMaxDailyMessages((Integer) updates.get("max_daily_messages"));
         if (updates.containsKey("min_delay_seconds"))
@@ -315,8 +348,6 @@ public class BulkSendService {
             rules.setSendHourEnd((Integer) updates.get("send_hour_end"));
         if (updates.containsKey("enabled"))
             rules.setEnabled((Boolean) updates.get("enabled"));
-
-        return ruleRepository.save(rules);
     }
 
     /**

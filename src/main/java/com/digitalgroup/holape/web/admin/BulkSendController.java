@@ -212,12 +212,13 @@ public class BulkSendController {
         if (currentUser.isSuperAdmin()) {
             bulkSendsPage = bulkSendRepository.findAll(pageable);
         } else if (isSupervisor) {
+            // Supervisor: only own sends + sends assigned to their agents
             if (status != null && !status.isBlank()) {
-                bulkSendsPage = bulkSendRepository.findByClientIdAndStatusOrderByCreatedAtDesc(
-                        currentUser.getClientId(), status.toUpperCase(), pageable);
+                bulkSendsPage = bulkSendRepository.findBySupervisorScopeAndStatus(
+                        currentUser.getId(), status.toUpperCase(), pageable);
             } else {
-                bulkSendsPage = bulkSendRepository.findByClientIdOrderByCreatedAtDesc(
-                        currentUser.getClientId(), pageable);
+                bulkSendsPage = bulkSendRepository.findBySupervisorScope(
+                        currentUser.getId(), pageable);
             }
         } else {
             // Agents see sends assigned to them
@@ -435,7 +436,7 @@ public class BulkSendController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<Map<String, Object>> getRules(
             @AuthenticationPrincipal CustomUserDetails currentUser) {
-        BulkSendRule rules = bulkSendService.getOrCreateRules(currentUser.getClientId());
+        BulkSendRule rules = bulkSendService.getOrCreateRules(currentUser.getClientId(), currentUser.getId());
         return ResponseEntity.ok(Map.of("rules", mapRulesToResponse(rules)));
     }
 
@@ -447,7 +448,7 @@ public class BulkSendController {
     public ResponseEntity<Map<String, Object>> updateRules(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody Map<String, Object> request) {
-        BulkSendRule rules = bulkSendService.updateRules(currentUser.getClientId(), request);
+        BulkSendRule rules = bulkSendService.updateRules(currentUser.getClientId(), currentUser.getId(), request);
         return ResponseEntity.ok(Map.of(
                 "result", "success",
                 "rules", mapRulesToResponse(rules)
