@@ -71,6 +71,15 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             "ORDER BY u.id", nativeQuery = true)
     List<Object[]> findContactsForExportByManager(@Param("clientId") Long clientId, @Param("managerId") Long managerId, @Param("role") int role);
 
+    @Query(value = "SELECT u.id, u.codigo, u.first_name, u.last_name, u.phone, u.email, " +
+            "CONCAT(COALESCE(m.first_name,''), ' ', COALESCE(m.last_name,'')) as manager_name, " +
+            "u.last_message_at, u.created_at " +
+            "FROM users u LEFT JOIN users m ON u.manager_id = m.id " +
+            "WHERE u.client_id = :clientId AND u.manager_id IN :managerIds AND u.role = :role " +
+            "ORDER BY u.id", nativeQuery = true)
+    List<Object[]> findContactsForExportByManagers(@Param("clientId") Long clientId,
+            @Param("managerIds") List<Long> managerIds, @Param("role") int role);
+
     List<User> findByClient_IdAndRoleIn(Long clientId, List<UserRole> roles);
 
     // PARIDAD RAILS: Query para reconstruir flags de todos los usuarios por rol

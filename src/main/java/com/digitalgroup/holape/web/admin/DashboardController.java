@@ -382,17 +382,30 @@ public class DashboardController {
     @GetMapping("/export_contacts")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<byte[]> exportContacts(
-            @AuthenticationPrincipal CustomUserDetails user,
-            @RequestParam(required = false) Long managerId) {
+            @AuthenticationPrincipal CustomUserDetails user) {
 
         Long clientId = user.getClientId();
 
-        // Use native query with LEFT JOIN to avoid loading full User entities and N+1 on manager
+        // PARIDAD RAILS: current_user.subordinates — scope by role
         List<Object[]> contacts;
-        if (managerId != null) {
-            contacts = userRepository.findContactsForExportByManager(clientId, managerId, UserRole.STANDARD.getValue());
-        } else {
+        UserRole userRole = user.getUserRole();
+
+        if (userRole == UserRole.SUPER_ADMIN || userRole == UserRole.ADMIN || userRole == UserRole.STAFF) {
+            // Admins/staff ven todos los contactos
             contacts = userRepository.findContactsForExport(clientId, UserRole.STANDARD.getValue());
+        } else if (userRole == UserRole.MANAGER_LEVEL_4) {
+            // Supervisor: clientes de sus agentes
+            List<Long> agentIds = userRepository.findByManager_Id(user.getId())
+                    .stream().filter(u -> u.getRole() == UserRole.AGENT)
+                    .map(User::getId).collect(Collectors.toList());
+            if (agentIds.isEmpty()) {
+                contacts = List.of();
+            } else {
+                contacts = userRepository.findContactsForExportByManagers(clientId, agentIds, UserRole.STANDARD.getValue());
+            }
+        } else {
+            // AGENT, MANAGER_LEVEL_1/2/3: solo sus subordinados directos
+            contacts = userRepository.findContactsForExportByManager(clientId, user.getId(), UserRole.STANDARD.getValue());
         }
 
         // Build CSV with BOM
