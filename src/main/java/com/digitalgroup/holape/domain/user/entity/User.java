@@ -166,7 +166,7 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "manager", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "manager")
     @Builder.Default
     private List<User> subordinates = new ArrayList<>();
 
