@@ -413,8 +413,9 @@ public class UserAdminController {
             clientsPage = userRepository.findClientsWithActiveConversationByManager(
                     currentUser.getId(), unsortedPageable);
         } else {
-            // All subordinates (default) - PARIDAD RAILS: current_user.subordinates
-            clientsPage = userRepository.findClientsOfNative(currentUser.getId(), unsortedPageable);
+            // Default: active conversations — PARIDAD RAILS: frontend sends active_only by default
+            clientsPage = userRepository.findClientsWithActiveConversationByManager(
+                    currentUser.getId(), unsortedPageable);
         }
 
         // Apply search filter if provided
