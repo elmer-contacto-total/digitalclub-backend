@@ -78,8 +78,9 @@ public class CapturedMediaService {
                 String month = String.format("%02d", now.getMonthValue());
                 String day = String.format("%02d", now.getDayOfMonth());
                 String extension = getExtension(request.getMimeType());
+                String folderName = buildFolderName(request);
                 String storagePath = String.format("%s/%s/%s/%s/%s/%s.%s",
-                        request.getUserId(),
+                        folderName,
                         mediaType.name().toLowerCase(),
                         year, month, day,
                         request.getMediaId(),
@@ -253,6 +254,24 @@ public class CapturedMediaService {
             throw new IllegalStateException("Storage service is not enabled");
         }
         return storageService.download(media.getFilePath());
+    }
+
+    private String buildFolderName(SaveCapturedMediaRequest request) {
+        String agentPart = request.getAgentId() != null
+                ? "agente_" + request.getAgentId()
+                : "agente_unknown";
+
+        String clientPart;
+        if (request.getClientUserId() != null) {
+            clientPart = "cliente_" + request.getClientUserId();
+        } else if (request.getChatPhone() != null && !request.getChatPhone().isEmpty()) {
+            String phone = request.getChatPhone().replaceAll("[^0-9]", "");
+            clientPart = "tel_" + phone;
+        } else {
+            clientPart = "sin_asignar";
+        }
+
+        return agentPart + "_" + clientPart;
     }
 
     private String calculateSha256(byte[] data) {

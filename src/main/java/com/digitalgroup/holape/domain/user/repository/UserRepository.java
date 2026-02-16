@@ -66,12 +66,6 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             @Param("roles") List<UserRole> roles,
             @Param("status") Status status);
 
-    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD AND u.manager.id = :managerId")
-    Page<User> findClientsByManager(
-            @Param("clientId") Long clientId,
-            @Param("managerId") Long managerId,
-            Pageable pageable);
-
     @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.AGENT")
     List<User> findAgentsByClient(@Param("clientId") Long clientId);
 

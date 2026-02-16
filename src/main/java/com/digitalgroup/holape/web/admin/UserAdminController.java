@@ -413,9 +413,8 @@ public class UserAdminController {
             clientsPage = userRepository.findClientsWithActiveConversationByManager(
                     currentUser.getId(), unsortedPageable);
         } else {
-            // All subordinates (default - JPQL query - use sorted)
-            clientsPage = userRepository.findClientsByManager(
-                    currentUser.getClientId(), currentUser.getId(), sortedPageable);
+            // All subordinates (default) - PARIDAD RAILS: current_user.subordinates
+            clientsPage = userRepository.findClientsOf(currentUser.getId(), unsortedPageable);
         }
 
         // Apply search filter if provided
