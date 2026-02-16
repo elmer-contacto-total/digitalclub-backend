@@ -585,6 +585,27 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     // ==================== AGENT CLIENTS FILTER QUERIES (Rails Parity) ====================
 
     /**
+     * Find all clients (subordinates) for a specific manager (agent) - DEFAULT view
+     * PARIDAD RAILS: current_user.subordinates
+     * Uses native query with explicit countQuery to avoid Hibernate 6.x count generation bug
+     */
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId
+            AND u.role = 0
+            AND u.status = 0
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId
+            AND u.role = 0
+            AND u.status = 0
+            """,
+            nativeQuery = true)
+    Page<User> findClientsOfNative(@Param("managerId") Long managerId, Pageable pageable);
+
+    /**
      * Find clients with open tickets for a specific manager (agent)
      * PARIDAD: Rails scope :with_open_tickets_for_agent
      */
@@ -630,29 +651,43 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     /**
      * Find clients requiring response for a specific manager (agent)
      * PARIDAD: Rails scope :with_unresponded_messages_for_agent
+     * Native query with explicit countQuery to avoid Hibernate 6.x count generation bug
      */
-    @Query("""
-            SELECT u FROM User u
-            WHERE u.manager.id = :managerId
-            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
-            AND u.requireResponse = true
-            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
-            ORDER BY u.lastMessageAt ASC NULLS LAST
-            """)
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId
+            AND u.role = 0
+            AND u.require_response = true
+            AND u.status = 0
+            ORDER BY u.last_message_at ASC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND u.require_response = true AND u.status = 0
+            """,
+            nativeQuery = true)
     Page<User> findClientsRequiringResponseByManager(@Param("managerId") Long managerId, Pageable pageable);
 
     /**
      * Find clients that have been responded to for a specific manager (agent)
      * PARIDAD: Rails scope :responded_messages_for_agent
+     * Native query with explicit countQuery to avoid Hibernate 6.x count generation bug
      */
-    @Query("""
-            SELECT u FROM User u
-            WHERE u.manager.id = :managerId
-            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
-            AND (u.requireResponse = false OR u.requireResponse IS NULL)
-            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
-            ORDER BY u.lastMessageAt DESC NULLS LAST
-            """)
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId
+            AND u.role = 0
+            AND (u.require_response = false OR u.require_response IS NULL)
+            AND u.status = 0
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND (u.require_response = false OR u.require_response IS NULL) AND u.status = 0
+            """,
+            nativeQuery = true)
     Page<User> findClientsRespondedByManager(@Param("managerId") Long managerId, Pageable pageable);
 
     /**

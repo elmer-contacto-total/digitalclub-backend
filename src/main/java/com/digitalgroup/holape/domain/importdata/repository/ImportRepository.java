@@ -16,11 +16,32 @@ import java.util.Optional;
 @Repository
 public interface ImportRepository extends JpaRepository<Import, Long> {
 
-    @EntityGraph(attributePaths = {"user", "client"})
-    Page<Import> findByClientId(Long clientId, Pageable pageable);
+    @Query(value = """
+            SELECT i.* FROM imports i
+            WHERE i.client_id = :clientId
+            ORDER BY i.created_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(i.id) FROM imports i
+            WHERE i.client_id = :clientId
+            """,
+            nativeQuery = true)
+    Page<Import> findByClientId(@Param("clientId") Long clientId, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"user", "client"})
-    Page<Import> findByClientIdAndUserId(Long clientId, Long userId, Pageable pageable);
+    @Query(value = """
+            SELECT i.* FROM imports i
+            WHERE i.client_id = :clientId AND i.user_id = :userId
+            ORDER BY i.created_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(i.id) FROM imports i
+            WHERE i.client_id = :clientId AND i.user_id = :userId
+            """,
+            nativeQuery = true)
+    Page<Import> findByClientIdAndUserId(
+            @Param("clientId") Long clientId,
+            @Param("userId") Long userId,
+            Pageable pageable);
 
     @EntityGraph(attributePaths = {"user", "client"})
     Optional<Import> findById(Long id);

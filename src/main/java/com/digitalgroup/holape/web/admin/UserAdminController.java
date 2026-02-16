@@ -400,13 +400,13 @@ public class UserAdminController {
                         currentUser.getId(), unsortedPageable);
             }
         } else if (messageStatus != null && !"all".equals(messageStatus)) {
-            // Filter by message response status (JPQL queries - use sorted)
+            // Filter by message response status (native queries - use unsorted)
             if ("to_respond".equals(messageStatus)) {
                 clientsPage = userRepository.findClientsRequiringResponseByManager(
-                        currentUser.getId(), sortedPageable);
+                        currentUser.getId(), unsortedPageable);
             } else { // responded
                 clientsPage = userRepository.findClientsRespondedByManager(
-                        currentUser.getId(), sortedPageable);
+                        currentUser.getId(), unsortedPageable);
             }
         } else if (Boolean.TRUE.equals(activeOnly)) {
             // Only clients with active conversations (native query - use unsorted)
@@ -414,7 +414,7 @@ public class UserAdminController {
                     currentUser.getId(), unsortedPageable);
         } else {
             // All subordinates (default) - PARIDAD RAILS: current_user.subordinates
-            clientsPage = userRepository.findClientsOf(currentUser.getId(), unsortedPageable);
+            clientsPage = userRepository.findClientsOfNative(currentUser.getId(), unsortedPageable);
         }
 
         // Apply search filter if provided
