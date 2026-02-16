@@ -379,7 +379,7 @@ public class DashboardController {
      * Exports all standard users (clients) from the current client
      */
     @GetMapping("/export_contacts")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'STAFF')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<byte[]> exportContacts(
             @AuthenticationPrincipal CustomUserDetails user,
             @RequestParam(required = false) Long managerId) {
