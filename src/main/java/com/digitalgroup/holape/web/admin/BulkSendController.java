@@ -430,13 +430,27 @@ public class BulkSendController {
     }
 
     /**
-     * Get send rules (all roles — agents need to read rules during bulk send)
+     * Get send rules for current user (supervisor viewing/editing own rules)
      */
     @GetMapping("/rules")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<Map<String, Object>> getRules(
             @AuthenticationPrincipal CustomUserDetails currentUser) {
         BulkSendRule rules = bulkSendService.getOrCreateRules(currentUser.getClientId(), currentUser.getId());
+        return ResponseEntity.ok(Map.of("rules", mapRulesToResponse(rules)));
+    }
+
+    /**
+     * Get send rules for a specific bulk send (resolves supervisor from the bulk send creator).
+     * Used by Electron so agents get the supervisor's rules, not their own defaults.
+     */
+    @GetMapping("/{id}/rules")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
+    public ResponseEntity<Map<String, Object>> getRulesForBulkSend(@PathVariable Long id) {
+        BulkSend bulkSend = bulkSendRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
+        BulkSendRule rules = bulkSendService.getOrCreateRules(
+                bulkSend.getClient().getId(), bulkSend.getUser().getId());
         return ResponseEntity.ok(Map.of("rules", mapRulesToResponse(rules)));
     }
 
