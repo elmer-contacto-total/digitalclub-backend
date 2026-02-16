@@ -137,22 +137,6 @@ public class AlertService {
         );
     }
 
-    @Transactional
-    public Alert createEscalationAlert(Ticket ticket, User escalatedTo) {
-        String title = "Ticket escalado";
-        String message = String.format("El ticket #%d ha sido escalado", ticket.getId());
-
-        return createAlert(
-                ticket.getClient().getId(),
-                AlertType.ESCALATION,
-                AlertSeverity.HIGH,
-                title,
-                message,
-                ticket,
-                escalatedTo
-        );
-    }
-
     /**
      * Acknowledge alert
      * PARIDAD RAILS: read en lugar de acknowledged, no hay acknowledgedAt ni acknowledgedBy
@@ -235,41 +219,6 @@ public class AlertService {
 
         log.info("Created require_response alert {} for message {} (no ticket)",
                 alert.getId(), message.getId());
-
-        return alert;
-    }
-
-    /**
-     * Create escalation alert for manager when agent hasn't responded
-     * Used by RequireResponseAlertJob for ticket escalation
-     * PARIDAD RAILS: usa campos correctos de Alert entity
-     */
-    @Transactional
-    public Alert createEscalationAlert(Ticket ticket, User manager, int alertCount) {
-        String title = "Ticket escalado";
-        String messageText = String.format(
-                "El ticket #%d ha sido escalado - %d alertas sin respuesta del agente %s",
-                ticket.getId(),
-                alertCount,
-                ticket.getAgent() != null ? ticket.getAgent().getFullName() : "desconocido"
-        );
-
-        Alert alert = new Alert();
-        alert.setAlertType(AlertType.ESCALATION);
-        alert.setSeverity(AlertSeverity.HIGH);
-        alert.setTitle(title);
-        alert.setBody(messageText);  // PARIDAD: body en lugar de message
-        alert.setUrl("/tickets/" + ticket.getId());  // PARIDAD: url en lugar de ticket
-        alert.setUser(manager);
-        alert.setRead(false);  // PARIDAD: read en lugar of acknowledged
-
-        alert = alertRepository.save(alert);
-
-        // Broadcast alert via WebSocket
-        broadcastAlert(alert);
-
-        log.info("Created escalation alert {} for ticket {} to manager {}",
-                alert.getId(), ticket.getId(), manager.getId());
 
         return alert;
     }

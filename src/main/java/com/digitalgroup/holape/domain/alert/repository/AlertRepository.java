@@ -123,20 +123,6 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
             @Param("alertType") AlertType alertType,
             @Param("since") LocalDateTime since);
 
-    // Find users with multiple unread alerts (for escalation)
-    // PARIDAD: ticket no existe, agrupar por URL de ticket
-    @Query("""
-            SELECT a.url, COUNT(a) as alertCount
-            FROM Alert a
-            WHERE a.alertType = com.digitalgroup.holape.domain.common.enums.AlertType.REQUIRE_RESPONSE
-            AND a.read = false
-            AND a.url IS NOT NULL
-            GROUP BY a.url
-            HAVING COUNT(a) >= :minAlerts
-            ORDER BY alertCount DESC
-            """)
-    List<Object[]> findTicketsWithMultipleUnacknowledgedAlerts(@Param("minAlerts") int minAlerts);
-
     // Find by URL and read status
     List<Alert> findByUrlAndRead(String url, boolean read);
 

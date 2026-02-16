@@ -238,46 +238,4 @@ public class RequireResponseAlertJob {
         });
     }
 
-    /**
-     * Escalate tickets with multiple unanswered alerts
-     * Runs every 15 minutes
-     */
-    @Scheduled(cron = "0 */15 * * * *") // Every 15 minutes
-    @Transactional
-    public void escalateUnresponsiveTickets() {
-        log.debug("Checking for tickets to escalate");
-
-        try {
-            // Find tickets with 3+ unacknowledged require_response alerts
-            List<Object[]> ticketsToEscalate = alertRepository.findTicketsWithMultipleUnacknowledgedAlerts(3);
-
-            for (Object[] row : ticketsToEscalate) {
-                Long ticketId = ((Number) row[0]).longValue();
-                Long alertCount = ((Number) row[1]).longValue();
-
-                Optional<Ticket> ticketOpt = ticketRepository.findById(ticketId);
-                if (ticketOpt.isEmpty()) continue;
-
-                Ticket ticket = ticketOpt.get();
-                User agent = ticket.getAgent();
-
-                if (agent == null || agent.getManager() == null) continue;
-
-                // Create escalation alert for manager
-                alertService.createEscalationAlert(ticket, agent.getManager(), alertCount.intValue());
-
-                // Notify manager via WebSocket
-                webSocketService.sendAlertToUser(
-                        agent.getManager().getId(),
-                        "escalation",
-                        "Ticket #" + ticketId + " escalado - " + alertCount + " alertas sin respuesta"
-                );
-
-                log.info("Escalated ticket {} to manager {} (agent: {}, alerts: {})",
-                        ticketId, agent.getManager().getId(), agent.getId(), alertCount);
-            }
-        } catch (Exception e) {
-            log.error("Error escalating unresponsive tickets: {}", e.getMessage(), e);
-        }
-    }
 }
