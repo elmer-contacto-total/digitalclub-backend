@@ -850,16 +850,35 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     /**
      * Find clients with active conversations for multiple managers (supervisor view)
-     * PARIDAD: Rails scope :with_active_conversation for supervisor_clients
+     * PARIDAD: Rails scope :with_active_conversation — checks if ANY message exists
+     * between client and agent (no time limit), using UNION of sender/recipient
      */
     @Query(value = """
-            SELECT u.* FROM users u
+            SELECT DISTINCT u.* FROM users u
             WHERE u.manager_id IN :managerIds
             AND u.role = 0
             AND u.status = 0
-            AND u.last_message_at IS NOT NULL
-            AND u.last_message_at > NOW() - INTERVAL '7 days'
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
             ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
             """,
             nativeQuery = true)
     Page<User> findClientsWithActiveConversationByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
