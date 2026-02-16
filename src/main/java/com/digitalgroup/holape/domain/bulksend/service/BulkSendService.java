@@ -82,7 +82,7 @@ public class BulkSendService {
         }
 
         // Check daily limit for assigned agent
-        BulkSendRule rules = getOrCreateRules(clientId);
+        BulkSendRule rules = getOrCreateRules(clientId, userId);
         long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(assignedAgent.getId(),
                 LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
         if (sentToday + csvRecipients.size() > rules.getMaxDailyMessages()) {
@@ -197,7 +197,7 @@ public class BulkSendService {
 
         // Check daily limit for assigned agent
         if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
-            BulkSendRule rules = getOrCreateRules(bulkSend.getClient().getId());
+            BulkSendRule rules = getOrCreateRules(bulkSend.getClient().getId(), bulkSend.getUser().getId());
             long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
                     bulkSend.getAssignedAgent().getId(),
                     LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
@@ -278,21 +278,6 @@ public class BulkSendService {
     }
 
     /**
-     * Get or create default rules for a client (used by Electron polling)
-     */
-    public BulkSendRule getOrCreateRules(Long clientId) {
-        return ruleRepository.findByClientId(clientId)
-                .orElseGet(() -> {
-                    Client client = clientRepository.findById(clientId)
-                            .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
-                    BulkSendRule defaults = BulkSendRule.builder()
-                            .client(client)
-                            .build();
-                    return ruleRepository.save(defaults);
-                });
-    }
-
-    /**
      * Get or create rules for a specific supervisor
      */
     @Transactional
@@ -317,16 +302,6 @@ public class BulkSendService {
     @Transactional
     public BulkSendRule updateRules(Long clientId, Long userId, Map<String, Object> updates) {
         BulkSendRule rules = getOrCreateRules(clientId, userId);
-        applyRuleUpdates(rules, updates);
-        return ruleRepository.save(rules);
-    }
-
-    /**
-     * Update rules for a client (backward compatibility)
-     */
-    @Transactional
-    public BulkSendRule updateRules(Long clientId, Map<String, Object> updates) {
-        BulkSendRule rules = getOrCreateRules(clientId);
         applyRuleUpdates(rules, updates);
         return ruleRepository.save(rules);
     }

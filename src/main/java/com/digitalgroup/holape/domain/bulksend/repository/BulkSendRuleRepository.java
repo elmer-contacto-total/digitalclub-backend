@@ -9,7 +9,5 @@ import java.util.Optional;
 @Repository
 public interface BulkSendRuleRepository extends JpaRepository<BulkSendRule, Long> {
 
-    Optional<BulkSendRule> findByClientId(Long clientId);
-
     Optional<BulkSendRule> findByClientIdAndUserId(Long clientId, Long userId);
 }

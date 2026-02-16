@@ -883,6 +883,154 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             nativeQuery = true)
     Page<User> findClientsWithActiveConversationByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
 
+    /**
+     * Find active conversation clients requiring response (activeOnly + to_respond)
+     */
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.require_response = true
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            ORDER BY u.last_message_at ASC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.require_response = true
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsRequiringResponseByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find active conversation clients already responded (activeOnly + responded)
+     */
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND (u.require_response = false OR u.require_response IS NULL)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND (u.require_response = false OR u.require_response IS NULL)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsRespondedByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find active conversation clients with open tickets (activeOnly + open tickets)
+     */
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsWithOpenTicketsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
+    /**
+     * Find active conversation clients without open tickets (activeOnly + closed tickets)
+     */
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id NOT IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds
+            AND u.role = 0
+            AND u.status = 0
+            AND u.id NOT IN (
+                SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0
+            )
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsWithoutOpenTicketsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
+
     // ==================== USERS INDEX QUERIES (Rails UsersController#index) ====================
 
     /**

@@ -482,24 +482,31 @@ public class UserAdminController {
 
         Page<User> clientsPage;
 
-        // Apply filters based on Rails supervisor_clients implementation
-        if (ticketStatus != null && !"all".equals(ticketStatus)) {
-            // Filter by ticket status
+        // Apply filters — when activeOnly is true, use combined queries that intersect with active conversation
+        if (Boolean.TRUE.equals(activeOnly)) {
+            if (messageStatus != null && "to_respond".equals(messageStatus)) {
+                clientsPage = userRepository.findActiveClientsRequiringResponseByManagerIds(managerIds, unsortedPageable);
+            } else if (messageStatus != null && "responded".equals(messageStatus)) {
+                clientsPage = userRepository.findActiveClientsRespondedByManagerIds(managerIds, unsortedPageable);
+            } else if (ticketStatus != null && "open".equals(ticketStatus)) {
+                clientsPage = userRepository.findActiveClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
+            } else if (ticketStatus != null && "closed".equals(ticketStatus)) {
+                clientsPage = userRepository.findActiveClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
+            } else {
+                clientsPage = userRepository.findClientsWithActiveConversationByManagerIds(managerIds, unsortedPageable);
+            }
+        } else if (ticketStatus != null && !"all".equals(ticketStatus)) {
             if ("open".equals(ticketStatus)) {
                 clientsPage = userRepository.findClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
-            } else { // closed
+            } else {
                 clientsPage = userRepository.findClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
             }
         } else if (messageStatus != null && !"all".equals(messageStatus)) {
-            // Filter by message response status
             if ("to_respond".equals(messageStatus)) {
                 clientsPage = userRepository.findClientsRequiringResponseByManagerIds(managerIds, sortedPageable);
-            } else { // responded
+            } else {
                 clientsPage = userRepository.findClientsRespondedByManagerIds(managerIds, sortedPageable);
             }
-        } else if (Boolean.TRUE.equals(activeOnly)) {
-            // Only clients with active conversations
-            clientsPage = userRepository.findClientsWithActiveConversationByManagerIds(managerIds, unsortedPageable);
         } else {
             // All clients of subordinates
             if (search != null && !search.isBlank()) {

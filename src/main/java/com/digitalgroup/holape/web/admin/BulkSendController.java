@@ -388,7 +388,7 @@ public class BulkSendController {
 
             // Check if it was due to daily limit
             if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
-                BulkSendRule rules = bulkSendService.getOrCreateRules(bulkSend.getClient().getId());
+                BulkSendRule rules = bulkSendService.getOrCreateRules(bulkSend.getClient().getId(), bulkSend.getUser().getId());
                 long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
                         bulkSend.getAssignedAgent().getId(),
                         LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
