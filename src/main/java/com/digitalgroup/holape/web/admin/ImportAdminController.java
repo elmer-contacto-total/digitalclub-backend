@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -44,6 +45,7 @@ public class ImportAdminController {
      * PARIDAD RAILS: Admin/SuperAdmin see all; others see only their own
      */
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false, defaultValue = "0") int page,
