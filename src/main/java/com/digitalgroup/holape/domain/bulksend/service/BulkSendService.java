@@ -285,11 +285,32 @@ public class BulkSendService {
                             .orElseThrow(() -> new ResourceNotFoundException("Client", clientId));
                     User user = userRepository.findById(userId)
                             .orElseThrow(() -> new ResourceNotFoundException("User", userId));
-                    BulkSendRule defaults = BulkSendRule.builder()
-                            .client(client)
-                            .user(user)
-                            .build();
-                    return ruleRepository.save(defaults);
+
+                    // Fallback: clone client-level rules (user_id IS NULL) if they exist
+                    Optional<BulkSendRule> clientDefaults = ruleRepository.findByClientIdAndUserIsNull(clientId);
+                    BulkSendRule newRule;
+                    if (clientDefaults.isPresent()) {
+                        BulkSendRule src = clientDefaults.get();
+                        newRule = BulkSendRule.builder()
+                                .client(client)
+                                .user(user)
+                                .maxDailyMessages(src.getMaxDailyMessages())
+                                .minDelaySeconds(src.getMinDelaySeconds())
+                                .maxDelaySeconds(src.getMaxDelaySeconds())
+                                .pauseAfterCount(src.getPauseAfterCount())
+                                .pauseDurationMinutes(src.getPauseDurationMinutes())
+                                .sendHourStart(src.getSendHourStart())
+                                .sendHourEnd(src.getSendHourEnd())
+                                .cloudApiDelayMs(src.getCloudApiDelayMs())
+                                .enabled(src.getEnabled())
+                                .build();
+                    } else {
+                        newRule = BulkSendRule.builder()
+                                .client(client)
+                                .user(user)
+                                .build();
+                    }
+                    return ruleRepository.save(newRule);
                 });
     }
 

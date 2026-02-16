@@ -6,6 +6,7 @@ import com.digitalgroup.holape.domain.bulksend.entity.BulkSendRule;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRecipientRepository;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRepository;
 import com.digitalgroup.holape.domain.bulksend.service.BulkSendService;
+import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.security.CustomUserDetails;
@@ -446,11 +447,21 @@ public class BulkSendController {
      */
     @GetMapping("/{id}/rules")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getRulesForBulkSend(@PathVariable Long id) {
         BulkSend bulkSend = bulkSendRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
+
+        // Resolve supervisor: agents/staff use their manager's rules
+        User creator = bulkSend.getUser();
+        Long rulesUserId = creator.getId();
+        if ((creator.getRole().isAgent() || creator.getRole() == UserRole.STAFF)
+                && creator.getManager() != null) {
+            rulesUserId = creator.getManager().getId();
+        }
+
         BulkSendRule rules = bulkSendService.getOrCreateRules(
-                bulkSend.getClient().getId(), bulkSend.getUser().getId());
+                bulkSend.getClient().getId(), rulesUserId);
         return ResponseEntity.ok(Map.of("rules", mapRulesToResponse(rules)));
     }
 
