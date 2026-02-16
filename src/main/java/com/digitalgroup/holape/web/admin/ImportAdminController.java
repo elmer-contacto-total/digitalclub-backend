@@ -62,13 +62,6 @@ public class ImportAdminController {
             importsPage = importService.findByClientAndUser(currentUser.getClientId(), currentUser.getId(), pageable);
         }
 
-        log.info("[ImportAdminController] Returned {} imports (total={}), statuses: {}",
-                importsPage.getContent().size(),
-                importsPage.getTotalElements(),
-                importsPage.getContent().stream()
-                        .map(i -> i.getStatus().name())
-                        .collect(Collectors.joining(", ")));
-
         List<Map<String, Object>> data = importsPage.getContent().stream()
                 .map(this::mapImportToResponse)
                 .collect(Collectors.toList());
