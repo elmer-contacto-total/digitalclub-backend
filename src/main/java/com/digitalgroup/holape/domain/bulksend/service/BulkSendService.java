@@ -24,7 +24,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+
 
 @Slf4j
 @Service
@@ -38,8 +38,6 @@ public class BulkSendService {
     private final ClientRepository clientRepository;
     private final BulkMessageRepository bulkMessageRepository;
 
-    private final Set<Long> pausedSends = ConcurrentHashMap.newKeySet();
-    private final Set<Long> cancelledSends = ConcurrentHashMap.newKeySet();
 
     /**
      * Create a bulk send from CSV data
@@ -134,33 +132,33 @@ public class BulkSendService {
     }
 
     /**
-     * Pause a bulk send in progress
+     * Pause a bulk send in progress (idempotent — no-op if already paused)
      */
     public void pauseBulkSend(Long bulkSendId) {
         BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
 
+        if ("PAUSED".equals(bulkSend.getStatus())) return; // idempotent
         if (!"PROCESSING".equals(bulkSend.getStatus())) {
             throw new BusinessException("Solo envíos en proceso pueden ser pausados");
         }
 
-        pausedSends.add(bulkSendId);
         bulkSend.setStatus("PAUSED");
         bulkSendRepository.save(bulkSend);
     }
 
     /**
-     * Resume a paused bulk send
+     * Resume a paused bulk send (idempotent — no-op if already processing)
      */
     public void resumeBulkSend(Long bulkSendId) {
         BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
 
+        if ("PROCESSING".equals(bulkSend.getStatus())) return; // idempotent
         if (!"PAUSED".equals(bulkSend.getStatus())) {
             throw new BusinessException("Solo envíos pausados pueden ser reanudados");
         }
 
-        pausedSends.remove(bulkSendId);
         bulkSend.setStatus("PROCESSING");
         bulkSendRepository.save(bulkSend);
     }
@@ -176,7 +174,6 @@ public class BulkSendService {
             throw new BusinessException("El envío ya está " + bulkSend.getStatus().toLowerCase());
         }
 
-        cancelledSends.add(bulkSendId);
         bulkSend.setStatus("CANCELLED");
         bulkSend.setCompletedAt(LocalDateTime.now());
         bulkSendRepository.save(bulkSend);
