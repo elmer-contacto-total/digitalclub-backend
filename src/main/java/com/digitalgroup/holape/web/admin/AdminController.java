@@ -85,7 +85,9 @@ public class AdminController {
                 "refreshToken", refreshToken,
                 "client", Map.of(
                         "id", client.getId(),
-                        "name", client.getName()
+                        "name", client.getName(),
+                        "clientType", client.getClientType() != null
+                                ? client.getClientType().name().toLowerCase() : "whatsapp_app"
                 ),
                 "message", "Cliente activo actualizado"
         ));

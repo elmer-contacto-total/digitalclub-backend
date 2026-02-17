@@ -353,6 +353,10 @@ public class AuthController {
         userResponse.put("time_zone", user.getTimeZone());
         userResponse.put("country_id", user.getCountry() != null ? user.getCountry().getId() : null);
         userResponse.put("client_id", user.getClientId());
+        // PARIDAD RAILS: @current_client.client_type — needed for sidebar menu filtering
+        var userClient = user.getClient();
+        userResponse.put("client_type", userClient != null && userClient.getClientType() != null
+                ? userClient.getClientType().name().toLowerCase() : null);
         userResponse.put("uuid_token", uuidToken);
         userResponse.put("role", user.getRole().getValue());
         userResponse.put("has_temporary_password", user.hasTempPassword());
