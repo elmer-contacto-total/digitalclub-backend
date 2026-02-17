@@ -46,16 +46,16 @@ public class MessageTemplateAdminController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size) {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("name").ascending());
 
         Page<MessageTemplate> templatesPage;
-        if (status != null && !status.isEmpty()) {
-            templatesPage = messageTemplateService.findByClientAndStatus(
-                    currentUser.getClientId(), status, pageable);
+        if (search != null && !search.isBlank()) {
+            templatesPage = messageTemplateService.searchByClient(
+                    currentUser.getClientId(), search.trim(), pageable);
         } else {
             templatesPage = messageTemplateService.findByClient(
                     currentUser.getClientId(), pageable);
@@ -207,25 +207,34 @@ public class MessageTemplateAdminController {
         map.put("id", template.getId());
         map.put("name", template.getName());
         map.put("language", template.getLanguage() != null ? template.getLanguage().getLanguageCode() : null);
-        map.put("language_name", template.getLanguage() != null ? template.getLanguage().getName() : null);
+        map.put("languageName", template.getLanguage() != null ? template.getLanguage().getName() : null);
         map.put("category", template.getCategory());
+        map.put("templateWhatsappType", template.getTemplateWhatsappType());
         map.put("status", template.getTemplateWhatsappStatus() != null ?
                 template.getTemplateWhatsappStatus().name().toLowerCase() : null);
-        map.put("header_media_type", template.getHeaderMediaType());
-        map.put("header_content", template.getHeaderContent());
-        map.put("body_content", template.getBodyContent());
-        map.put("footer_content", template.getFooterContent());
-        map.put("tot_buttons", template.getTotButtons());
-        map.put("closes_ticket", template.getClosesTicket());
+        map.put("headerMediaType", template.getHeaderMediaType());
+        map.put("headerContent", template.getHeaderContent());
+        map.put("bodyContent", template.getBodyContent());
+        map.put("footerContent", template.getFooterContent());
+        map.put("totButtons", template.getTotButtons());
+        map.put("closesTicket", template.getClosesTicket());
         map.put("visibility", template.getVisibility());
-        map.put("created_at", template.getCreatedAt());
-        map.put("updated_at", template.getUpdatedAt());
+        map.put("createdAt", template.getCreatedAt());
+        map.put("updatedAt", template.getUpdatedAt());
 
         // Include parameters if any
         if (template.getParams() != null && !template.getParams().isEmpty()) {
-            map.put("params", template.getParams().stream()
+            List<Map<String, Object>> paramsList = template.getParams().stream()
                     .map(this::mapParamToResponse)
-                    .collect(Collectors.toList()));
+                    .collect(Collectors.toList());
+            map.put("params", paramsList);
+
+            // Compute paramsStatus: "active" if all params ACTIVE, "pending" otherwise
+            boolean allActive = template.getParams().stream()
+                    .allMatch(p -> p.getStatus() != null && p.getStatus().isActive());
+            map.put("paramsStatus", allActive ? "active" : "pending");
+        } else {
+            map.put("paramsStatus", "");
         }
 
         return map;
@@ -236,8 +245,8 @@ public class MessageTemplateAdminController {
         map.put("id", param.getId());
         map.put("component", param.getComponent());
         map.put("position", param.getPosition());
-        map.put("data_field", param.getDataField());
-        map.put("default_value", param.getDefaultValue());
+        map.put("dataField", param.getDataField());
+        map.put("defaultValue", param.getDefaultValue());
         return map;
     }
 

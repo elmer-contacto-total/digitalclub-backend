@@ -49,6 +49,10 @@ public class MessageTemplateService {
         return messageTemplateRepository.findByClientId(clientId, pageable);
     }
 
+    public Page<MessageTemplate> searchByClient(Long clientId, String search, Pageable pageable) {
+        return messageTemplateRepository.findByClientIdAndNameContainingIgnoreCase(clientId, search, pageable);
+    }
+
     public Page<MessageTemplate> findByClientAndStatus(Long clientId, String status, Pageable pageable) {
         try {
             TemplateWhatsAppStatus templateStatus = TemplateWhatsAppStatus.valueOf(status.toUpperCase());

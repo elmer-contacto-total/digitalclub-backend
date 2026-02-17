@@ -28,6 +28,8 @@ public interface MessageTemplateRepository extends JpaRepository<MessageTemplate
            "AND LOWER(mt.name) LIKE LOWER(CONCAT('%', :search, '%'))")
     List<MessageTemplate> searchApproved(@Param("clientId") Long clientId, @Param("search") String search);
 
+    Page<MessageTemplate> findByClientIdAndNameContainingIgnoreCase(Long clientId, String name, Pageable pageable);
+
     long countByClientId(Long clientId);
 
     long countByClientIdAndStatus(Long clientId, TemplateWhatsAppStatus status);
