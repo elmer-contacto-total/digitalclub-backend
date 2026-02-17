@@ -179,11 +179,11 @@ public class UserAdminController {
     @Transactional(readOnly = true)
     public ResponseEntity<PagedResponse<Map<String, Object>>> getSubordinates(
             @PathVariable Long id,
-            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "10") int pageSize,
             @RequestParam(required = false) String search) {
 
-        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("id").descending());
+        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("id").descending());
         Page<User> subordinatesPage;
 
         if (search != null && !search.isBlank()) {
