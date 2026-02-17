@@ -234,7 +234,7 @@ public class MessageTemplateAdminController {
                     .allMatch(p -> p.getStatus() != null && p.getStatus().isActive());
             map.put("paramsStatus", allActive ? "active" : "pending");
         } else {
-            map.put("paramsStatus", "");
+            map.put("paramsStatus", "sin_params");
         }
 
         return map;
