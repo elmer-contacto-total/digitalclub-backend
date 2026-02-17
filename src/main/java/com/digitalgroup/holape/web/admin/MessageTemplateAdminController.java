@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -41,6 +42,7 @@ public class MessageTemplateAdminController {
     /**
      * List all message templates
      */
+    @Transactional(readOnly = true)
     @GetMapping
     public ResponseEntity<Map<String, Object>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
@@ -74,6 +76,7 @@ public class MessageTemplateAdminController {
     /**
      * Get template by ID
      */
+    @Transactional(readOnly = true)
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> show(@PathVariable Long id) {
         MessageTemplate template = messageTemplateService.findById(id);
