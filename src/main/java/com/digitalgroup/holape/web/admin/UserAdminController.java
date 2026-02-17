@@ -21,6 +21,7 @@ import com.digitalgroup.holape.domain.user.entity.UserManagerHistory;
 import com.digitalgroup.holape.domain.user.repository.UserManagerHistoryRepository;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.domain.user.service.UserService;
+import com.digitalgroup.holape.integration.storage.S3StorageService;
 import com.digitalgroup.holape.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.digitalgroup.holape.web.dto.PagedResponse;
 
@@ -67,6 +69,11 @@ public class UserAdminController {
     private final TicketRepository ticketRepository;
     private final AuditRepository auditRepository;
     private final ClientSettingRepository clientSettingRepository;
+    private final S3StorageService s3StorageService;
+
+    private static final List<String> ALLOWED_IMAGE_TYPES = List.of(
+            "image/jpeg", "image/png", "image/gif", "image/webp"
+    );
 
     /**
      * List users with standard REST pagination
@@ -233,6 +240,11 @@ public class UserAdminController {
             newUser.setManager(userService.findById(request.managerId()));
         }
 
+        // Set importString if provided
+        if (request.importString() != null) {
+            newUser.setImportString(request.importString());
+        }
+
         User created = userService.create(newUser, request.password());
 
         return ResponseEntity.ok(mapUserToResponse(created));
@@ -256,6 +268,14 @@ public class UserAdminController {
         }
         if (request.status() != null) {
             updates.setStatus(Status.valueOf(request.status().toUpperCase()));
+        }
+        if (request.importString() != null) {
+            updates.setImportString(request.importString());
+        }
+
+        // Set manager: fetch from DB so update() can persist the relationship
+        if (request.managerId() != null) {
+            updates.setManager(userService.findById(request.managerId()));
         }
 
         User updated = userService.update(id, updates);
@@ -1523,7 +1543,8 @@ public class UserAdminController {
             String phone,
             String password,
             String role,
-            Long managerId
+            Long managerId,
+            String importString
     ) {}
 
     public record UpdateUserRequest(
@@ -1531,7 +1552,9 @@ public class UserAdminController {
             String lastName,
             String phone,
             String role,
-            String status
+            String status,
+            Long managerId,
+            String importString
     ) {}
 
     public record AssignRequest(Long agentId) {}
@@ -1644,4 +1667,63 @@ public class UserAdminController {
             String phone,
             String timeZone
     ) {}
+
+    /**
+     * Upload avatar for a user
+     * PARIDAD RAILS: Shrine avatar upload with S3 storage
+     * Stores Shrine-compatible JSON in avatar_data column
+     */
+    @PostMapping("/{id}/avatar")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'STAFF', 'MANAGER_LEVEL_4', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_1')")
+    public ResponseEntity<Map<String, Object>> uploadAvatar(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+
+        // Validate file is not empty
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No se seleccionó ningún archivo"));
+        }
+
+        // Validate image type
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Tipo de archivo no permitido. Use JPG, PNG, GIF o WebP"));
+        }
+
+        // Validate file size (max 5MB)
+        if (file.getSize() > 5 * 1024 * 1024) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "El archivo excede el tamaño máximo de 5MB"));
+        }
+
+        try {
+            // Upload to S3
+            String s3Key = s3StorageService.uploadFile(file, "avatars");
+
+            // Build Shrine-compatible JSON
+            String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "avatar.jpg";
+            String avatarJson = String.format(
+                    "{\"id\":\"%s\",\"storage\":\"store\",\"metadata\":{\"filename\":\"%s\",\"size\":%d,\"mime_type\":\"%s\"}}",
+                    s3Key,
+                    originalFilename.replace("\"", ""),
+                    file.getSize(),
+                    contentType
+            );
+
+            // Save to user
+            User user = userService.findById(id);
+            user.setAvatarData(avatarJson);
+            userRepository.save(user);
+
+            // Return avatar URL
+            String avatarUrl = s3StorageService.getDownloadUrl(s3Key);
+            return ResponseEntity.ok(Map.of("avatarUrl", avatarUrl));
+
+        } catch (Exception e) {
+            log.error("Error uploading avatar for user {}", id, e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Error al subir la imagen: " + e.getMessage()));
+        }
+    }
 }

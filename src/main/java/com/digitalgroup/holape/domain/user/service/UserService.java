@@ -178,6 +178,9 @@ public class UserService {
         if (updatedUser.getManager() != null) {
             existingUser.setManager(updatedUser.getManager());
         }
+        if (updatedUser.getImportString() != null) {
+            existingUser.setImportString(updatedUser.getImportString());
+        }
 
         return userRepository.save(existingUser);
     }
