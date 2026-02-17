@@ -301,7 +301,10 @@ public class UserAdminController {
      */
     @GetMapping("/internal")
     public ResponseEntity<PagedResponse<Map<String, Object>>> internalUsers(
-            @AuthenticationPrincipal CustomUserDetails currentUser) {
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "25") int pageSize) {
 
         Long clientId = currentUser.getClientId();
         List<UserRole> internalRoles = List.of(
@@ -309,14 +312,20 @@ public class UserAdminController {
                 UserRole.MANAGER_LEVEL_3, UserRole.MANAGER_LEVEL_4, UserRole.AGENT, UserRole.STAFF
         );
 
-        List<User> users = userRepository.findActiveInternalUsers(
-                clientId, internalRoles, Status.ACTIVE);
+        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("firstName").ascending());
 
-        List<Map<String, Object>> data = users.stream()
+        Page<User> usersPage;
+        if (search != null && !search.isBlank()) {
+            usersPage = userRepository.searchInternalUsers(clientId, internalRoles, search.trim(), pageable);
+        } else {
+            usersPage = userRepository.findInternalUsersPaged(clientId, internalRoles, pageable);
+        }
+
+        List<Map<String, Object>> data = usersPage.getContent().stream()
                 .map(this::mapUserToResponse)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(PagedResponse.fromList(data));
+        return ResponseEntity.ok(PagedResponse.of(data, usersPage.getTotalElements(), page, pageSize));
     }
 
     /**
