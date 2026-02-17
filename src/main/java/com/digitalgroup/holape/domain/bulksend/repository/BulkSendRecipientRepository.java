@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -27,4 +28,8 @@ public interface BulkSendRecipientRepository extends JpaRepository<BulkSendRecip
     Optional<BulkSendRecipient> findNextPendingRecipientForUpdate(@Param("bulkSendId") Long bulkSendId);
 
     long countByBulkSendIdAndStatus(Long bulkSendId, String status);
+
+    @Modifying
+    @Query("UPDATE BulkSendRecipient r SET r.status = 'PENDING' WHERE r.bulkSend.id = :bulkSendId AND r.status = 'IN_PROGRESS'")
+    void resetInProgressToPending(@Param("bulkSendId") Long bulkSendId);
 }

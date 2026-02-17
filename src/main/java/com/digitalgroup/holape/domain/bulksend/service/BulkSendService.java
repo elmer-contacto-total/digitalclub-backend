@@ -150,6 +150,7 @@ public class BulkSendService {
     /**
      * Resume a paused bulk send (idempotent — no-op if already processing)
      */
+    @Transactional
     public void resumeBulkSend(Long bulkSendId) {
         BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
@@ -158,6 +159,9 @@ public class BulkSendService {
         if (!"PAUSED".equals(bulkSend.getStatus())) {
             throw new BusinessException("Solo envíos pausados pueden ser reanudados");
         }
+
+        // Reset any stuck IN_PROGRESS recipients back to PENDING
+        recipientRepository.resetInProgressToPending(bulkSendId);
 
         bulkSend.setStatus("PROCESSING");
         bulkSendRepository.save(bulkSend);
@@ -267,9 +271,10 @@ public class BulkSendService {
 
         recipientRepository.save(recipient);
 
-        // Check if complete
+        // Check if complete (also consider IN_PROGRESS recipients to avoid premature completion)
         long pendingCount = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "PENDING");
-        if (pendingCount == 0) {
+        long inProgressCount = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "IN_PROGRESS");
+        if (pendingCount == 0 && inProgressCount == 0) {
             bulkSend.setStatus("COMPLETED");
             bulkSend.setCompletedAt(LocalDateTime.now());
         }
