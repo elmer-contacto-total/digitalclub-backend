@@ -172,6 +172,43 @@ public class UserAdminController {
     }
 
     /**
+     * Get paginated subordinates of a user
+     * PARIDAD Rails: User#subordinates with pagination
+     */
+    @GetMapping("/{id}/subordinates")
+    @Transactional(readOnly = true)
+    public ResponseEntity<PagedResponse<Map<String, Object>>> getSubordinates(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String search) {
+
+        Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("id").descending());
+        Page<User> subordinatesPage;
+
+        if (search != null && !search.isBlank()) {
+            subordinatesPage = userRepository.searchSubordinates(id, search, pageable);
+        } else {
+            subordinatesPage = userRepository.findByManager_IdOrderByIdDesc(id, pageable);
+        }
+
+        List<Map<String, Object>> data = subordinatesPage.getContent().stream()
+                .map(sub -> {
+                    Map<String, Object> subMap = new HashMap<>();
+                    subMap.put("id", sub.getId());
+                    subMap.put("firstName", sub.getFirstName());
+                    subMap.put("lastName", sub.getLastName());
+                    subMap.put("email", sub.getEmail());
+                    subMap.put("phone", sub.getPhone());
+                    subMap.put("role", sub.getRole() != null ? sub.getRole().getValue() : 0);
+                    return subMap;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(PagedResponse.of(data, subordinatesPage.getTotalElements(), page, pageSize));
+    }
+
+    /**
      * Create new user
      */
     @PostMapping
