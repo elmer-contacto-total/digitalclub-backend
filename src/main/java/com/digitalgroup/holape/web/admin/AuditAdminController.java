@@ -156,13 +156,13 @@ public class AuditAdminController {
 
             // Data
             for (Audit audit : auditsPage.getContent()) {
-                writer.printf("%d,%s,%s,%s,%s,%d,\"%s\"%n",
+                writer.printf("%d,%s,%s,%s,%s,%s,\"%s\"%n",
                         audit.getId(),
                         audit.getCreatedAt(),
                         audit.getUsername() != null ? audit.getUsername() : "",
                         audit.getAction(),
                         audit.getAuditableType(),
-                        audit.getAuditableId(),
+                        audit.getAuditableId() != null ? String.valueOf(audit.getAuditableId()) : "",
                         audit.getAuditedChanges() != null ?
                                 audit.getAuditedChanges().toString().replace("\"", "'") : ""
                 );
@@ -172,6 +172,7 @@ public class AuditAdminController {
             writer.close();
         } catch (Exception e) {
             log.error("Error generating CSV", e);
+            return ResponseEntity.internalServerError().build();
         }
 
         HttpHeaders headers = new HttpHeaders();
