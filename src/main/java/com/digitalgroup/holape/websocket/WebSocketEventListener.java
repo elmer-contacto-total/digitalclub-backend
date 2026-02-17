@@ -11,6 +11,7 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 
 import java.security.Principal;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -24,8 +25,8 @@ public class WebSocketEventListener {
 
     private final WebSocketService webSocketService;
 
-    // Track connected users: userId -> sessionId
-    private final Map<Long, String> connectedUsers = new ConcurrentHashMap<>();
+    // Track connected users: userId -> set of sessionIds (supports multiple sessions per user)
+    private final Map<Long, Set<String>> connectedUsers = new ConcurrentHashMap<>();
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
@@ -37,10 +38,14 @@ public class WebSocketEventListener {
                 Long userId = Long.parseLong(user.getName());
                 String sessionId = headerAccessor.getSessionId();
 
-                connectedUsers.put(userId, sessionId);
-                webSocketService.sendOnlineStatus(userId, true);
+                connectedUsers.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
+                // Broadcast online only on first session for this user
+                if (connectedUsers.get(userId).size() == 1) {
+                    webSocketService.sendOnlineStatus(userId, true);
+                }
 
-                log.info("User {} connected via WebSocket (session: {})", userId, sessionId);
+                log.info("User {} connected via WebSocket (session: {}, total sessions: {})",
+                        userId, sessionId, connectedUsers.get(userId).size());
             } catch (NumberFormatException e) {
                 log.warn("Invalid user principal: {}", user.getName());
             }
@@ -56,10 +61,17 @@ public class WebSocketEventListener {
             try {
                 Long userId = Long.parseLong(user.getName());
 
-                connectedUsers.remove(userId);
-                webSocketService.sendOnlineStatus(userId, false);
+                Set<String> sessions = connectedUsers.get(userId);
+                if (sessions != null) {
+                    sessions.remove(headerAccessor.getSessionId());
+                    if (sessions.isEmpty()) {
+                        connectedUsers.remove(userId);
+                        webSocketService.sendOnlineStatus(userId, false);
+                    }
+                }
 
-                log.info("User {} disconnected from WebSocket", userId);
+                log.info("User {} disconnected from WebSocket (remaining sessions: {})",
+                        userId, sessions != null ? sessions.size() : 0);
             } catch (NumberFormatException e) {
                 log.warn("Invalid user principal on disconnect: {}", user.getName());
             }
@@ -78,23 +90,24 @@ public class WebSocketEventListener {
     }
 
     /**
-     * Check if user is currently connected
+     * Check if user is currently connected (has at least one active session)
      */
     public boolean isUserOnline(Long userId) {
-        return connectedUsers.containsKey(userId);
+        Set<String> sessions = connectedUsers.get(userId);
+        return sessions != null && !sessions.isEmpty();
     }
 
     /**
      * Get all connected user IDs
      */
-    public java.util.Set<Long> getConnectedUsers() {
+    public Set<Long> getConnectedUsers() {
         return connectedUsers.keySet();
     }
 
     /**
-     * Get session ID for a user
+     * Get session IDs for a user (may have multiple sessions)
      */
-    public String getSessionId(Long userId) {
-        return connectedUsers.get(userId);
+    public Set<String> getSessionIds(Long userId) {
+        return connectedUsers.getOrDefault(userId, Set.of());
     }
 }

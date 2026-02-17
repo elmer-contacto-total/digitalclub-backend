@@ -51,6 +51,17 @@ public class CapturedMediaService {
             // Calculate SHA-256 hash
             String hash = calculateSha256(fileData);
 
+            // Dedup: skip if same content + same WhatsApp message already saved (multi-session scenario)
+            if (request.getWhatsappMessageId() != null) {
+                boolean alreadyExists = mediaRepository.existsBySha256HashAndWhatsappMessageId(
+                        hash, request.getWhatsappMessageId());
+                if (alreadyExists) {
+                    log.info("[CapturedMediaService] Duplicate media skipped: sha256={}, whatsappMsgId={}",
+                            hash.substring(0, 16), request.getWhatsappMessageId());
+                    return Optional.empty();
+                }
+            }
+
             // Check for existing file with same content — reuse S3 path, create new DB record
             String filePath = null;
             String publicUrl = null;
@@ -210,7 +221,7 @@ public class CapturedMediaService {
             log.info("[CapturedMediaService] Marked {} media as deleted: whatsappMessageId={}", mediaList.size(), whatsappMessageId);
             return Optional.of(firstUpdated);
         }
-        log.info("[CapturedMediaService] Media already marked as deleted: whatsappMessageId={}", whatsappMessageId);
+        log.debug("[CapturedMediaService] Media already marked as deleted (duplicate notification): whatsappMessageId={}", whatsappMessageId);
         return Optional.empty();
     }
 

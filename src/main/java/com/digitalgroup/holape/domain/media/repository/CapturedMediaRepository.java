@@ -32,6 +32,8 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
 
     boolean existsBySha256Hash(String sha256Hash);
 
+    boolean existsBySha256HashAndWhatsappMessageId(String sha256Hash, String whatsappMessageId);
+
     /**
      * Find first media with same SHA-256 hash (for reusing S3 file path on duplicate content)
      */

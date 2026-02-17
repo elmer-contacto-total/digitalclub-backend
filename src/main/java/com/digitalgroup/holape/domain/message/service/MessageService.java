@@ -303,10 +303,10 @@ public class MessageService {
         sender.setRequireResponse(true);
         userRepository.save(sender);
 
-        // Notify via WebSocket
-        webSocketService.sendTicketUpdate(ticket);
-
-        if (!created) {
+        // Notify via WebSocket only when a new ticket is created (avoids duplicate broadcasts in multi-session)
+        if (created) {
+            webSocketService.sendTicketUpdate(ticket);
+        } else {
             log.info("Activated incoming ticket {} (existing) for user {} agent {}", ticket.getId(), sender.getId(), agent.getId());
         }
 

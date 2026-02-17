@@ -212,13 +212,16 @@ public class BulkSendService {
         }
 
         Optional<BulkSendRecipient> next = recipientRepository
-                .findFirstByBulkSendIdAndStatusOrderByIdAsc(bulkSendId, "PENDING");
+                .findNextPendingRecipientForUpdate(bulkSendId);
 
         if (next.isEmpty()) {
             return Optional.empty();
         }
 
         BulkSendRecipient recipient = next.get();
+        // Mark as IN_PROGRESS atomically within the same transaction (lock held)
+        recipient.setStatus("IN_PROGRESS");
+        recipientRepository.save(recipient);
         String resolvedContent = recipient.getResolvedContent(bulkSend.getMessageContent());
 
         Map<String, Object> result = new HashMap<>();
