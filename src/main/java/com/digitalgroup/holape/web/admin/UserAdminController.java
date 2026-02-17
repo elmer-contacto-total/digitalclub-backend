@@ -39,6 +39,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.digitalgroup.holape.web.dto.PagedResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
@@ -74,6 +76,7 @@ public class UserAdminController {
     private static final List<String> ALLOWED_IMAGE_TYPES = List.of(
             "image/jpeg", "image/png", "image/gif", "image/webp"
     );
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * List users with standard REST pagination
@@ -898,7 +901,7 @@ public class UserAdminController {
         contact.put("email", user.getEmail());
         contact.put("phone", user.getPhone());
         contact.put("codigo", user.getCodigo());
-        contact.put("avatarUrl", user.getAvatarData());
+        contact.put("avatarUrl", resolveAvatarUrl(user.getAvatarData()));
         contact.put("status", user.getStatus() != null ? user.getStatus().name() : "ACTIVE");
         contact.put("createdAt", user.getCreatedAt());
         contact.put("requireResponse", user.getRequireResponse());
@@ -999,7 +1002,7 @@ public class UserAdminController {
         contact.put("email", user.getEmail());
         contact.put("phone", user.getPhone());
         contact.put("codigo", user.getCodigo());
-        contact.put("avatarUrl", user.getAvatarData());
+        contact.put("avatarUrl", resolveAvatarUrl(user.getAvatarData()));
         contact.put("status", user.getStatus() != null ? user.getStatus().name() : "ACTIVE");
         contact.put("createdAt", user.getCreatedAt());
         contact.put("requireResponse", user.getRequireResponse());
@@ -1054,7 +1057,7 @@ public class UserAdminController {
         profile.put("email", user.getEmail());
         profile.put("phone", user.getPhone());
         profile.put("codigo", user.getCodigo());
-        profile.put("avatarUrl", user.getAvatarData());
+        profile.put("avatarUrl", resolveAvatarUrl(user.getAvatarData()));
         response.put("user", profile);
 
         // Manager assignment history
@@ -1407,7 +1410,7 @@ public class UserAdminController {
         map.put("timeZone", user.getTimeZone() != null ? user.getTimeZone() : "America/Lima");
         map.put("locale", user.getLocale() != null ? user.getLocale() : "es");
         map.put("countryId", user.getCountry() != null ? user.getCountry().getId() : null);
-        map.put("avatarData", user.getAvatarData());
+        map.put("avatarData", resolveAvatarUrl(user.getAvatarData()));
         map.put("uuidToken", user.getUuidToken());
 
         // Add client info for login_as display
@@ -1607,7 +1610,7 @@ public class UserAdminController {
         profile.put("phone", user.getPhone());
         profile.put("timeZone", user.getTimeZone());
         profile.put("locale", user.getLocale());
-        profile.put("avatarData", user.getAvatarData());
+        profile.put("avatarData", resolveAvatarUrl(user.getAvatarData()));
         profile.put("role", user.getRole() != null ? user.getRole().getValue() : 0);
         profile.put("status", user.getStatus() != null ? user.getStatus().getValue() : 0);
         profile.put("clientId", user.getClientId());
@@ -1653,7 +1656,7 @@ public class UserAdminController {
         profile.put("phone", updated.getPhone());
         profile.put("timeZone", updated.getTimeZone());
         profile.put("locale", updated.getLocale());
-        profile.put("avatarData", updated.getAvatarData());
+        profile.put("avatarData", resolveAvatarUrl(updated.getAvatarData()));
         profile.put("role", updated.getRole() != null ? updated.getRole().getValue() : 0);
         profile.put("status", updated.getStatus() != null ? updated.getStatus().getValue() : 0);
         profile.put("message", "Perfil actualizado correctamente");
@@ -1725,5 +1728,20 @@ public class UserAdminController {
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", "Error al subir la imagen: " + e.getMessage()));
         }
+    }
+
+    private String resolveAvatarUrl(String avatarData) {
+        if (avatarData == null || avatarData.isBlank()) return null;
+        if (avatarData.startsWith("http")) return avatarData;
+        try {
+            JsonNode node = objectMapper.readTree(avatarData);
+            String id = node.has("id") ? node.get("id").asText() : null;
+            if (id != null && !id.isBlank()) {
+                return s3StorageService.getDownloadUrl(id);
+            }
+        } catch (Exception e) {
+            log.warn("Could not parse avatarData: {}", avatarData);
+        }
+        return null;
     }
 }
