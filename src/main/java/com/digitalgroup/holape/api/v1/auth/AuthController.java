@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -95,6 +96,7 @@ public class AuthController {
      * Validates OTP and returns JWT token
      */
     @PostMapping("/web/verify_otp")
+    @Transactional
     public ResponseEntity<?> webVerifyOtp(@RequestBody VerifyOtpRequest request) {
         log.info("OTP verification attempt for session: {}", request.otpSessionId());
 
@@ -203,6 +205,7 @@ public class AuthController {
      * Equivalent to Rails Api::V1::UsersController#app_login
      */
     @PostMapping("/app_login")
+    @Transactional
     public ResponseEntity<?> appLogin(@RequestBody AppLoginRequest request) {
         log.info("App login attempt for email: {}", request.email());
 
@@ -298,6 +301,7 @@ public class AuthController {
      * Requires authentication (token in Authorization header)
      */
     @GetMapping("/auth/validate")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
         log.info("Token validation request received");
 
