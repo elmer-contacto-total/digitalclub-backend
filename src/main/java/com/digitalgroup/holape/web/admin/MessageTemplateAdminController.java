@@ -130,6 +130,33 @@ public class MessageTemplateAdminController {
     }
 
     /**
+     * Update template parameters (dataField, defaultValue)
+     * Equivalent to Rails Admin::MessageTemplateParamsController#update
+     */
+    @PutMapping("/{id}/params")
+    public ResponseEntity<Map<String, Object>> updateParams(
+            @PathVariable Long id,
+            @RequestBody List<UpdateParamRequest> params) {
+
+        List<MessageTemplateService.ParamUpdate> updates = params.stream()
+                .map(p -> new MessageTemplateService.ParamUpdate(p.id(), p.dataField(), p.defaultValue()))
+                .collect(Collectors.toList());
+
+        MessageTemplate template = messageTemplateService.updateTemplateParams(id, updates);
+
+        List<Map<String, Object>> updatedParams = template.getParams().stream()
+                .map(this::mapParamToResponse)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(Map.of(
+                "result", "success",
+                "params", updatedParams
+        ));
+    }
+
+    public record UpdateParamRequest(Long id, String dataField, String defaultValue) {}
+
+    /**
      * Delete message template
      */
     @DeleteMapping("/{id}")

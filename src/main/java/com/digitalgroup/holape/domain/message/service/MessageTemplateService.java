@@ -127,6 +127,29 @@ public class MessageTemplateService {
     }
 
     @Transactional
+    public MessageTemplate updateTemplateParams(Long templateId, List<ParamUpdate> paramUpdates) {
+        MessageTemplate template = findById(templateId);
+
+        if (template.getParams() == null || template.getParams().isEmpty()) {
+            throw new BusinessException("Template has no parameters to update");
+        }
+
+        for (ParamUpdate update : paramUpdates) {
+            template.getParams().stream()
+                    .filter(p -> p.getId().equals(update.id()))
+                    .findFirst()
+                    .ifPresent(param -> {
+                        param.setDataField(update.dataField());
+                        param.setDefaultValue(update.defaultValue());
+                    });
+        }
+
+        return messageTemplateRepository.save(template);
+    }
+
+    public record ParamUpdate(Long id, String dataField, String defaultValue) {}
+
+    @Transactional
     public void deleteTemplate(Long id) {
         MessageTemplate template = findById(id);
         messageTemplateRepository.delete(template);
