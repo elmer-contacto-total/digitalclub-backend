@@ -208,12 +208,17 @@ public class BulkSendController {
         Pageable pageable = PageRequest.of(page, size);
         Page<BulkSend> bulkSendsPage;
 
-        boolean isSupervisor = currentUser.isAdmin() || currentUser.isManager();
-
-        if (currentUser.isSuperAdmin()) {
-            bulkSendsPage = bulkSendRepository.findAll(pageable);
-        } else if (isSupervisor) {
-            // Supervisor: only own sends + sends assigned to their agents
+        if (currentUser.isSuperAdmin() || currentUser.isAdmin()) {
+            // SUPER_ADMIN and ADMIN: all bulk sends in their client
+            if (status != null && !status.isBlank()) {
+                bulkSendsPage = bulkSendRepository.findByClientIdAndStatusOrderByCreatedAtDesc(
+                        currentUser.getClientId(), status.toUpperCase(), pageable);
+            } else {
+                bulkSendsPage = bulkSendRepository.findByClientIdOrderByCreatedAtDesc(
+                        currentUser.getClientId(), pageable);
+            }
+        } else if (currentUser.isManager()) {
+            // MANAGER_LEVEL_*: own sends + sends assigned to their agents
             if (status != null && !status.isBlank()) {
                 bulkSendsPage = bulkSendRepository.findBySupervisorScopeAndStatus(
                         currentUser.getId(), status.toUpperCase(), pageable);
