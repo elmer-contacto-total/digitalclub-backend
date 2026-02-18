@@ -18,13 +18,15 @@ public interface AuditRepository extends JpaRepository<Audit, Long> {
 
     Page<Audit> findByUserId(Long userId, Pageable pageable);
 
-    @Query("SELECT a FROM Audit a WHERE a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")
+    @Query(value = "SELECT a FROM Audit a LEFT JOIN FETCH a.user u LEFT JOIN FETCH u.client WHERE a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC",
+           countQuery = "SELECT COUNT(a) FROM Audit a WHERE a.createdAt BETWEEN :startDate AND :endDate")
     Page<Audit> findByDateRange(@Param("startDate") LocalDateTime startDate,
                                  @Param("endDate") LocalDateTime endDate,
                                  Pageable pageable);
 
-    @Query("SELECT a FROM Audit a JOIN a.user u WHERE u.client.id = :clientId " +
-           "AND a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")
+    @Query(value = "SELECT a FROM Audit a LEFT JOIN FETCH a.user u LEFT JOIN FETCH u.client WHERE u.client.id = :clientId " +
+           "AND a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC",
+           countQuery = "SELECT COUNT(a) FROM Audit a JOIN a.user u WHERE u.client.id = :clientId AND a.createdAt BETWEEN :startDate AND :endDate")
     Page<Audit> findByClientAndDateRange(@Param("clientId") Long clientId,
                                           @Param("startDate") LocalDateTime startDate,
                                           @Param("endDate") LocalDateTime endDate,
@@ -50,7 +52,7 @@ public interface AuditRepository extends JpaRepository<Audit, Long> {
     Page<Audit> findByUserOrAssociatedUser(@Param("userId") Long userId, Pageable pageable);
 
     // Find audits by client and date range (for export - returns List)
-    @Query("SELECT a FROM Audit a JOIN a.user u WHERE u.client.id = :clientId " +
+    @Query("SELECT a FROM Audit a LEFT JOIN FETCH a.user u LEFT JOIN FETCH u.client WHERE u.client.id = :clientId " +
            "AND a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")
     List<Audit> findByClientAndDateRange(@Param("clientId") Long clientId,
                                          @Param("startDate") LocalDateTime startDate,

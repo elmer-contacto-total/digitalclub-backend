@@ -152,14 +152,23 @@ public class AuditAdminController {
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(baos, StandardCharsets.UTF_8));
 
             // Header
-            writer.println("ID,Fecha,Usuario,Acción,Tipo,ID Entidad,Cambios");
+            writer.println("Cliente,ID,Fecha,Usuario,Acción,Tipo,ID Entidad,Cambios");
 
             // Data
             for (Audit audit : auditsPage.getContent()) {
-                writer.printf("%d,%s,%s,%s,%s,%s,\"%s\"%n",
+                String clientName = "";
+                String userName = audit.getUsername() != null ? audit.getUsername() : "";
+                if (audit.getUser() != null) {
+                    userName = audit.getUser().getFullName();
+                    if (audit.getUser().getClient() != null) {
+                        clientName = audit.getUser().getClient().getName();
+                    }
+                }
+                writer.printf("\"%s\",%d,%s,%s,%s,%s,%s,\"%s\"%n",
+                        clientName.replace("\"", "'"),
                         audit.getId(),
                         audit.getCreatedAt(),
-                        audit.getUsername() != null ? audit.getUsername() : "",
+                        userName,
                         audit.getAction(),
                         audit.getAuditableType(),
                         audit.getAuditableId() != null ? String.valueOf(audit.getAuditableId()) : "",
@@ -209,6 +218,10 @@ public class AuditAdminController {
 
         if (audit.getUser() != null) {
             map.put("user_id", audit.getUser().getId());
+            map.put("user_name", audit.getUser().getFullName());
+            if (audit.getUser().getClient() != null) {
+                map.put("client_name", audit.getUser().getClient().getName());
+            }
         }
 
         return map;
