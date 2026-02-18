@@ -1140,10 +1140,13 @@ public class ImportService {
             // Check email uniqueness in DB (only if not the same user being updated by phone)
             Optional<User> existingByEmail = userRepository.findByEmailAndClientId(tempUser.getEmail(), clientId);
             if (existingByEmail.isPresent()) {
-                // If this phone resolves to the same user, it's an update — no error
-                boolean isSameUser = tempUser.getPhone() != null &&
-                        existingByEmail.get().getPhone() != null &&
-                        existingByEmail.get().getPhone().equals(tempUser.getNormalizedPhone());
+                // Use the same lookup as createOrUpdateUser() to check if it's the same user
+                String normalizedPhone = tempUser.getNormalizedPhone();
+                Optional<User> existingByPhone = (normalizedPhone != null)
+                        ? userRepository.findByPhoneAndClientId(normalizedPhone, clientId)
+                        : Optional.empty();
+                boolean isSameUser = existingByPhone.isPresent() &&
+                        existingByPhone.get().getId().equals(existingByEmail.get().getId());
                 if (!isSameUser) {
                     errors.add("El email ya está en uso por otro usuario: " + tempUser.getEmail());
                 }
