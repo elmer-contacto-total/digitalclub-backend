@@ -6,11 +6,16 @@ import com.digitalgroup.holape.domain.importdata.entity.ImportMappingTemplate;
 import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
 import com.digitalgroup.holape.domain.importdata.service.ImportService;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import com.digitalgroup.holape.integration.storage.S3StorageService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -18,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +46,8 @@ import java.util.stream.Collectors;
 public class ImportAdminController {
 
     private final ImportService importService;
+    private final S3StorageService s3StorageService;
+    private final ObjectMapper objectMapper;
 
     /**
      * List imports for the client
@@ -81,6 +90,56 @@ public class ImportAdminController {
     public ResponseEntity<Map<String, Object>> show(@PathVariable Long id) {
         Import importEntity = importService.findById(id);
         return ResponseEntity.ok(mapImportToResponse(importEntity));
+    }
+
+    /**
+     * Download original CSV file for an import.
+     * If S3 is enabled and the file was uploaded there, redirects to a presigned S3 URL.
+     * Otherwise, returns the file content from the stored base64 data.
+     */
+    @GetMapping("/{id}/download")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> downloadFile(@PathVariable Long id) {
+        Import importEntity = importService.findById(id);
+        String fileDataStr = importEntity.getImportFileData();
+
+        if (fileDataStr == null || fileDataStr.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        try {
+            JsonNode fileData = objectMapper.readTree(fileDataStr);
+
+            // Determine filename from metadata
+            String filename = "import_" + id + ".csv";
+            JsonNode metadata = fileData.path("metadata");
+            if (metadata.has("filename")) {
+                filename = metadata.get("filename").asText();
+            }
+
+            // If S3 is enabled and we have an S3 key, redirect to presigned URL
+            if (s3StorageService.isEnabled() && fileData.has("id") && !fileData.get("id").isNull()) {
+                String s3Key = fileData.get("id").asText();
+                java.net.URL presignedUrl = s3StorageService.getPresignedUrl(
+                        s3Key, Duration.ofMinutes(10), filename);
+                return ResponseEntity.status(302)
+                        .location(URI.create(presignedUrl.toString()))
+                        .build();
+            }
+
+            // Fallback: return file content from base64
+            byte[] csvContent = importService.retrieveCsvContent(importEntity);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=utf-8")
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + filename + "\"")
+                    .body(csvContent);
+
+        } catch (Exception e) {
+            log.error("Error downloading file for import {}: {}", id, e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    Map.of("error", "Failed to download file"));
+        }
     }
 
     /**
@@ -489,19 +548,16 @@ public class ImportAdminController {
             map.put("clientName", importEntity.getClient().getName());
         }
 
-        // Parse Shrine import_file_data JSON for file name
+        // Parse Shrine import_file_data JSON for file name and download URL
         if (importEntity.getImportFileData() != null && !importEntity.getImportFileData().isBlank()) {
             try {
-                var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 var fileData = objectMapper.readTree(importEntity.getImportFileData());
                 var metadata = fileData.path("metadata");
                 if (metadata.has("filename")) {
                     map.put("importFileName", metadata.get("filename").asText());
                 }
-                // Build file URL from Shrine storage id
-                if (fileData.has("id")) {
-                    map.put("importFileUrl", "/uploads/import/import_file/" + importEntity.getId() + "/" + fileData.get("id").asText());
-                }
+                // Download URL — always available (works with both S3 and base64)
+                map.put("importFileUrl", "/app/imports/" + importEntity.getId() + "/download");
             } catch (Exception e) {
                 log.debug("Could not parse import_file_data for import {}: {}", importEntity.getId(), e.getMessage());
             }

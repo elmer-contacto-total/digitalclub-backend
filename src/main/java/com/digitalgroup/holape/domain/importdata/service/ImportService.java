@@ -1511,7 +1511,7 @@ public class ImportService {
     /**
      * Retrieve CSV file content from stored base64 in import_file_data JSON.
      */
-    private byte[] retrieveCsvContent(Import importEntity) {
+    public byte[] retrieveCsvContent(Import importEntity) {
         String fileData = importEntity.getImportFileData();
         if (fileData == null || fileData.isBlank()) {
             throw new BusinessException("No CSV data stored for this import");
