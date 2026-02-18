@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.message.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.entity.Language;
 import com.digitalgroup.holape.domain.common.enums.Status;
@@ -17,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+@Auditable
 @Entity
 @Table(name = "message_templates", indexes = {
     @Index(name = "index_message_templates_on_client_id", columnList = "client_id"),

@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.client.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -7,6 +8,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
+@Auditable
 @Entity
 @Table(name = "client_structures")
 @Getter

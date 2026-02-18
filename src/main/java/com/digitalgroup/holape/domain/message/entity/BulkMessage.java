@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.message.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
  * Equivalent to Rails BulkMessage model
  * Represents bulk message campaigns sent to multiple users
  */
+@Auditable
 @Entity
 @Table(name = "bulk_messages", indexes = {
         @Index(name = "index_bulk_messages_on_client_id", columnList = "client_id"),

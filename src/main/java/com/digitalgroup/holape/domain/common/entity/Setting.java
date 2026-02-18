@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.common.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import jakarta.persistence.*;
 import lombok.*;
@@ -14,6 +15,7 @@ import java.util.Map;
  * Equivalent to Rails Setting model
  * Global system configuration values
  */
+@Auditable
 @Entity
 @Table(name = "settings")
 @Getter

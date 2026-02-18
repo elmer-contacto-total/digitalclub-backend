@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.user.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.common.enums.DocType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -9,6 +10,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+@Auditable
 @Entity
 @Table(name = "user_profiles")
 @Getter

@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.client.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
@@ -10,6 +11,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
+@Auditable
 @Entity
 @Table(name = "client_settings")
 @Getter

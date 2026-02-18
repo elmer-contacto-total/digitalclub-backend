@@ -1,5 +1,6 @@
 package com.digitalgroup.holape.domain.importdata.entity;
 
+import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.enums.ImportStatus;
 import com.digitalgroup.holape.domain.common.enums.ImportType;
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
  * - progress: integer
  * - errors_text: text
  */
+@Auditable
 @Entity
 @Table(name = "imports", indexes = {
     @Index(name = "index_imports_on_user_id", columnList = "user_id"),
