@@ -152,7 +152,7 @@ public class UserAdminController {
             User manager = user.getManager();
             Map<String, Object> managerInfo = new HashMap<>();
             managerInfo.put("id", manager.getId());
-            managerInfo.put("fullName", manager.getFullName());
+            managerInfo.put("name", manager.getFullName());
             managerInfo.put("email", manager.getEmail());
             managerInfo.put("role", manager.getRole() != null ? manager.getRole().getValue() : 0);
             response.put("manager", managerInfo);
