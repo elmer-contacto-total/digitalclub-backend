@@ -76,7 +76,7 @@ public class MessageAdminController {
 
         // Mode 1: Full conversation detail (PARIDAD Rails when client_id is provided)
         if (clientId != null) {
-            return getConversationDetail(currentUser, clientId, chatViewType);
+            return getConversationDetail(currentUser, clientId, chatViewType, page, pageSize);
         }
 
         // Mode 2: Conversation view (when recipientId is provided)
@@ -161,11 +161,14 @@ public class MessageAdminController {
     /**
      * Get full conversation detail for a client
      * PARIDAD: Rails MessagesController#index when client_id is present
+     * Paginated: returns last N messages (default 100) ordered ASC for frontend display
      */
     private ResponseEntity<?> getConversationDetail(
             CustomUserDetails currentUser,
             Long clientId,
-            String chatViewType) {
+            String chatViewType,
+            int page,
+            int pageSize) {
 
         // Find the client
         Optional<User> clientOpt = userRepository.findById(clientId);
@@ -174,9 +177,14 @@ public class MessageAdminController {
         }
         User client = clientOpt.get();
 
-        // Get all messages for this conversation
-        List<Message> messages = messageRepository.findBySenderIdOrRecipientIdOrderBySentAtAsc(
-                clientId, clientId);
+        // Use a reasonable limit for messages (default 100 for conversation detail)
+        int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
+
+        // Get paginated messages (DESC from DB, then reverse to ASC for frontend)
+        Page<Message> messagesPage = messageRepository.findBySenderIdOrRecipientIdOrderByCreatedAtDesc(
+                clientId, clientId, PageRequest.of(page, messageLimit));
+        List<Message> messages = new ArrayList<>(messagesPage.getContent());
+        java.util.Collections.reverse(messages); // Reverse to chronological ASC order
 
         // Get CRM fields for this user from unified custom_fields storage
         Map<String, String> visibleCrmData = crmService.getVisibleCrmDataByUser(client);
@@ -220,11 +228,9 @@ public class MessageAdminController {
 
         // Check if last incoming message is older than 24 hours (for WhatsApp Business)
         // PARIDAD: Rails block_freeform_responses logic
+        // Use a separate query (not the paginated messages) to ensure we always find the real last incoming
         LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(24);
-        Optional<Message> lastIncoming = messages.stream()
-                .filter(m -> m.getDirection() != null &&
-                        m.getDirection().name().equalsIgnoreCase("incoming"))
-                .reduce((first, second) -> second);
+        Optional<Message> lastIncoming = messageRepository.findLastIncomingBySenderId(clientId);
 
         boolean canSendFreeform = true;
         LocalDateTime lastIncomingMessageAt = null;
@@ -289,6 +295,11 @@ public class MessageAdminController {
                 .map(this::mapMessageToResponse)
                 .collect(Collectors.toList());
         response.put("messages", messagesList);
+
+        // Pagination metadata for messages
+        response.put("messagesTotalCount", messagesPage.getTotalElements());
+        response.put("messagesPage", page);
+        response.put("messagesHasMore", messagesPage.getTotalPages() > (page + 1));
 
         // CRM fields — from unified custom_fields storage, filtered by crm_info_settings visibility
         List<Map<String, Object>> crmFieldsList = new ArrayList<>();

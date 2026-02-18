@@ -253,6 +253,20 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
             @Param("senderId") Long senderId,
             @Param("recipientId") Long recipientId);
 
+    /**
+     * Find the last incoming message sent by a client (for canSendFreeform check).
+     * Incoming messages have sender = client, so we query by sender.id.
+     * Used independently of paginated messages to ensure correct 24h window check.
+     */
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.sender.id = :clientId
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING
+            ORDER BY m.sentAt DESC
+            LIMIT 1
+            """)
+    Optional<Message> findLastIncomingBySenderId(@Param("clientId") Long clientId);
+
     // ==================== MESSAGES LIST (PARIDAD Rails Admin::MessagesController#index) ====================
 
     /**
