@@ -1233,8 +1233,7 @@ public class ImportService {
         // Unified storage: ALL extra fields (CRM + custom) → user.custom_fields (JSONB)
         // Both FOH and standard imports use the same storage now.
         {
-            Map<String, Object> cf = user.getCustomFields();
-            if (cf == null) cf = new HashMap<>();
+            Map<String, Object> cf = new HashMap<>();
 
             if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
                 cf.putAll(tempUser.getCrmFields());
