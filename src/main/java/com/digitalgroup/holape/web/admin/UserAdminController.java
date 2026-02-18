@@ -1410,6 +1410,7 @@ public class UserAdminController {
         map.put("lastName", user.getLastName());
         map.put("fullName", user.getFullName());
         map.put("phone", user.getPhone());
+        map.put("importString", user.getImportString());
         map.put("role", user.getRole() != null ? user.getRole().getValue() : 0);
         map.put("status", user.getStatus() != null ? user.getStatus().getValue() : 0);
         map.put("createdAt", user.getCreatedAt());
