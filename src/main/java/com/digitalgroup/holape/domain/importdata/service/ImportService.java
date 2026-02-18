@@ -1024,6 +1024,11 @@ public class ImportService {
             tempUser.setCrmFields(crmFields);
         }
 
+        // PARIDAD RAILS: Default phoneCode to 51 (Peru) if not provided in CSV
+        if (tempUser.getPhoneCode() == null || tempUser.getPhoneCode().isBlank()) {
+            tempUser.setPhoneCode("51");
+        }
+
         // PARIDAD RAILS: Auto-generate email if empty — "#{phone}@#{client.name.parameterize}.com"
         if ((tempUser.getEmail() == null || tempUser.getEmail().isEmpty()) && tempUser.getPhone() != null) {
             String clientSlug = parameterize(importEntity.getClient().getName());
