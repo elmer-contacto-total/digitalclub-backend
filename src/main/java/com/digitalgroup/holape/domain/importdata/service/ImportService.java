@@ -1335,6 +1335,17 @@ public class ImportService {
     }
 
     /**
+     * Delete import and associated temp users
+     * PARIDAD RAILS: @import.destroy!
+     */
+    @Transactional
+    public void deleteImport(Long id) {
+        Import importEntity = findById(id);
+        tempImportUserRepository.deleteByImportId(id);
+        importRepository.delete(importEntity);
+    }
+
+    /**
      * Mark import as failed
      */
     private void markAsFailed(Long importId, String errorMessage) {

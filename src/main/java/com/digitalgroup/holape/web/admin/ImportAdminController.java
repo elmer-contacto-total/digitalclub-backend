@@ -341,6 +341,16 @@ public class ImportAdminController {
     }
 
     /**
+     * Delete an import
+     * PARIDAD RAILS: Admin::ImportsController#destroy
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> destroy(@PathVariable Long id) {
+        importService.deleteImport(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * Download error report
      * Uses Rails-compatible field: errors_text
      */

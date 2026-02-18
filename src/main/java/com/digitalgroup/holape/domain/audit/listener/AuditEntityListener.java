@@ -2,13 +2,13 @@ package com.digitalgroup.holape.domain.audit.listener;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
 import com.digitalgroup.holape.domain.audit.entity.Audit;
-import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -23,18 +23,24 @@ import java.util.*;
  * JPA Entity Listener for automatic auditing
  * Equivalent to Rails audited gem
  *
- * Usage: Add @EntityListeners(AuditEntityListener.class) to entities
- *
- * Example:
- * @Entity
- * @EntityListeners(AuditEntityListener.class)
- * public class User { ... }
+ * Uses JdbcTemplate for INSERT to avoid ConcurrentModificationException
+ * (auditRepository.save() inside @PostUpdate modifies Hibernate's ActionQueue during flush)
  */
 @Slf4j
 @Component
 public class AuditEntityListener {
 
-    private static AuditRepository auditRepository;
+    private static JdbcTemplate jdbcTemplate;
+    private static ObjectMapper objectMapper;
+
+    private static final String INSERT_SQL =
+            "INSERT INTO audits (auditable_id, auditable_type, associated_id, associated_type, " +
+            "user_id, user_type, username, action, audited_changes, version, comment, " +
+            "remote_address, request_uuid, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, NOW())";
+
+    private static final String COUNT_SQL =
+            "SELECT COUNT(*) FROM audits WHERE auditable_type = ? AND auditable_id = ?";
 
     // Thread-local storage for pre-update entity state
     private static final ThreadLocal<Map<Object, Map<String, Object>>> preUpdateState = new ThreadLocal<>();
@@ -92,8 +98,13 @@ public class AuditEntityListener {
     );
 
     @Autowired
-    public void setAuditRepository(@Lazy AuditRepository repository) {
-        AuditEntityListener.auditRepository = repository;
+    public void setJdbcTemplate(JdbcTemplate template) {
+        AuditEntityListener.jdbcTemplate = template;
+    }
+
+    @Autowired
+    public void setObjectMapper(ObjectMapper mapper) {
+        AuditEntityListener.objectMapper = mapper;
     }
 
     /**
@@ -163,14 +174,13 @@ public class AuditEntityListener {
     @PostPersist
     public void postPersist(Object entity) {
         try {
-            // PARIDAD RAILS: Check if auditing is disabled (without_auditing block)
             if (isAuditingDisabled()) {
                 return;
             }
 
             Auditable auditable = entity.getClass().getAnnotation(Auditable.class);
             if (auditable != null && !auditable.onCreate()) {
-                return; // Skip if onCreate is disabled
+                return;
             }
 
             Long entityId = getEntityId(entity);
@@ -185,10 +195,8 @@ public class AuditEntityListener {
             populateRequestInfo(audit);
             populateAssociatedInfo(audit, entity, auditable);
 
-            if (auditRepository != null) {
-                auditRepository.save(audit);
-                log.debug("Audit: created {} {}", entity.getClass().getSimpleName(), entityId);
-            }
+            saveAuditViaJdbc(audit);
+            log.debug("Audit: created {} {}", entity.getClass().getSimpleName(), entityId);
         } catch (Exception e) {
             log.error("Error logging create audit for {}", entity.getClass().getSimpleName(), e);
         }
@@ -200,14 +208,13 @@ public class AuditEntityListener {
     @PostUpdate
     public void postUpdate(Object entity) {
         try {
-            // PARIDAD RAILS: Check if auditing is disabled (without_auditing block)
             if (isAuditingDisabled()) {
                 return;
             }
 
             Auditable auditable = entity.getClass().getAnnotation(Auditable.class);
             if (auditable != null && !auditable.onUpdate()) {
-                return; // Skip if onUpdate is disabled
+                return;
             }
 
             Map<Object, Map<String, Object>> states = preUpdateState.get();
@@ -230,13 +237,11 @@ public class AuditEntityListener {
             Map<String, Object> changes = calculateChanges(oldState, newState);
 
             if (changes.isEmpty()) {
-                return; // No changes to audit
+                return;
             }
 
-            // Get current version count
-            long version = auditRepository != null ?
-                    auditRepository.countByAuditableTypeAndAuditableId(
-                            entity.getClass().getSimpleName(), entityId) : 0;
+            // Get current version count via JDBC (not JPA, to avoid ActionQueue issues)
+            long version = countAuditsViaJdbc(entity.getClass().getSimpleName(), entityId);
 
             Audit audit = new Audit();
             audit.setAuditableType(entity.getClass().getSimpleName());
@@ -248,11 +253,9 @@ public class AuditEntityListener {
             populateRequestInfo(audit);
             populateAssociatedInfo(audit, entity, auditable);
 
-            if (auditRepository != null) {
-                auditRepository.save(audit);
-                log.debug("Audit: updated {} {} with {} changes",
-                        entity.getClass().getSimpleName(), entityId, changes.size());
-            }
+            saveAuditViaJdbc(audit);
+            log.debug("Audit: updated {} {} with {} changes",
+                    entity.getClass().getSimpleName(), entityId, changes.size());
         } catch (Exception e) {
             log.error("Error logging update audit for {}", entity.getClass().getSimpleName(), e);
         }
@@ -264,14 +267,13 @@ public class AuditEntityListener {
     @PreRemove
     public void preRemove(Object entity) {
         try {
-            // PARIDAD RAILS: Check if auditing is disabled (without_auditing block)
             if (isAuditingDisabled()) {
                 return;
             }
 
             Auditable auditable = entity.getClass().getAnnotation(Auditable.class);
             if (auditable != null && !auditable.onDestroy()) {
-                return; // Skip if onDestroy is disabled
+                return;
             }
 
             Long entityId = getEntityId(entity);
@@ -286,12 +288,57 @@ public class AuditEntityListener {
             populateRequestInfo(audit);
             populateAssociatedInfo(audit, entity, auditable);
 
-            if (auditRepository != null) {
-                auditRepository.save(audit);
-                log.debug("Audit: destroyed {} {}", entity.getClass().getSimpleName(), entityId);
-            }
+            saveAuditViaJdbc(audit);
+            log.debug("Audit: destroyed {} {}", entity.getClass().getSimpleName(), entityId);
         } catch (Exception e) {
             log.error("Error logging destroy audit for {}", entity.getClass().getSimpleName(), e);
+        }
+    }
+
+    /**
+     * Save audit record via JDBC to avoid ConcurrentModificationException.
+     * Uses the same JDBC connection/transaction as the main operation.
+     */
+    private void saveAuditViaJdbc(Audit audit) {
+        if (jdbcTemplate == null || objectMapper == null) {
+            return;
+        }
+        try {
+            String changesJson = objectMapper.writeValueAsString(audit.getAuditedChanges());
+            Long userId = audit.getUser() != null ? audit.getUser().getId() : null;
+
+            jdbcTemplate.update(INSERT_SQL,
+                    audit.getAuditableId(),
+                    audit.getAuditableType(),
+                    audit.getAssociatedId(),
+                    audit.getAssociatedType(),
+                    userId,
+                    audit.getUserType(),
+                    audit.getUsername(),
+                    audit.getAction(),
+                    changesJson,
+                    audit.getVersion(),
+                    audit.getComment(),
+                    audit.getRemoteAddress(),
+                    audit.getRequestUuid());
+        } catch (Exception e) {
+            log.error("Error saving audit via JDBC for {} {}", audit.getAuditableType(), audit.getAuditableId(), e);
+        }
+    }
+
+    /**
+     * Count existing audits via JDBC (avoids JPA ActionQueue issues)
+     */
+    private long countAuditsViaJdbc(String auditableType, Long auditableId) {
+        if (jdbcTemplate == null) {
+            return 0;
+        }
+        try {
+            Long count = jdbcTemplate.queryForObject(COUNT_SQL, Long.class, auditableType, auditableId);
+            return count != null ? count : 0;
+        } catch (Exception e) {
+            log.error("Error counting audits via JDBC", e);
+            return 0;
         }
     }
 
@@ -333,13 +380,6 @@ public class AuditEntityListener {
     }
 
     /**
-     * Extract all field values from entity (without Auditable filter)
-     */
-    private Map<String, Object> extractFieldValues(Object entity) {
-        return extractFieldValues(entity, null);
-    }
-
-    /**
      * Extract field values from entity with Auditable annotation filter
      */
     private Map<String, Object> extractFieldValues(Object entity, Auditable auditable) {
@@ -362,10 +402,10 @@ public class AuditEntityListener {
 
                 // Apply filters from @Auditable annotation
                 if (onlyFields != null && !onlyFields.contains(fieldName)) {
-                    continue; // Skip if not in 'only' list
+                    continue;
                 }
                 if (exceptFields.contains(fieldName)) {
-                    continue; // Skip if in 'except' list
+                    continue;
                 }
                 if (EXCLUDED_FIELDS.contains(fieldName)) {
                     continue;
@@ -482,7 +522,6 @@ public class AuditEntityListener {
 
     /**
      * Populate associated entity information in audit
-     * Used for polymorphic associations (e.g., Message belongs_to :sender, :recipient)
      */
     private void populateAssociatedInfo(Audit audit, Object entity, Auditable auditable) {
         if (auditable == null || auditable.associated().isEmpty()) {
