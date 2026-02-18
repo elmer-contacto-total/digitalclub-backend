@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.user.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import jakarta.persistence.*;
 import lombok.*;
@@ -10,6 +11,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 @Auditable
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "user_settings")
 @Getter

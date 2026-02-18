@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.ticket.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.common.enums.TicketStatus;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Auditable
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "tickets", indexes = {
     @Index(name = "index_tickets_on_user_id", columnList = "user_id"),

@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.message.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
  * Campos: client_id, user_id, message, client_global, status, created_at, updated_at
  */
 @Auditable
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "canned_messages", indexes = {
         @Index(name = "index_canned_messages_on_client_id", columnList = "client_id"),

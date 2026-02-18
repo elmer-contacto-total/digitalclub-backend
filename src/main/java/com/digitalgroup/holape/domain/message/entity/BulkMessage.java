@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.message.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.enums.Status;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -17,6 +18,7 @@ import java.time.LocalDateTime;
  * Represents bulk message campaigns sent to multiple users
  */
 @Auditable
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "bulk_messages", indexes = {
         @Index(name = "index_bulk_messages_on_client_id", columnList = "client_id"),

@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.user.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.common.entity.Country;
 import com.digitalgroup.holape.domain.common.enums.Status;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 @Auditable(except = {"otp"})
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "users", indexes = {
     @Index(name = "index_users_on_email", columnList = "email", unique = true),

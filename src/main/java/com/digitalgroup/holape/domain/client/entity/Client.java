@@ -1,6 +1,7 @@
 package com.digitalgroup.holape.domain.client.entity;
 
 import com.digitalgroup.holape.domain.audit.annotation.Auditable;
+import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.common.entity.Country;
 import com.digitalgroup.holape.domain.common.enums.ClientType;
 import com.digitalgroup.holape.domain.common.enums.DocType;
@@ -18,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Auditable
+@EntityListeners(AuditEntityListener.class)
 @Entity
 @Table(name = "clients")
 @Getter
