@@ -39,6 +39,9 @@ public class AuditEntityListener {
     // Thread-local storage for pre-update entity state
     private static final ThreadLocal<Map<Object, Map<String, Object>>> preUpdateState = new ThreadLocal<>();
 
+    // Thread-local storage for entity state captured at load time (@PostLoad)
+    private static final ThreadLocal<Map<Object, Map<String, Object>>> postLoadState = new ThreadLocal<>();
+
     // PARIDAD RAILS: Thread-local flag to disable auditing (equivalent to User.without_auditing)
     private static final ThreadLocal<Boolean> auditingDisabled = ThreadLocal.withInitial(() -> false);
 
@@ -94,23 +97,61 @@ public class AuditEntityListener {
     }
 
     /**
-     * Capture entity state before update
+     * Capture entity state when loaded from DB (before any setters are called).
+     * This is the ONLY reliable way to get OLD values for update auditing in JPA,
+     * because @PreUpdate fires after setters have already modified the entity.
+     */
+    @PostLoad
+    public void postLoad(Object entity) {
+        try {
+            Auditable auditable = entity.getClass().getAnnotation(Auditable.class);
+            if (auditable == null || !auditable.onUpdate()) {
+                return;
+            }
+            Map<String, Object> state = extractFieldValues(entity, auditable);
+            Map<Object, Map<String, Object>> states = postLoadState.get();
+            if (states == null) {
+                states = new IdentityHashMap<>();
+                postLoadState.set(states);
+            }
+            states.put(entity, state);
+        } catch (Exception e) {
+            log.error("Error capturing post-load state for {}", entity.getClass().getSimpleName(), e);
+        }
+    }
+
+    /**
+     * Transfer old state from @PostLoad snapshot to preUpdateState for @PostUpdate to use.
      */
     @PreUpdate
     public void preUpdate(Object entity) {
         try {
             Auditable auditable = entity.getClass().getAnnotation(Auditable.class);
             if (auditable != null && !auditable.onUpdate()) {
-                return; // Skip if onUpdate is disabled
+                return;
             }
 
-            Map<String, Object> currentState = extractFieldValues(entity, auditable);
+            // Get the OLD state captured at @PostLoad time (before setters were called)
+            Map<Object, Map<String, Object>> loadStates = postLoadState.get();
+            if (loadStates == null) {
+                return;
+            }
+
+            Map<String, Object> oldState = loadStates.remove(entity);
+            if (loadStates.isEmpty()) {
+                postLoadState.remove();
+            }
+            if (oldState == null) {
+                return;
+            }
+
+            // Transfer to preUpdateState for @PostUpdate to consume
             Map<Object, Map<String, Object>> states = preUpdateState.get();
             if (states == null) {
-                states = new HashMap<>();
+                states = new IdentityHashMap<>();
                 preUpdateState.set(states);
             }
-            states.put(entity, currentState);
+            states.put(entity, oldState);
         } catch (Exception e) {
             log.error("Error capturing pre-update state for {}", entity.getClass().getSimpleName(), e);
         }
