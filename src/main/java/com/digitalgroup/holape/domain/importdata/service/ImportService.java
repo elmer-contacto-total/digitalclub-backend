@@ -1491,14 +1491,16 @@ public class ImportService {
                         fileContent.length, file.getContentType());
             }
             if (shrineJson != null) {
-                // Also store CSV content as base64 for re-reading at mapping confirmation
-                try {
-                    Map<String, Object> data = objectMapper.readValue(shrineJson,
-                            new TypeReference<Map<String, Object>>() {});
-                    data.put("csvBase64", Base64.getEncoder().encodeToString(fileContent));
-                    shrineJson = objectMapper.writeValueAsString(data);
-                } catch (JsonProcessingException e) {
-                    log.warn("Failed to add csvBase64 to shrine JSON", e);
+                // Only store base64 if S3 is not enabled (fallback for dev local)
+                if (!s3StorageService.isEnabled()) {
+                    try {
+                        Map<String, Object> data = objectMapper.readValue(shrineJson,
+                                new TypeReference<Map<String, Object>>() {});
+                        data.put("csvBase64", Base64.getEncoder().encodeToString(fileContent));
+                        shrineJson = objectMapper.writeValueAsString(data);
+                    } catch (JsonProcessingException e) {
+                        log.warn("Failed to add csvBase64 to shrine JSON", e);
+                    }
                 }
                 importEntity.setImportFileData(shrineJson);
                 importRepository.save(importEntity);
@@ -1509,7 +1511,7 @@ public class ImportService {
     }
 
     /**
-     * Retrieve CSV file content from stored base64 in import_file_data JSON.
+     * Retrieve CSV file content — tries S3 first, falls back to base64.
      */
     public byte[] retrieveCsvContent(Import importEntity) {
         String fileData = importEntity.getImportFileData();
@@ -1519,11 +1521,20 @@ public class ImportService {
         try {
             Map<String, Object> data = objectMapper.readValue(fileData,
                     new TypeReference<Map<String, Object>>() {});
-            String csvBase64 = (String) data.get("csvBase64");
-            if (csvBase64 == null || csvBase64.isBlank()) {
-                throw new BusinessException("No csvBase64 content found in import file data");
+
+            // Try S3 first
+            String s3Key = (String) data.get("id");
+            if (s3StorageService.isEnabled() && s3Key != null && !s3Key.isBlank()) {
+                return s3StorageService.downloadFile(s3Key);
             }
-            return Base64.getDecoder().decode(csvBase64);
+
+            // Fallback to base64 (for existing imports or dev without S3)
+            String csvBase64 = (String) data.get("csvBase64");
+            if (csvBase64 != null && !csvBase64.isBlank()) {
+                return Base64.getDecoder().decode(csvBase64);
+            }
+
+            throw new BusinessException("No CSV content available (no S3 key and no csvBase64)");
         } catch (JsonProcessingException e) {
             throw new BusinessException("Failed to parse import file data: " + e.getMessage());
         }

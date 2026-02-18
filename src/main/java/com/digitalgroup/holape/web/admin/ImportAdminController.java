@@ -6,8 +6,6 @@ import com.digitalgroup.holape.domain.importdata.entity.ImportMappingTemplate;
 import com.digitalgroup.holape.domain.importdata.entity.TempImportUser;
 import com.digitalgroup.holape.domain.importdata.service.ImportService;
 import com.digitalgroup.holape.security.CustomUserDetails;
-import com.digitalgroup.holape.integration.storage.S3StorageService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +13,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,8 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.net.URI;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +41,6 @@ import java.util.stream.Collectors;
 public class ImportAdminController {
 
     private final ImportService importService;
-    private final S3StorageService s3StorageService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -94,8 +88,8 @@ public class ImportAdminController {
 
     /**
      * Download original CSV file for an import.
-     * If S3 is enabled and the file was uploaded there, redirects to a presigned S3 URL.
-     * Otherwise, returns the file content from the stored base64 data.
+     * Downloads from S3 (if enabled) or decodes from stored base64.
+     * Always serves bytes directly to avoid CORS issues with S3 presigned URL redirects.
      */
     @GetMapping("/{id}/download")
     @Transactional(readOnly = true)
@@ -108,26 +102,15 @@ public class ImportAdminController {
         }
 
         try {
-            JsonNode fileData = objectMapper.readTree(fileDataStr);
-
             // Determine filename from metadata
             String filename = "import_" + id + ".csv";
-            JsonNode metadata = fileData.path("metadata");
+            var fileData = objectMapper.readTree(fileDataStr);
+            var metadata = fileData.path("metadata");
             if (metadata.has("filename")) {
                 filename = metadata.get("filename").asText();
             }
 
-            // If S3 is enabled and we have an S3 key, redirect to presigned URL
-            if (s3StorageService.isEnabled() && fileData.has("id") && !fileData.get("id").isNull()) {
-                String s3Key = fileData.get("id").asText();
-                java.net.URL presignedUrl = s3StorageService.getPresignedUrl(
-                        s3Key, Duration.ofMinutes(10), filename);
-                return ResponseEntity.status(302)
-                        .location(URI.create(presignedUrl.toString()))
-                        .build();
-            }
-
-            // Fallback: return file content from base64
+            // Serve file content (downloads from S3 or decodes base64)
             byte[] csvContent = importService.retrieveCsvContent(importEntity);
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=utf-8")

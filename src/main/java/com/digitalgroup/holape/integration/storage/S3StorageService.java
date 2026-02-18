@@ -260,6 +260,26 @@ public class S3StorageService {
         }
     }
 
+    /**
+     * Download file content from S3
+     * @return The file content as byte array
+     */
+    public byte[] downloadFile(String key) {
+        if (!isEnabled()) {
+            throw new IllegalStateException("S3 Storage is not enabled");
+        }
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(key)
+                    .build();
+            return s3Client.getObjectAsBytes(request).asByteArray();
+        } catch (S3Exception e) {
+            log.error("Failed to download file from S3: {}", key, e);
+            throw new RuntimeException("Failed to download file: " + e.getMessage());
+        }
+    }
+
     public boolean isEnabled() {
         return enabled && s3Client != null;
     }
