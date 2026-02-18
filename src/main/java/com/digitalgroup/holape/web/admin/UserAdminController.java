@@ -146,8 +146,9 @@ public class UserAdminController {
         Map<String, Object> response = new HashMap<>();
         response.put("user", mapUserToResponse(user));
 
-        // Include manager info if exists
-        if (user.getManager() != null && org.hibernate.Hibernate.isInitialized(user.getManager())) {
+        // Include manager info if exists - force initialize lazy proxy within transaction
+        if (user.getManager() != null) {
+            org.hibernate.Hibernate.initialize(user.getManager());
             User manager = user.getManager();
             Map<String, Object> managerInfo = new HashMap<>();
             managerInfo.put("id", manager.getId());
@@ -482,8 +483,8 @@ public class UserAdminController {
             clientsPage = userRepository.findClientsWithActiveConversationByManager(
                     currentUser.getId(), unsortedPageable);
         } else {
-            // Default: active conversations — PARIDAD RAILS: frontend sends active_only by default
-            clientsPage = userRepository.findClientsWithActiveConversationByManager(
+            // Default: ALL assigned clients — PARIDAD RAILS: current_user.subordinates (no message filter)
+            clientsPage = userRepository.findClientsOfNative(
                     currentUser.getId(), unsortedPageable);
         }
 
@@ -1441,20 +1442,14 @@ public class UserAdminController {
         // Add friendly role name based on client structure
         map.put("friendlyRole", getFriendlyRole(user.getRole(), user.getClient()));
 
-        // Safely handle lazy-loaded manager to avoid LazyInitializationException
+        // Safely handle lazy-loaded manager - force initialize within transaction
         try {
             if (user.getManager() != null) {
+                org.hibernate.Hibernate.initialize(user.getManager());
                 User manager = user.getManager();
-                // Check if manager is initialized (not a proxy)
-                if (org.hibernate.Hibernate.isInitialized(manager)) {
-                    map.put("managerId", manager.getId());
-                    map.put("managerName", manager.getFullName());
-                    map.put("managerRole", manager.getRole() != null ? manager.getRole().getValue() : 0);
-                } else {
-                    // Only access the ID (which is available without loading)
-                    map.put("managerId", manager.getId());
-                    map.put("managerName", null);
-                }
+                map.put("managerId", manager.getId());
+                map.put("managerName", manager.getFullName());
+                map.put("managerRole", manager.getRole() != null ? manager.getRole().getValue() : 0);
             } else {
                 map.put("managerId", null);
                 map.put("managerName", null);
