@@ -902,6 +902,14 @@ public class UserAdminController {
 
         User user = userOpt.get();
 
+        // Only return standard users and WhatsApp Business (clients) — not internal users
+        if (user.getRole() != UserRole.STANDARD && user.getRole() != UserRole.WHATSAPP_BUSINESS) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("found", false);
+            response.put("closeTypes", closeTypesMapped);
+            return ResponseEntity.ok(response);
+        }
+
         // Build response
         Map<String, Object> contact = new HashMap<>();
         contact.put("id", user.getId());
