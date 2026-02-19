@@ -141,6 +141,7 @@ public class BulkSendService {
         bulkSend.setTotalRecipients(recipients.size());
         bulkSendRepository.save(bulkSend);
 
+        broadcastUpdate(bulkSend);
         log.info("Created bulk send {} with {} recipients", bulkSend.getId(), recipients.size());
         return bulkSend;
     }
@@ -153,7 +154,7 @@ public class BulkSendService {
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
 
         if ("PAUSED".equals(bulkSend.getStatus())) return; // idempotent
-        if (!"PROCESSING".equals(bulkSend.getStatus())) {
+        if (!"PROCESSING".equals(bulkSend.getStatus()) && !"PERIODIC_PAUSE".equals(bulkSend.getStatus())) {
             throw new BusinessException("Solo envíos en proceso pueden ser pausados");
         }
 
@@ -178,6 +179,30 @@ public class BulkSendService {
         // Reset any stuck IN_PROGRESS recipients back to PENDING
         recipientRepository.resetInProgressToPending(bulkSendId);
 
+        bulkSend.setStatus("PROCESSING");
+        bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
+    }
+
+    /**
+     * Set periodic pause on a bulk send (automatic anti-ban pause)
+     */
+    public void periodicPauseBulkSend(Long bulkSendId) {
+        BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
+        if (!"PROCESSING".equals(bulkSend.getStatus())) return;
+        bulkSend.setStatus("PERIODIC_PAUSE");
+        bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
+    }
+
+    /**
+     * Resume from periodic pause
+     */
+    public void periodicResumeBulkSend(Long bulkSendId) {
+        BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
+        if (!"PERIODIC_PAUSE".equals(bulkSend.getStatus())) return;
         bulkSend.setStatus("PROCESSING");
         bulkSendRepository.save(bulkSend);
         broadcastUpdate(bulkSend);

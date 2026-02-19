@@ -290,6 +290,18 @@ public class BulkSendController {
         return ResponseEntity.ok(Map.of("result", "success", "message", "Envío reanudado"));
     }
 
+    @PostMapping("/{id}/periodic_pause")
+    public ResponseEntity<Map<String, Object>> periodicPause(@PathVariable Long id) {
+        bulkSendService.periodicPauseBulkSend(id);
+        return ResponseEntity.ok(Map.of("result", "success"));
+    }
+
+    @PostMapping("/{id}/periodic_resume")
+    public ResponseEntity<Map<String, Object>> periodicResume(@PathVariable Long id) {
+        bulkSendService.periodicResumeBulkSend(id);
+        return ResponseEntity.ok(Map.of("result", "success"));
+    }
+
     @PostMapping("/{id}/cancel")
     public ResponseEntity<Map<String, Object>> cancel(@PathVariable Long id) {
         bulkSendService.cancelBulkSend(id);
