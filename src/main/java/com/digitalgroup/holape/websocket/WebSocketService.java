@@ -137,6 +137,21 @@ public class WebSocketService {
     }
 
     /**
+     * Send bulk send progress update to all users of a client
+     */
+    public void sendBulkSendUpdate(Long clientId, Map<String, Object> data) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "BULK_SEND_UPDATE");
+        payload.put("data", data);
+        payload.put("timestamp", System.currentTimeMillis());
+
+        String destination = "/topic/client." + clientId + ".bulk_sends";
+        messagingTemplate.convertAndSend(destination, payload);
+
+        log.debug("Sent BULK_SEND_UPDATE to client channel {}", clientId);
+    }
+
+    /**
      * Send KPI update to dashboard
      */
     public void sendKpiUpdate(Long clientId, Map<String, Object> kpiData) {

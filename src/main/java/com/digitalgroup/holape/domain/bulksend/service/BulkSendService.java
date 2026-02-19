@@ -15,6 +15,7 @@ import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.BusinessException;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
+import com.digitalgroup.holape.websocket.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,19 @@ public class BulkSendService {
     private final UserRepository userRepository;
     private final ClientRepository clientRepository;
     private final BulkMessageRepository bulkMessageRepository;
+    private final WebSocketService webSocketService;
+
+    private void broadcastUpdate(BulkSend bs) {
+        if (bs.getClient() == null) return;
+        Map<String, Object> data = new HashMap<>();
+        data.put("bulk_send_id", bs.getId());
+        data.put("status", bs.getStatus());
+        data.put("sent_count", bs.getSentCount());
+        data.put("failed_count", bs.getFailedCount());
+        data.put("total_recipients", bs.getTotalRecipients());
+        data.put("progress_percent", bs.getProgressPercent());
+        webSocketService.sendBulkSendUpdate(bs.getClient().getId(), data);
+    }
 
 
     /**
@@ -145,6 +159,7 @@ public class BulkSendService {
 
         bulkSend.setStatus("PAUSED");
         bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
     }
 
     /**
@@ -165,6 +180,7 @@ public class BulkSendService {
 
         bulkSend.setStatus("PROCESSING");
         bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
     }
 
     /**
@@ -181,6 +197,7 @@ public class BulkSendService {
         bulkSend.setStatus("CANCELLED");
         bulkSend.setCompletedAt(LocalDateTime.now());
         bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
     }
 
     /**
@@ -280,6 +297,7 @@ public class BulkSendService {
         }
 
         bulkSendRepository.save(bulkSend);
+        broadcastUpdate(bulkSend);
     }
 
     /**
