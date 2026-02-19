@@ -96,13 +96,18 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             @Param("roles") List<UserRole> roles,
             @Param("status") Status status);
 
-    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND u.role IN :roles")
+    @Query(value = "SELECT u FROM User u LEFT JOIN FETCH u.client WHERE u.client.id = :clientId AND u.role IN :roles",
+           countQuery = "SELECT COUNT(u) FROM User u WHERE u.client.id = :clientId AND u.role IN :roles")
     Page<User> findInternalUsersPaged(
             @Param("clientId") Long clientId,
             @Param("roles") List<UserRole> roles,
             Pageable pageable);
 
-    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND u.role IN :roles " +
+    @Query(value = "SELECT u FROM User u LEFT JOIN FETCH u.client WHERE u.client.id = :clientId AND u.role IN :roles " +
+           "AND (LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR u.phone LIKE CONCAT('%', :search, '%'))",
+           countQuery = "SELECT COUNT(u) FROM User u WHERE u.client.id = :clientId AND u.role IN :roles " +
            "AND (LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%')) " +
            "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')) " +
            "OR u.phone LIKE CONCAT('%', :search, '%'))")
