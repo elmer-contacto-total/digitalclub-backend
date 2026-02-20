@@ -246,6 +246,14 @@ public class UserService {
     }
 
     /**
+     * Generate JWT token for user with explicit clientId (for Super Admin active org)
+     */
+    public String generateTokenWithClientId(User user, Long clientId) {
+        return jwtTokenProvider.generateTokenWithClientId(
+                user.getEmail(), clientId, user.getId());
+    }
+
+    /**
      * Generate impersonation token
      */
     public String generateImpersonationToken(User targetUser, Long originalUserId) {

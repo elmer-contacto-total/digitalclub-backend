@@ -1172,14 +1172,21 @@ public class UserAdminController {
     @PostMapping("/return_from_impersonation")
     public ResponseEntity<Map<String, Object>> returnFromImpersonation(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestParam Long originalUserId) {
+            @RequestParam Long originalUserId,
+            @RequestParam(required = false) Long clientId) {
 
         User originalUser = userService.findById(originalUserId);
 
-        // Generate new JWT for original user
-        String token = userService.generateToken(originalUser);
+        // If Super Admin had an active org selected, preserve it in the token
+        String token;
+        if (clientId != null && originalUser.isSuperAdmin()) {
+            token = userService.generateTokenWithClientId(originalUser, clientId);
+        } else {
+            token = userService.generateToken(originalUser);
+        }
 
-        log.info("Returning from impersonation to user {}", originalUserId);
+        log.info("Returning from impersonation to user {}{}", originalUserId,
+                clientId != null ? " with clientId " + clientId : "");
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
