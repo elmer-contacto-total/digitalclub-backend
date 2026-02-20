@@ -1572,6 +1572,67 @@ public class ImportService {
     }
 
     /**
+     * Re-validate only affected TempImportUsers after an edit or delete.
+     * For edits: revalidates the edited record + records sharing the same phone or email.
+     * For deletes: uses deletedPhone/deletedEmail to find former duplicates that may now be valid.
+     * Converts O(n) full revalidation into O(k) where k = affected records (typically 2-3).
+     */
+    @Transactional
+    public Map<String, Object> revalidateAffected(Long importId, Long tempUserId,
+                                                   String deletedPhone, String deletedEmail) {
+        Import importEntity = findById(importId);
+        Long clientId = importEntity.getClient().getId();
+
+        Set<Long> idsToRevalidate = new HashSet<>();
+
+        if (tempUserId != null) {
+            // Edit case: revalidate the edited record + its phone/email neighbors
+            tempImportUserRepository.findById(tempUserId).ifPresent(editedUser -> {
+                idsToRevalidate.add(editedUser.getId());
+                if (editedUser.getPhone() != null) {
+                    tempImportUserRepository.findByImportAndPhone(importId, editedUser.getPhone())
+                            .forEach(t -> idsToRevalidate.add(t.getId()));
+                }
+                if (editedUser.getEmail() != null && !editedUser.getEmail().isEmpty()) {
+                    tempImportUserRepository.findByImportAndEmail(importId, editedUser.getEmail())
+                            .forEach(t -> idsToRevalidate.add(t.getId()));
+                }
+            });
+        }
+
+        // Delete case (or additional neighbors): use deletedPhone/deletedEmail to find former duplicates
+        if (deletedPhone != null && !deletedPhone.isEmpty()) {
+            tempImportUserRepository.findByImportAndPhone(importId, deletedPhone)
+                    .forEach(t -> idsToRevalidate.add(t.getId()));
+        }
+        if (deletedEmail != null && !deletedEmail.isEmpty()) {
+            tempImportUserRepository.findByImportAndEmail(importId, deletedEmail)
+                    .forEach(t -> idsToRevalidate.add(t.getId()));
+        }
+
+        // Revalidate only the affected records
+        for (Long id : idsToRevalidate) {
+            tempImportUserRepository.findById(id).ifPresent(t -> {
+                t.setErrorMessage(null);
+                List<String> errors = validateTempUser(t, clientId);
+                if (!errors.isEmpty()) {
+                    t.setErrorMessage(String.join("; ", errors));
+                }
+                tempImportUserRepository.save(t);
+            });
+        }
+
+        // Return updated counts
+        long validCount = tempImportUserRepository.countValidByImport(importId);
+        long invalidCount = tempImportUserRepository.countInvalidByImport(importId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("validCount", validCount);
+        result.put("invalidCount", invalidCount);
+        return result;
+    }
+
+    /**
      * Persist CSV file in S3 and store Shrine-compatible metadata
      * PARIDAD RAILS: import_file_data JSON column (Shrine format)
      */

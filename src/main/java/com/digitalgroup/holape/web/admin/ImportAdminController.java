@@ -335,6 +335,26 @@ public class ImportAdminController {
     }
 
     /**
+     * Re-validate only affected TempImportUsers after an edit or delete.
+     * Much faster than full revalidation — O(k) instead of O(n).
+     * Body: { "tempUserId": 123 } for edits, or { "deletedPhone": "...", "deletedEmail": "..." } for deletes.
+     */
+    @PostMapping("/{id}/revalidate_affected")
+    public ResponseEntity<Map<String, Object>> revalidateAffected(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+
+        Long tempUserId = body.containsKey("tempUserId") && body.get("tempUserId") != null
+                ? ((Number) body.get("tempUserId")).longValue() : null;
+        String deletedPhone = (String) body.get("deletedPhone");
+        String deletedEmail = (String) body.get("deletedEmail");
+
+        Map<String, Object> result = importService.revalidateAffected(
+                id, tempUserId, deletedPhone, deletedEmail);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * Accept selected unmatched columns — creates CrmInfoSettings and re-maps data
      * Phase D: Interactive column selection endpoint
      */
