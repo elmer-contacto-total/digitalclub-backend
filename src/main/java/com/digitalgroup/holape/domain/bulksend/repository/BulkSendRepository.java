@@ -4,11 +4,13 @@ import com.digitalgroup.holape.domain.bulksend.entity.BulkSend;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -19,6 +21,8 @@ public interface BulkSendRepository extends JpaRepository<BulkSend, Long> {
     Page<BulkSend> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
     Page<BulkSend> findByClientIdAndStatusOrderByCreatedAtDesc(Long clientId, String status, Pageable pageable);
+
+    Page<BulkSend> findByClientIdAndStatusInOrderByCreatedAtDesc(Long clientId, Collection<String> statuses, Pageable pageable);
 
     List<BulkSend> findByStatus(String status);
 
@@ -73,12 +77,52 @@ public interface BulkSendRepository extends JpaRepository<BulkSend, Long> {
             @Param("status") String status,
             Pageable pageable);
 
+    @Query(value = """
+            SELECT b.* FROM bulk_sends b
+            WHERE (b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               ))
+            AND b.status IN (:statuses)
+            ORDER BY b.created_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(b.id) FROM bulk_sends b
+            WHERE (b.user_id = :supervisorId
+               OR b.assigned_agent_id IN (
+                   SELECT u.id FROM users u WHERE u.manager_id = :supervisorId
+               ))
+            AND b.status IN (:statuses)
+            """,
+            nativeQuery = true)
+    Page<BulkSend> findBySupervisorScopeAndStatusIn(
+            @Param("supervisorId") Long supervisorId,
+            @Param("statuses") Collection<String> statuses,
+            Pageable pageable);
+
     // --- Assigned agent queries ---
 
     Page<BulkSend> findByAssignedAgentIdOrderByCreatedAtDesc(Long agentId, Pageable pageable);
 
     Page<BulkSend> findByAssignedAgentIdAndStatusOrderByCreatedAtDesc(Long agentId, String status, Pageable pageable);
 
+    Page<BulkSend> findByAssignedAgentIdAndStatusInOrderByCreatedAtDesc(Long agentId, Collection<String> statuses, Pageable pageable);
+
     @Query("SELECT COALESCE(SUM(b.sentCount), 0) FROM BulkSend b WHERE b.assignedAgent.id = :agentId AND b.createdAt >= :since")
     long sumSentByAssignedAgentSince(@Param("agentId") Long agentId, @Param("since") LocalDateTime since);
+
+    @Query("SELECT COALESCE(SUM(b.sentCount), 0) FROM BulkSend b WHERE b.client.id = :clientId AND b.createdAt >= :since")
+    long sumSentByClientSince(@Param("clientId") Long clientId, @Param("since") LocalDateTime since);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE BulkSend b SET b.sentCount = b.sentCount + 1, b.updatedAt = CURRENT_TIMESTAMP WHERE b.id = :id")
+    void atomicIncrementSent(@Param("id") Long id);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE BulkSend b SET b.failedCount = b.failedCount + 1, b.updatedAt = CURRENT_TIMESTAMP WHERE b.id = :id")
+    void atomicIncrementFailed(@Param("id") Long id);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE BulkSend b SET b.failedCount = b.failedCount + :count, b.updatedAt = CURRENT_TIMESTAMP WHERE b.id = :id")
+    void atomicAddFailed(@Param("id") Long id, @Param("count") int count);
 }

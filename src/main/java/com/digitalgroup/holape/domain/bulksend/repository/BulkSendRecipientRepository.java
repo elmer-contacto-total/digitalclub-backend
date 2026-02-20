@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,4 +34,35 @@ public interface BulkSendRecipientRepository extends JpaRepository<BulkSendRecip
     @Modifying
     @Query("UPDATE BulkSendRecipient r SET r.status = 'PENDING' WHERE r.bulkSend.id = :bulkSendId AND r.status = 'IN_PROGRESS'")
     void resetInProgressToPending(@Param("bulkSendId") Long bulkSendId);
+
+    @Query("""
+        SELECT COUNT(r) > 0 FROM BulkSendRecipient r
+        WHERE r.phone = :phone
+          AND r.bulkSend.client.id = :clientId
+          AND r.bulkSend.id != :excludeBulkSendId
+          AND (
+            (r.status = 'SENT' AND r.sentAt >= :since)
+            OR r.status = 'IN_PROGRESS'
+          )
+        """)
+    boolean existsRecentlySentPhone(
+            @Param("phone") String phone,
+            @Param("clientId") Long clientId,
+            @Param("excludeBulkSendId") Long excludeBulkSendId,
+            @Param("since") LocalDateTime since);
+
+    @Modifying
+    @Query("UPDATE BulkSendRecipient r SET r.status = 'SKIPPED', r.errorMessage = 'Envío cancelado' " +
+           "WHERE r.bulkSend.id = :bulkSendId AND r.status IN ('PENDING', 'IN_PROGRESS')")
+    int cancelPendingRecipients(@Param("bulkSendId") Long bulkSendId);
+
+    @Query("""
+        SELECT COUNT(DISTINCT r.phone) FROM BulkSendRecipient r
+        WHERE r.phone IN :phones
+          AND r.bulkSend.client.id = :clientId
+          AND r.bulkSend.status IN ('PENDING', 'PROCESSING', 'PAUSED', 'PERIODIC_PAUSE')
+        """)
+    long countPhonesInActiveBulkSends(
+            @Param("phones") Collection<String> phones,
+            @Param("clientId") Long clientId);
 }

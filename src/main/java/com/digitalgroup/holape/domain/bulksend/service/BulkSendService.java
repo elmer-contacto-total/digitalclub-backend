@@ -21,10 +21,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 @Slf4j
@@ -39,6 +41,9 @@ public class BulkSendService {
     private final ClientRepository clientRepository;
     private final BulkMessageRepository bulkMessageRepository;
     private final WebSocketService webSocketService;
+
+    // In-memory WhatsApp rate limit tracking (reported by Electron instances, shared across all)
+    private final ConcurrentHashMap<Long, Instant> rateLimitedClients = new ConcurrentHashMap<>();
 
     private void broadcastUpdate(BulkSend bs) {
         if (bs.getClient() == null) return;
@@ -93,13 +98,15 @@ public class BulkSendService {
             assignedAgent = user;
         }
 
-        // Check daily limit for assigned agent
+        // Check daily limit for assigned agent (only if rules are enabled)
         BulkSendRule rules = getOrCreateRules(clientId, userId);
-        long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(assignedAgent.getId(),
-                LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
-        if (sentToday + csvRecipients.size() > rules.getMaxDailyMessages()) {
-            throw new BusinessException("Límite diario de mensajes (" + rules.getMaxDailyMessages()
-                    + ") sería excedido. Ya enviados hoy por el agente: " + sentToday);
+        if (Boolean.TRUE.equals(rules.getEnabled())) {
+            long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(assignedAgent.getId(),
+                    LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
+            if (sentToday + csvRecipients.size() > rules.getMaxDailyMessages()) {
+                throw new BusinessException("Límite diario de mensajes (" + rules.getMaxDailyMessages()
+                        + ") sería excedido. Ya enviados hoy por el agente: " + sentToday);
+            }
         }
 
         // Create bulk send
@@ -209,8 +216,9 @@ public class BulkSendService {
     }
 
     /**
-     * Cancel a bulk send
+     * Cancel a bulk send. Marks all pending/in-progress recipients as SKIPPED.
      */
+    @Transactional
     public void cancelBulkSend(Long bulkSendId) {
         BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
@@ -219,6 +227,14 @@ public class BulkSendService {
             throw new BusinessException("El envío ya está " + bulkSend.getStatus().toLowerCase());
         }
 
+        // Mark pending/in-progress recipients as skipped
+        int skipped = recipientRepository.cancelPendingRecipients(bulkSendId);
+        if (skipped > 0) {
+            bulkSendRepository.atomicAddFailed(bulkSendId, skipped);
+        }
+
+        // Re-fetch to get fresh counts after atomic update
+        bulkSend = bulkSendRepository.findById(bulkSendId).orElseThrow();
         bulkSend.setStatus("CANCELLED");
         bulkSend.setCompletedAt(LocalDateTime.now());
         bulkSendRepository.save(bulkSend);
@@ -228,6 +244,7 @@ public class BulkSendService {
     /**
      * Get next pending recipient for Electron polling.
      * Returns resolved message content and attachment info.
+     * Includes concurrency checks: dedup, active conversation, global rate limit.
      */
     @Transactional
     public Optional<Map<String, Object>> getNextRecipient(Long bulkSendId) {
@@ -238,14 +255,37 @@ public class BulkSendService {
             return Optional.empty();
         }
 
-        // Check daily limit for assigned agent
-        if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
-            BulkSendRule rules = getOrCreateRules(bulkSend.getClient().getId(), bulkSend.getUser().getId());
-            long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
-                    bulkSend.getAssignedAgent().getId(),
-                    LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
-            if (sentToday >= rules.getMaxDailyMessages()) {
-                log.info("Daily limit reached for agent {} ({}/{})", bulkSend.getAssignedAgent().getId(), sentToday, rules.getMaxDailyMessages());
+        Long clientId = bulkSend.getClient().getId();
+        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
+
+        // Check WhatsApp rate limit (in-memory, reported by Electron instances)
+        if (isRateLimited(clientId)) {
+            log.info("Client {} rate-limited by WhatsApp, blocking sends", clientId);
+            return Optional.empty();
+        }
+
+        // Check per-agent daily limit (only if rules are enabled)
+        BulkSendRule rules = null;
+        if (bulkSend.getAssignedAgent() != null) {
+            rules = getOrCreateRules(clientId, bulkSend.getUser().getId());
+            if (Boolean.TRUE.equals(rules.getEnabled())) {
+                long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
+                        bulkSend.getAssignedAgent().getId(), todayStart);
+                if (sentToday >= rules.getMaxDailyMessages()) {
+                    log.info("Daily limit reached for agent {} ({}/{})", bulkSend.getAssignedAgent().getId(), sentToday, rules.getMaxDailyMessages());
+                    return Optional.empty();
+                }
+            }
+        }
+
+        // Check global daily limit for the WhatsApp number (= client)
+        // Only applies if client-level rule exists (user_id IS NULL) and is enabled
+        Optional<BulkSendRule> clientRule = ruleRepository.findByClientIdAndUserIsNull(clientId);
+        if (clientRule.isPresent() && Boolean.TRUE.equals(clientRule.get().getEnabled())) {
+            long globalSentToday = bulkSendRepository.sumSentByClientSince(clientId, todayStart);
+            long globalLimit = clientRule.get().getMaxDailyMessages();
+            if (globalSentToday >= globalLimit) {
+                log.warn("Global daily limit reached for client {} ({}/{})", clientId, globalSentToday, globalLimit);
                 return Optional.empty();
             }
         }
@@ -257,42 +297,83 @@ public class BulkSendService {
             bulkSendRepository.save(bulkSend);
         }
 
-        Optional<BulkSendRecipient> next = recipientRepository
-                .findNextPendingRecipientForUpdate(bulkSendId);
+        // Loop: get recipients, skip if concurrency checks fail
+        LocalDateTime dedupCutoff = LocalDateTime.now().minusHours(24);
+        LocalDateTime activeConvCutoff = LocalDateTime.now().minusMinutes(30);
+        int maxSkips = 50;
 
-        if (next.isEmpty()) {
-            return Optional.empty();
+        for (int i = 0; i < maxSkips; i++) {
+            Optional<BulkSendRecipient> next = recipientRepository
+                    .findNextPendingRecipientForUpdate(bulkSendId);
+
+            if (next.isEmpty()) {
+                // Check if all done
+                long pending = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "PENDING");
+                long inProgress = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "IN_PROGRESS");
+                if (pending == 0 && inProgress == 0) {
+                    bulkSend.setStatus("COMPLETED");
+                    bulkSend.setCompletedAt(LocalDateTime.now());
+                    bulkSendRepository.save(bulkSend);
+                    broadcastUpdate(bulkSend);
+                }
+                return Optional.empty();
+            }
+
+            BulkSendRecipient recipient = next.get();
+            String phone = recipient.getPhone();
+
+            // CHECK 1: Dedup — phone already sent in another bulk send of same client in 24h?
+            if (recipientRepository.existsRecentlySentPhone(phone, clientId, bulkSendId, dedupCutoff)) {
+                recipient.markSkipped("Ya enviado en otro envío masivo reciente");
+                recipientRepository.save(recipient);
+                bulkSendRepository.atomicIncrementFailed(bulkSendId);
+                continue;
+            }
+
+            // CHECK 2: Active conversation — contact has recent messages?
+            User contactUser = recipient.getUser();
+            if (contactUser == null) {
+                contactUser = userRepository.findByPhoneAndClientId(phone, clientId).orElse(null);
+            }
+            if (contactUser != null && contactUser.getLastMessageAt() != null
+                    && contactUser.getLastMessageAt().isAfter(activeConvCutoff)) {
+                recipient.markSkipped("Conversación activa - saltado para no interrumpir");
+                recipientRepository.save(recipient);
+                bulkSendRepository.atomicIncrementFailed(bulkSendId);
+                continue;
+            }
+
+            // All checks passed — mark IN_PROGRESS and return
+            recipient.setStatus("IN_PROGRESS");
+            recipientRepository.save(recipient);
+
+            String resolvedContent = recipient.getResolvedContent(bulkSend.getMessageContent());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("recipient_id", recipient.getId());
+            result.put("phone", phone);
+            result.put("recipient_name", recipient.getRecipientName());
+            result.put("content", resolvedContent);
+
+            if (bulkSend.hasAttachment()) {
+                result.put("attachment_path", bulkSend.getAttachmentPath());
+                result.put("attachment_type", bulkSend.getAttachmentType());
+                result.put("attachment_original_name", bulkSend.getAttachmentOriginalName());
+            }
+
+            return Optional.of(result);
         }
 
-        BulkSendRecipient recipient = next.get();
-        // Mark as IN_PROGRESS atomically within the same transaction (lock held)
-        recipient.setStatus("IN_PROGRESS");
-        recipientRepository.save(recipient);
-        String resolvedContent = recipient.getResolvedContent(bulkSend.getMessageContent());
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("recipient_id", recipient.getId());
-        result.put("phone", recipient.getPhone());
-        result.put("recipient_name", recipient.getRecipientName());
-        result.put("content", resolvedContent);
-
-        if (bulkSend.hasAttachment()) {
-            result.put("attachment_path", bulkSend.getAttachmentPath());
-            result.put("attachment_type", bulkSend.getAttachmentType());
-            result.put("attachment_original_name", bulkSend.getAttachmentOriginalName());
-        }
-
-        return Optional.of(result);
+        log.warn("Max skips reached for bulk send {}", bulkSendId);
+        return Optional.empty();
     }
 
     /**
-     * Report result for a recipient (Electron polling)
+     * Report result for a recipient (Electron polling).
+     * Uses atomic DB increments to avoid race conditions between concurrent agents.
      */
     @Transactional
     public void reportRecipientResult(Long bulkSendId, Long recipientId, boolean success, String errorMessage, String action) {
-        BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
-                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
-
         BulkSendRecipient recipient = recipientRepository.findById(recipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSendRecipient", recipientId));
 
@@ -300,28 +381,40 @@ public class BulkSendService {
             throw new BusinessException("El destinatario no pertenece a este envío");
         }
 
+        // Skip if recipient already in terminal state (e.g., cancelled while IN_PROGRESS)
+        if (!"IN_PROGRESS".equals(recipient.getStatus())) {
+            log.info("Recipient {} already in terminal state {}, ignoring result report",
+                    recipientId, recipient.getStatus());
+            return;
+        }
+
         if (success) {
             recipient.markSent();
-            bulkSend.incrementSent();
+            bulkSendRepository.atomicIncrementSent(bulkSendId);
         } else if ("SKIP".equals(action)) {
             recipient.markSkipped(errorMessage);
-            bulkSend.incrementFailed();
+            bulkSendRepository.atomicIncrementFailed(bulkSendId);
         } else {
             recipient.markFailed(errorMessage);
-            bulkSend.incrementFailed();
+            bulkSendRepository.atomicIncrementFailed(bulkSendId);
         }
 
         recipientRepository.save(recipient);
 
-        // Check if complete (also consider IN_PROGRESS recipients to avoid premature completion)
+        // Check completion
         long pendingCount = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "PENDING");
         long inProgressCount = recipientRepository.countByBulkSendIdAndStatus(bulkSendId, "IN_PROGRESS");
+
+        // Re-read fresh entity (clearAutomatically=true on atomic queries clears cache)
+        BulkSend bulkSend = bulkSendRepository.findById(bulkSendId)
+                .orElseThrow(() -> new ResourceNotFoundException("BulkSend", bulkSendId));
+
         if (pendingCount == 0 && inProgressCount == 0) {
             bulkSend.setStatus("COMPLETED");
             bulkSend.setCompletedAt(LocalDateTime.now());
+            bulkSendRepository.save(bulkSend);
         }
 
-        bulkSendRepository.save(bulkSend);
         broadcastUpdate(bulkSend);
     }
 
@@ -419,6 +512,23 @@ public class BulkSendService {
     public BulkMessage findBulkMessage(Long id) {
         return bulkMessageRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkMessage", id));
+    }
+
+    // --- WhatsApp rate limit coordination ---
+
+    public void reportRateLimit(Long clientId, int cooldownMinutes) {
+        rateLimitedClients.put(clientId, Instant.now().plusSeconds(cooldownMinutes * 60L));
+        log.warn("WhatsApp rate limit reported for client {}, cooldown {} min", clientId, cooldownMinutes);
+    }
+
+    public boolean isRateLimited(Long clientId) {
+        Instant until = rateLimitedClients.get(clientId);
+        if (until == null) return false;
+        if (Instant.now().isAfter(until)) {
+            rateLimitedClients.remove(clientId);
+            return false;
+        }
+        return true;
     }
 
     /**

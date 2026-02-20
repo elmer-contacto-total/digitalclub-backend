@@ -5,6 +5,7 @@ import com.digitalgroup.holape.domain.bulksend.entity.BulkSendRecipient;
 import com.digitalgroup.holape.domain.bulksend.entity.BulkSendRule;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRecipientRepository;
 import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRepository;
+import com.digitalgroup.holape.domain.bulksend.repository.BulkSendRuleRepository;
 import com.digitalgroup.holape.domain.bulksend.service.BulkSendService;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -54,6 +55,7 @@ public class BulkSendController {
     private final BulkSendService bulkSendService;
     private final BulkSendRepository bulkSendRepository;
     private final BulkSendRecipientRepository recipientRepository;
+    private final BulkSendRuleRepository ruleRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -187,11 +189,20 @@ public class BulkSendController {
         log.info("Bulk send {} created by user {} with {} recipients",
                 bulkSend.getId(), currentUser.getId(), recipients.size());
 
-        return ResponseEntity.ok(Map.of(
-                "result", "success",
-                "bulk_send", mapBulkSendToResponse(bulkSend),
-                "message", "Envío masivo creado. Inicia el envío desde la aplicación de escritorio."
-        ));
+        // Check for overlap with active bulk sends
+        List<String> phones = recipients.stream().map(r -> r.phone()).toList();
+        long overlapCount = recipientRepository.countPhonesInActiveBulkSends(phones, currentUser.getClientId());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("result", "success");
+        response.put("bulk_send", mapBulkSendToResponse(bulkSend));
+        response.put("message", "Envío masivo creado. Inicia el envío desde la aplicación de escritorio.");
+        if (overlapCount > 0) {
+            response.put("overlap_warning", overlapCount + " de " + phones.size()
+                    + " destinatarios ya están en envíos activos y serán omitidos automáticamente.");
+        }
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -208,29 +219,38 @@ public class BulkSendController {
         Pageable pageable = PageRequest.of(page, size);
         Page<BulkSend> bulkSendsPage;
 
+        // PROCESSING filter includes PERIODIC_PAUSE (it's a sub-state of processing)
+        List<String> statuses = null;
+        if (status != null && !status.isBlank()) {
+            String upper = status.toUpperCase();
+            statuses = "PROCESSING".equals(upper)
+                    ? List.of("PROCESSING", "PERIODIC_PAUSE")
+                    : List.of(upper);
+        }
+
         if (currentUser.isSuperAdmin() || currentUser.isAdmin()) {
             // SUPER_ADMIN and ADMIN: all bulk sends in their client
-            if (status != null && !status.isBlank()) {
-                bulkSendsPage = bulkSendRepository.findByClientIdAndStatusOrderByCreatedAtDesc(
-                        currentUser.getClientId(), status.toUpperCase(), pageable);
+            if (statuses != null) {
+                bulkSendsPage = bulkSendRepository.findByClientIdAndStatusInOrderByCreatedAtDesc(
+                        currentUser.getClientId(), statuses, pageable);
             } else {
                 bulkSendsPage = bulkSendRepository.findByClientIdOrderByCreatedAtDesc(
                         currentUser.getClientId(), pageable);
             }
         } else if (currentUser.isManager()) {
             // MANAGER_LEVEL_*: own sends + sends assigned to their agents
-            if (status != null && !status.isBlank()) {
-                bulkSendsPage = bulkSendRepository.findBySupervisorScopeAndStatus(
-                        currentUser.getId(), status.toUpperCase(), pageable);
+            if (statuses != null) {
+                bulkSendsPage = bulkSendRepository.findBySupervisorScopeAndStatusIn(
+                        currentUser.getId(), statuses, pageable);
             } else {
                 bulkSendsPage = bulkSendRepository.findBySupervisorScope(
                         currentUser.getId(), pageable);
             }
         } else {
             // Agents see sends assigned to them
-            if (status != null && !status.isBlank()) {
-                bulkSendsPage = bulkSendRepository.findByAssignedAgentIdAndStatusOrderByCreatedAtDesc(
-                        currentUser.getId(), status.toUpperCase(), pageable);
+            if (statuses != null) {
+                bulkSendsPage = bulkSendRepository.findByAssignedAgentIdAndStatusInOrderByCreatedAtDesc(
+                        currentUser.getId(), statuses, pageable);
             } else {
                 bulkSendsPage = bulkSendRepository.findByAssignedAgentIdOrderByCreatedAtDesc(
                         currentUser.getId(), pageable);
@@ -306,6 +326,18 @@ public class BulkSendController {
     public ResponseEntity<Map<String, Object>> cancel(@PathVariable Long id) {
         bulkSendService.cancelBulkSend(id);
         return ResponseEntity.ok(Map.of("result", "success", "message", "Envío cancelado"));
+    }
+
+    /**
+     * Report WhatsApp rate limit detected by an Electron instance.
+     * Blocks all bulk sends for this client for the cooldown period.
+     */
+    @PostMapping("/report-rate-limit")
+    public ResponseEntity<Map<String, Object>> reportRateLimit(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam(defaultValue = "15") int cooldownMinutes) {
+        bulkSendService.reportRateLimit(currentUser.getClientId(), cooldownMinutes);
+        return ResponseEntity.ok(Map.of("result", "success"));
     }
 
     /**
@@ -404,15 +436,36 @@ public class BulkSendController {
             emptyResponse.put("total_recipients", bulkSend.getTotalRecipients());
             emptyResponse.put("message", "No hay más destinatarios pendientes");
 
-            // Check if it was due to daily limit
-            if (bulkSend.getAssignedAgent() != null && bulkSend.getClient() != null) {
-                BulkSendRule rules = bulkSendService.getOrCreateRules(bulkSend.getClient().getId(), bulkSend.getUser().getId());
-                long sentToday = bulkSendRepository.sumSentByAssignedAgentSince(
-                        bulkSend.getAssignedAgent().getId(),
-                        LocalDateTime.of(LocalDate.now(), LocalTime.MIN));
-                if (sentToday >= rules.getMaxDailyMessages()) {
-                    emptyResponse.put("daily_limit_reached", true);
-                    emptyResponse.put("message", "Límite diario de mensajes alcanzado (" + rules.getMaxDailyMessages() + ")");
+            // Determine why backend returned empty
+            if (bulkSend.getClient() != null) {
+                Long clientId = bulkSend.getClient().getId();
+
+                // WhatsApp rate limit (shared across all Electron instances)
+                if (bulkSendService.isRateLimited(clientId)) {
+                    emptyResponse.put("rate_limited", true);
+                    emptyResponse.put("message", "WhatsApp ha limitado temporalmente el envío para este número.");
+                }
+
+                // Per-agent / global daily limit
+                if (bulkSend.getAssignedAgent() != null) {
+                    LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
+
+                    BulkSendRule rules = bulkSendService.getOrCreateRules(clientId, bulkSend.getUser().getId());
+                    long agentSentToday = bulkSendRepository.sumSentByAssignedAgentSince(
+                            bulkSend.getAssignedAgent().getId(), todayStart);
+                    if (agentSentToday >= rules.getMaxDailyMessages()) {
+                        emptyResponse.put("daily_limit_reached", true);
+                        emptyResponse.put("message", "Límite diario del agente alcanzado (" + rules.getMaxDailyMessages() + ")");
+                    }
+
+                    Optional<BulkSendRule> clientRule = ruleRepository.findByClientIdAndUserIsNull(clientId);
+                    if (clientRule.isPresent()) {
+                        long globalSentToday = bulkSendRepository.sumSentByClientSince(clientId, todayStart);
+                        if (globalSentToday >= clientRule.get().getMaxDailyMessages()) {
+                            emptyResponse.put("daily_limit_reached", true);
+                            emptyResponse.put("message", "Límite diario global alcanzado (" + clientRule.get().getMaxDailyMessages() + ")");
+                        }
+                    }
                 }
             }
 
