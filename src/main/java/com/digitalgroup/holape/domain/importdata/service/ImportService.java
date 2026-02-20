@@ -412,7 +412,6 @@ public class ImportService {
      * PARIDAD RAILS: usa progress, tot_records, errors_text
      * PARIDAD RAILS: User.without_auditing (create_user_import_worker.rb línea 10)
      */
-    @Transactional
     public void processImport(Long importId) {
         Import importEntity = findById(importId);
 
@@ -1380,14 +1379,28 @@ public class ImportService {
         Map<String, Object> progress = new HashMap<>();
         progress.put("id", importEntity.getId());
         progress.put("status", importEntity.getStatus().name().toLowerCase());
-        progress.put("tot_records", importEntity.getTotRecords());
+        progress.put("totRecords", importEntity.getTotRecords());
         progress.put("progress", importEntity.getProgress());
-        progress.put("progress_percent", importEntity.calculateProgress());
+        progress.put("progressPercent", importEntity.calculateProgress());
+
+        // Build human-readable message
+        String message;
+        if (importEntity.getStatus() == ImportStatus.STATUS_COMPLETED) {
+            message = "Importación completada";
+        } else if (importEntity.getStatus() == ImportStatus.STATUS_ERROR) {
+            message = "Error durante la importación";
+        } else if (importEntity.getStatus() == ImportStatus.STATUS_PROCESSING) {
+            message = "Procesando... " + importEntity.getProgress() + " de " + importEntity.getTotRecords() + " registros";
+        } else {
+            message = "Iniciando...";
+        }
+        progress.put("message", message);
+        progress.put("errors", importEntity.getErrorsText() != null ? importEntity.getErrorsText() : "");
 
         // Calculate valid/invalid counts from TempImportUser
         if (importEntity.getStatus() == ImportStatus.STATUS_VALID) {
-            progress.put("valid_count", tempImportUserRepository.countValidByImport(importId));
-            progress.put("invalid_count", tempImportUserRepository.countInvalidByImport(importId));
+            progress.put("validCount", tempImportUserRepository.countValidByImport(importId));
+            progress.put("invalidCount", tempImportUserRepository.countInvalidByImport(importId));
         }
 
         return progress;
