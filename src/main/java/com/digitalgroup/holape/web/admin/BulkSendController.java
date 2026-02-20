@@ -189,18 +189,10 @@ public class BulkSendController {
         log.info("Bulk send {} created by user {} with {} recipients",
                 bulkSend.getId(), currentUser.getId(), recipients.size());
 
-        // Check for overlap with active bulk sends
-        List<String> phones = recipients.stream().map(r -> r.phone()).toList();
-        long overlapCount = recipientRepository.countPhonesInActiveBulkSends(phones, currentUser.getClientId());
-
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("result", "success");
         response.put("bulk_send", mapBulkSendToResponse(bulkSend));
         response.put("message", "Envío masivo creado. Inicia el envío desde la aplicación de escritorio.");
-        if (overlapCount > 0) {
-            response.put("overlap_warning", overlapCount + " de " + phones.size()
-                    + " destinatarios ya están en envíos activos y serán omitidos automáticamente.");
-        }
 
         return ResponseEntity.ok(response);
     }
