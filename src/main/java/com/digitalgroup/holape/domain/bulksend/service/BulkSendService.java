@@ -325,8 +325,8 @@ public class BulkSendService {
             // CHECK 1: Dedup — phone already sent in another bulk send of same client in 24h?
             if (recipientRepository.existsRecentlySentPhone(phone, clientId, bulkSendId, dedupCutoff)) {
                 recipient.markSkipped("Ya enviado en otro envío masivo reciente");
-                recipientRepository.save(recipient);
                 bulkSendRepository.atomicIncrementFailed(bulkSendId);
+                recipientRepository.save(recipient);
                 continue;
             }
 
@@ -338,8 +338,8 @@ public class BulkSendService {
             if (contactUser != null && contactUser.getLastMessageAt() != null
                     && contactUser.getLastMessageAt().isAfter(activeConvCutoff)) {
                 recipient.markSkipped("Conversación activa - saltado para no interrumpir");
-                recipientRepository.save(recipient);
                 bulkSendRepository.atomicIncrementFailed(bulkSendId);
+                recipientRepository.save(recipient);
                 continue;
             }
 
