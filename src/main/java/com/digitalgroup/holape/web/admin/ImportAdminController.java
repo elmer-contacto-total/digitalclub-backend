@@ -282,8 +282,8 @@ public class ImportAdminController {
 
         Map<String, Object> response = new HashMap<>();
         response.put("id", id);
-        response.put("validCount", progress.getOrDefault("valid_count", 0L));
-        response.put("invalidCount", progress.getOrDefault("invalid_count", 0L));
+        response.put("validCount", progress.getOrDefault("validCount", 0L));
+        response.put("invalidCount", progress.getOrDefault("invalidCount", 0L));
         response.put("status", progress.get("status"));
         response.put("tempUsers", tempUsersList);
         response.put("totalElements", pagedResult.getTotalElements());
@@ -396,7 +396,7 @@ public class ImportAdminController {
 
     /**
      * Get import status/progress
-     * Uses Rails-compatible field names: tot_records, progress
+     * Returns import status with camelCase field names
      */
     @GetMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> status(@PathVariable Long id) {
@@ -405,13 +405,13 @@ public class ImportAdminController {
         Map<String, Object> response = new HashMap<>();
         response.put("id", importEntity.getId());
         response.put("status", importEntity.getStatus().name().toLowerCase());
-        response.put("tot_records", importEntity.getTotRecords());
+        response.put("totRecords", importEntity.getTotRecords());
         response.put("progress", importEntity.getProgress());
 
         // Calculate progress percentage
-        response.put("progress_percent", importEntity.calculateProgress());
+        response.put("progressPercent", importEntity.calculateProgress());
 
-        response.put("is_complete", importEntity.getStatus() == ImportStatus.STATUS_COMPLETED ||
+        response.put("isComplete", importEntity.getStatus() == ImportStatus.STATUS_COMPLETED ||
                 importEntity.getStatus() == ImportStatus.STATUS_ERROR);
 
         return ResponseEntity.ok(response);
