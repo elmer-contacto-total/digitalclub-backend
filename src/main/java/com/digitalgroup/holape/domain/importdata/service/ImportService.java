@@ -302,6 +302,9 @@ public class ImportService {
             }
         }
 
+        // Mark both records in duplicate phone/email pairs
+        markCrossDuplicates(importId);
+
         // Store errors and unmatched columns as JSON
         importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
         importEntity.setStatus(ImportStatus.STATUS_VALID);
@@ -378,6 +381,9 @@ public class ImportService {
                 importRepository.save(importEntity);
             }
         }
+
+        // Mark both records in duplicate phone/email pairs
+        markCrossDuplicates(importId);
 
         // Phase E: Store unmatched columns for interactive selection
         importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
@@ -1633,6 +1639,56 @@ public class ImportService {
     }
 
     /**
+     * Post-validation pass: mark ALL records in duplicate phone/email groups.
+     * During sequential validation, the first record in a duplicate pair is saved as valid
+     * because the second one doesn't exist yet. This method fixes that by checking all
+     * records after they've all been created.
+     */
+    private void markCrossDuplicates(Long importId) {
+        List<TempImportUser> allUsers = tempImportUserRepository.findByUserImportId(importId);
+
+        // Group by phone
+        Map<String, List<TempImportUser>> byPhone = new HashMap<>();
+        for (TempImportUser user : allUsers) {
+            if (user.getPhone() != null && !user.getPhone().isEmpty()) {
+                byPhone.computeIfAbsent(user.getPhone(), k -> new ArrayList<>()).add(user);
+            }
+        }
+
+        for (List<TempImportUser> group : byPhone.values()) {
+            if (group.size() <= 1) continue;
+            for (TempImportUser user : group) {
+                if (user.getErrorMessage() == null || !user.getErrorMessage().contains("Teléfono duplicado")) {
+                    String dupMsg = "Teléfono duplicado en importación";
+                    String current = user.getErrorMessage();
+                    user.setErrorMessage(current != null ? current + "; " + dupMsg : dupMsg);
+                    tempImportUserRepository.save(user);
+                }
+            }
+        }
+
+        // Group by email (case-insensitive)
+        Map<String, List<TempImportUser>> byEmail = new HashMap<>();
+        for (TempImportUser user : allUsers) {
+            if (user.getEmail() != null && !user.getEmail().isEmpty()) {
+                byEmail.computeIfAbsent(user.getEmail().toLowerCase(), k -> new ArrayList<>()).add(user);
+            }
+        }
+
+        for (List<TempImportUser> group : byEmail.values()) {
+            if (group.size() <= 1) continue;
+            for (TempImportUser user : group) {
+                if (user.getErrorMessage() == null || !user.getErrorMessage().contains("Email duplicado en importación")) {
+                    String dupMsg = "Email duplicado en importación: " + user.getEmail();
+                    String current = user.getErrorMessage();
+                    user.setErrorMessage(current != null ? current + "; " + dupMsg : dupMsg);
+                    tempImportUserRepository.save(user);
+                }
+            }
+        }
+    }
+
+    /**
      * Persist CSV file in S3 and store Shrine-compatible metadata
      * PARIDAD RAILS: import_file_data JSON column (Shrine format)
      */
@@ -1881,6 +1937,9 @@ public class ImportService {
             }
         }
 
+        // Mark both records in duplicate phone/email pairs
+        markCrossDuplicates(importId);
+
         importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
         importEntity.setStatus(ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
@@ -1949,6 +2008,9 @@ public class ImportService {
                 importRepository.save(importEntity);
             }
         }
+
+        // Mark both records in duplicate phone/email pairs
+        markCrossDuplicates(importId);
 
         importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
         importEntity.setStatus(ImportStatus.STATUS_VALID);
