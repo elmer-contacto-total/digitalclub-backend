@@ -1153,7 +1153,8 @@ public class ImportService {
                 boolean isSameUser = existingByPhone.isPresent() &&
                         existingByPhone.get().getId().equals(existingByEmail.get().getId());
                 if (!isSameUser) {
-                    errors.add("El email ya está en uso por otro usuario: " + tempUser.getEmail());
+                    User owner = existingByEmail.get();
+                    errors.add("El email ya está en uso por: " + owner.getFullName() + " (Tel: " + owner.getPhone() + ")");
                 }
             }
         }
