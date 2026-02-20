@@ -298,7 +298,6 @@ public class BulkSendService {
         }
 
         // Loop: get recipients, skip if concurrency checks fail
-        LocalDateTime dedupCutoff = LocalDateTime.now().minusHours(24);
         LocalDateTime activeConvCutoff = LocalDateTime.now().minusMinutes(30);
         int maxSkips = 50;
 
@@ -322,15 +321,7 @@ public class BulkSendService {
             BulkSendRecipient recipient = next.get();
             String phone = recipient.getPhone();
 
-            // CHECK 1: Dedup — phone already sent in another bulk send of same client in 24h?
-            if (recipientRepository.existsRecentlySentPhone(phone, clientId, bulkSendId, dedupCutoff)) {
-                recipient.markSkipped("Ya enviado en otro envío masivo reciente");
-                bulkSendRepository.atomicIncrementFailed(bulkSendId);
-                recipientRepository.save(recipient);
-                continue;
-            }
-
-            // CHECK 2: Active conversation — contact has recent messages?
+            // CHECK: Active conversation — contact has recent messages?
             User contactUser = recipient.getUser();
             if (contactUser == null) {
                 contactUser = userRepository.findByPhoneAndClientId(phone, clientId).orElse(null);
