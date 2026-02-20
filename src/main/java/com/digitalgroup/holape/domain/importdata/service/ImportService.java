@@ -1471,10 +1471,22 @@ public class ImportService {
     }
 
     /**
-     * Get paged TempImportUsers with optional error filter.
+     * Get paged TempImportUsers with optional error filter and text search.
      * @param filter "all", "errors", or "valid"
+     * @param search text to match against phone, firstName, lastName, email, managerEmail (null or blank = no search)
      */
-    public Page<TempImportUser> getPagedTempUsers(Long importId, String filter, Pageable pageable) {
+    public Page<TempImportUser> getPagedTempUsers(Long importId, String filter, String search, Pageable pageable) {
+        boolean hasSearch = search != null && !search.isBlank();
+
+        if (hasSearch) {
+            String q = "%" + search.trim().toLowerCase() + "%";
+            return switch (filter) {
+                case "errors" -> tempImportUserRepository.searchPagedInvalidByImport(importId, q, pageable);
+                case "valid" -> tempImportUserRepository.searchPagedValidByImport(importId, q, pageable);
+                default -> tempImportUserRepository.searchPagedByImport(importId, q, pageable);
+            };
+        }
+
         return switch (filter) {
             case "errors" -> tempImportUserRepository.findPagedInvalidByImport(importId, pageable);
             case "valid" -> tempImportUserRepository.findPagedValidByImport(importId, pageable);

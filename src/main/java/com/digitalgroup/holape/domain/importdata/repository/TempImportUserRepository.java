@@ -79,6 +79,18 @@ public interface TempImportUserRepository extends JpaRepository<TempImportUser, 
     @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND t.errorMessage IS NULL ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
     Page<TempImportUser> findPagedValidByImport(@Param("importId") Long importId, Pageable pageable);
 
+    // Paged + search: all
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND (LOWER(t.phone) LIKE :q OR LOWER(t.firstName) LIKE :q OR LOWER(t.lastName) LIKE :q OR LOWER(t.email) LIKE :q OR LOWER(t.managerEmail) LIKE :q) ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> searchPagedByImport(@Param("importId") Long importId, @Param("q") String query, Pageable pageable);
+
+    // Paged + search: only invalid
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND t.errorMessage IS NOT NULL AND (LOWER(t.phone) LIKE :q OR LOWER(t.firstName) LIKE :q OR LOWER(t.lastName) LIKE :q OR LOWER(t.email) LIKE :q OR LOWER(t.managerEmail) LIKE :q) ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> searchPagedInvalidByImport(@Param("importId") Long importId, @Param("q") String query, Pageable pageable);
+
+    // Paged + search: only valid
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND t.errorMessage IS NULL AND (LOWER(t.phone) LIKE :q OR LOWER(t.firstName) LIKE :q OR LOWER(t.lastName) LIKE :q OR LOWER(t.email) LIKE :q OR LOWER(t.managerEmail) LIKE :q) ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> searchPagedValidByImport(@Param("importId") Long importId, @Param("q") String query, Pageable pageable);
+
     // Delete all by import
     @Modifying
     @Query("DELETE FROM TempImportUser t WHERE t.userImport.id = :importId")

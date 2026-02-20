@@ -267,13 +267,14 @@ public class ImportAdminController {
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
-            @RequestParam(defaultValue = "all") String filter) {
+            @RequestParam(defaultValue = "all") String filter,
+            @RequestParam(required = false) String search) {
 
         Map<String, Object> progress = importService.getImportProgress(id);
 
-        // Real paginated query with filter
+        // Real paginated query with filter + optional search
         Page<TempImportUser> pagedResult = importService.getPagedTempUsers(
-                id, filter, PageRequest.of(page, size));
+                id, filter, search, PageRequest.of(page, size));
 
         List<Map<String, Object>> tempUsersList = pagedResult.getContent().stream()
                 .map(this::mapTempUser)
