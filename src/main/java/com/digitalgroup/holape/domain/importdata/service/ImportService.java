@@ -1146,10 +1146,7 @@ public class ImportService {
             Optional<User> existingByEmail = userRepository.findByEmailAndClientId(tempUser.getEmail(), clientId);
             if (existingByEmail.isPresent()) {
                 // Use the same lookup as createOrUpdateUser() to check if it's the same user
-                String normalizedPhone = tempUser.getNormalizedPhone();
-                Optional<User> existingByPhone = (normalizedPhone != null)
-                        ? userRepository.findByPhoneAndClientId(normalizedPhone, clientId)
-                        : Optional.empty();
+                Optional<User> existingByPhone = findUserByPhoneFlexible(tempUser, clientId);
                 boolean isSameUser = existingByPhone.isPresent() &&
                         existingByPhone.get().getId().equals(existingByEmail.get().getId());
                 if (!isSameUser) {
@@ -1188,8 +1185,8 @@ public class ImportService {
         String importType = importEntity.getImportType() != null
                 ? importEntity.getImportType().name().toLowerCase() : "users";
 
-        // Check if user exists
-        Optional<User> existingUser = userRepository.findByPhoneAndClientId(normalizedPhone, clientId);
+        // Check if user exists (try with and without country code)
+        Optional<User> existingUser = findUserByPhoneFlexible(tempUser, clientId);
 
         User user;
         boolean isNewUser = existingUser.isEmpty();
@@ -1296,6 +1293,25 @@ public class ImportService {
             normalized = normalized.substring(1);
         }
         return normalized;
+    }
+
+    /**
+     * Find user by phone, trying normalized (with country code) first,
+     * then raw phone (without country code) as fallback.
+     * Handles DB records stored with or without country code prefix.
+     */
+    private Optional<User> findUserByPhoneFlexible(TempImportUser tempUser, Long clientId) {
+        String normalizedPhone = tempUser.getNormalizedPhone(); // with country code
+        if (normalizedPhone != null) {
+            Optional<User> found = userRepository.findByPhoneAndClientId(normalizedPhone, clientId);
+            if (found.isPresent()) return found;
+        }
+        // Fallback: try raw phone without country code
+        String rawPhone = normalizePhone(tempUser.getPhone());
+        if (rawPhone != null && !rawPhone.equals(normalizedPhone)) {
+            return userRepository.findByPhoneAndClientId(rawPhone, clientId);
+        }
+        return Optional.empty();
     }
 
     /**
