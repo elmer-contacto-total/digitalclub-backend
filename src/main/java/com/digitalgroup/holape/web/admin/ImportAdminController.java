@@ -258,36 +258,25 @@ public class ImportAdminController {
     }
 
     /**
-     * Get validated users preview before processing
+     * Get validated users preview before processing — with real pagination and error filter.
      * Equivalent to Rails: Admin::ImportsController#validated_import_user
      * Phase D: Includes unmatchedColumns for interactive column selection
      */
     @GetMapping("/{id}/validated_users")
     public ResponseEntity<Map<String, Object>> validatedUsers(
             @PathVariable Long id,
-            @RequestParam(required = false, defaultValue = "0") int page,
-            @RequestParam(required = false, defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "all") String filter) {
 
         Map<String, Object> progress = importService.getImportProgress(id);
 
-        // Load TempImportUsers for preview table
-        List<TempImportUser> tempUserEntities = importService.getTempImportUsers(id);
-        List<Map<String, Object>> tempUsersList = tempUserEntities.stream()
-                .map(t -> {
-                    Map<String, Object> m = new HashMap<>();
-                    m.put("id", t.getId());
-                    m.put("codigo", t.getCodigo());
-                    m.put("firstName", t.getFirstName());
-                    m.put("lastName", t.getLastName());
-                    m.put("phone", t.getPhone());
-                    m.put("phoneCode", t.getPhoneCode());
-                    m.put("email", t.getEmail());
-                    m.put("managerEmail", t.getManagerEmail());
-                    m.put("crmFields", t.getCrmFields());
-                    m.put("errorMessage", t.getErrorMessage());
-                    m.put("role", t.getRole());
-                    return m;
-                })
+        // Real paginated query with filter
+        Page<TempImportUser> pagedResult = importService.getPagedTempUsers(
+                id, filter, PageRequest.of(page, size));
+
+        List<Map<String, Object>> tempUsersList = pagedResult.getContent().stream()
+                .map(this::mapTempUser)
                 .collect(Collectors.toList());
 
         Map<String, Object> response = new HashMap<>();
@@ -296,6 +285,9 @@ public class ImportAdminController {
         response.put("invalidCount", progress.getOrDefault("invalid_count", 0L));
         response.put("status", progress.get("status"));
         response.put("tempUsers", tempUsersList);
+        response.put("totalElements", pagedResult.getTotalElements());
+        response.put("totalPages", pagedResult.getTotalPages());
+        response.put("currentPage", page);
 
         // Phase D: Include unmatched columns for interactive selection
         List<Map<String, Object>> unmatchedColumns = importService.getUnmatchedColumns(id);
@@ -304,6 +296,41 @@ public class ImportAdminController {
         }
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Update a TempImportUser inline (edit fields from preview table)
+     */
+    @PatchMapping("/{id}/temp_users/{tempUserId}")
+    public ResponseEntity<Map<String, Object>> updateTempUser(
+            @PathVariable Long id,
+            @PathVariable Long tempUserId,
+            @RequestBody Map<String, String> fields) {
+
+        TempImportUser updated = importService.updateTempUser(tempUserId, fields);
+        return ResponseEntity.ok(mapTempUser(updated));
+    }
+
+    /**
+     * Delete a TempImportUser from preview (remove erroneous record)
+     */
+    @DeleteMapping("/{id}/temp_users/{tempUserId}")
+    public ResponseEntity<Void> deleteTempUser(
+            @PathVariable Long id,
+            @PathVariable Long tempUserId) {
+
+        importService.deleteTempUser(id, tempUserId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Re-validate all TempImportUsers for an import.
+     * Called after edit/delete to resolve cross-record errors (duplicate phone/email).
+     */
+    @PostMapping("/{id}/revalidate")
+    public ResponseEntity<Map<String, Object>> revalidateImport(@PathVariable Long id) {
+        Map<String, Object> result = importService.revalidateImport(id);
+        return ResponseEntity.ok(result);
     }
 
     /**
@@ -505,6 +532,25 @@ public class ImportAdminController {
         map.put("headers", template.getHeaders());
         map.put("createdAt", template.getCreatedAt());
         return map;
+    }
+
+    /**
+     * Map TempImportUser to response map
+     */
+    private Map<String, Object> mapTempUser(TempImportUser t) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("id", t.getId());
+        m.put("codigo", t.getCodigo());
+        m.put("firstName", t.getFirstName());
+        m.put("lastName", t.getLastName());
+        m.put("phone", t.getPhone());
+        m.put("phoneCode", t.getPhoneCode());
+        m.put("email", t.getEmail());
+        m.put("managerEmail", t.getManagerEmail());
+        m.put("crmFields", t.getCrmFields());
+        m.put("errorMessage", t.getErrorMessage());
+        m.put("role", t.getRole());
+        return m;
     }
 
     /**

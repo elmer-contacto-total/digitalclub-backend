@@ -1471,6 +1471,95 @@ public class ImportService {
     }
 
     /**
+     * Get paged TempImportUsers with optional error filter.
+     * @param filter "all", "errors", or "valid"
+     */
+    public Page<TempImportUser> getPagedTempUsers(Long importId, String filter, Pageable pageable) {
+        return switch (filter) {
+            case "errors" -> tempImportUserRepository.findPagedInvalidByImport(importId, pageable);
+            case "valid" -> tempImportUserRepository.findPagedValidByImport(importId, pageable);
+            default -> tempImportUserRepository.findPagedByImport(importId, pageable);
+        };
+    }
+
+    /**
+     * Update editable fields of a TempImportUser (inline edit from preview).
+     */
+    @Transactional
+    public TempImportUser updateTempUser(Long tempUserId, Map<String, String> fields) {
+        TempImportUser tempUser = tempImportUserRepository.findById(tempUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("TempImportUser", tempUserId));
+
+        if (fields.containsKey("firstName")) tempUser.setFirstName(fields.get("firstName"));
+        if (fields.containsKey("lastName")) tempUser.setLastName(fields.get("lastName"));
+        if (fields.containsKey("phone")) tempUser.setPhone(fields.get("phone"));
+        if (fields.containsKey("phoneCode")) tempUser.setPhoneCode(fields.get("phoneCode"));
+        if (fields.containsKey("email")) tempUser.setEmail(fields.get("email"));
+        if (fields.containsKey("managerEmail")) tempUser.setManagerEmail(fields.get("managerEmail"));
+        if (fields.containsKey("codigo")) tempUser.setCodigo(fields.get("codigo"));
+        if (fields.containsKey("role")) tempUser.setRole(fields.get("role"));
+
+        return tempImportUserRepository.save(tempUser);
+    }
+
+    /**
+     * Delete a TempImportUser and update parent import's totRecords.
+     */
+    @Transactional
+    public void deleteTempUser(Long importId, Long tempUserId) {
+        TempImportUser tempUser = tempImportUserRepository.findById(tempUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("TempImportUser", tempUserId));
+
+        tempImportUserRepository.delete(tempUser);
+
+        Import importEntity = findById(importId);
+        if (importEntity.getTotRecords() != null && importEntity.getTotRecords() > 0) {
+            importEntity.setTotRecords(importEntity.getTotRecords() - 1);
+            importRepository.save(importEntity);
+        }
+    }
+
+    /**
+     * Re-validate ALL TempImportUsers for an import.
+     * Clears existing errors and runs validateTempUser() again for each record.
+     * Resolves cross-record validation issues (e.g. duplicate phone/email after edit/delete).
+     * Returns updated counts.
+     */
+    @Transactional
+    public Map<String, Object> revalidateImport(Long importId) {
+        Import importEntity = findById(importId);
+        Long clientId = importEntity.getClient().getId();
+
+        List<TempImportUser> allTempUsers = tempImportUserRepository.findByUserImportId(importId);
+
+        int validCount = 0;
+        int invalidCount = 0;
+
+        for (TempImportUser tempUser : allTempUsers) {
+            // Clear previous error
+            tempUser.setErrorMessage(null);
+
+            List<String> errors = validateTempUser(tempUser, clientId);
+
+            if (errors.isEmpty()) {
+                validCount++;
+            } else {
+                tempUser.setErrorMessage(String.join("; ", errors));
+                invalidCount++;
+            }
+
+            tempImportUserRepository.save(tempUser);
+        }
+
+        log.info("Revalidated import {}: {} valid, {} invalid", importId, validCount, invalidCount);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("validCount", validCount);
+        result.put("invalidCount", invalidCount);
+        return result;
+    }
+
+    /**
      * Persist CSV file in S3 and store Shrine-compatible metadata
      * PARIDAD RAILS: import_file_data JSON column (Shrine format)
      */

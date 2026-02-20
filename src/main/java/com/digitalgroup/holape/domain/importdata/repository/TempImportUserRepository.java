@@ -67,6 +67,18 @@ public interface TempImportUserRepository extends JpaRepository<TempImportUser, 
     @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND LOWER(t.email) = LOWER(:email)")
     List<TempImportUser> findByImportAndEmail(@Param("importId") Long importId, @Param("email") String email);
 
+    // Paged: all records for import
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> findPagedByImport(@Param("importId") Long importId, Pageable pageable);
+
+    // Paged: only invalid (has error)
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND t.errorMessage IS NOT NULL ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> findPagedInvalidByImport(@Param("importId") Long importId, Pageable pageable);
+
+    // Paged: only valid (no error)
+    @Query("SELECT t FROM TempImportUser t WHERE t.userImport.id = :importId AND t.errorMessage IS NULL ORDER BY t.phoneOrder ASC NULLS LAST, t.id ASC")
+    Page<TempImportUser> findPagedValidByImport(@Param("importId") Long importId, Pageable pageable);
+
     // Delete all by import
     @Modifying
     @Query("DELETE FROM TempImportUser t WHERE t.userImport.id = :importId")
