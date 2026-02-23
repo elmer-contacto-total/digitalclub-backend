@@ -82,11 +82,14 @@ public class RequireResponseAlertJob {
                             // alertService.createRequireResponseAlert(ticket);
 
                             // Notify via WebSocket (Spring Boot only sends real-time notification)
+                            // PARIDAD RAILS: título y body coinciden con Rails AlertsChannel
                             if (ticket.getAgent() != null) {
                                 webSocketService.sendAlertToUser(
                                         ticket.getAgent().getId(),
-                                        "require_response",
-                                        "Ticket #" + ticket.getId() + " requiere respuesta"
+                                        "conversation_response_overdue",
+                                        "Mensaje no respondido a tiempo",
+                                        "El ticket #" + ticket.getId() + " requiere respuesta.",
+                                        "priority"
                                 );
                             }
 
@@ -171,10 +174,13 @@ public class RequireResponseAlertJob {
             // }
 
             // Send WebSocket notification
+            // PARIDAD RAILS: título y body coinciden con Rails AlertsChannel
             webSocketService.sendAlertToUser(
                     recipientId,
-                    "require_response",
-                    "Mensaje de " + sender.getFullName() + " requiere respuesta (esperando " + delayMinutes + " min)"
+                    "conversation_response_overdue",
+                    "Mensaje no respondido a tiempo",
+                    "El mensaje de " + sender.getFullName() + " no ha sido respondido luego de " + delayMinutes + " minutos.",
+                    "priority"
             );
 
             // DISABLED: Flag management delegated to Rails

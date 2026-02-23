@@ -115,11 +115,13 @@ public class AlertService {
     private void broadcastAlert(Alert alert) {
         if (alert.getUser() != null) {
             long unreadCount = alertRepository.countByUserIdAndReadFalse(alert.getUser().getId());
-            // PARIDAD RAILS: body en lugar de message
+            // PARIDAD RAILS: payload matches Angular WsAlertPayload
             webSocketService.sendAlertToUser(
                     alert.getUser().getId(),
-                    alert.getAlertType().name(),
-                    alert.getBody() != null ? alert.getBody() : alert.getTitle()
+                    alert.getAlertType().name().toLowerCase(),
+                    alert.getTitle(),
+                    alert.getBody() != null ? alert.getBody() : alert.getTitle(),
+                    alert.getSeverity() != null ? alert.getSeverity().name().toLowerCase() : "warning"
             );
             log.debug("Broadcasted alert {} to user {}, unread count: {}",
                     alert.getId(), alert.getUser().getId(), unreadCount);
