@@ -221,6 +221,18 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             @Param("status") TicketStatus status);
 
     /**
+     * Count tickets by multiple agents, status, and date range
+     * Used for calculating open_cases KPI filtered by period (Rails parity)
+     */
+    @Query("SELECT COUNT(t) FROM Ticket t WHERE t.agent.id IN :agentIds AND t.status = :status " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    long countByAgentIdInAndStatusAndCreatedAtBetween(
+            @Param("agentIds") List<Long> agentIds,
+            @Param("status") TicketStatus status,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
+    /**
      * Count tickets by agent, status, and date range
      * Used for calculating open cases in a specific period
      */

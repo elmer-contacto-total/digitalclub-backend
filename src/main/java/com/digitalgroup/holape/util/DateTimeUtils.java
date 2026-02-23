@@ -98,4 +98,22 @@ public final class DateTimeUtils {
     public static LocalDateTime daysAgo(int days) {
         return now().minusDays(days);
     }
+
+    /**
+     * Converts start-of-day in user timezone to UTC LocalDateTime.
+     * Rails parity: Time.use_zone(tz) { Time.zone.parse(date).beginning_of_day }.utc
+     */
+    public static LocalDateTime startOfDayInUtc(LocalDate date, String timezone) {
+        ZoneId zone = (timezone != null && !timezone.isEmpty()) ? ZoneId.of(timezone) : DEFAULT_ZONE;
+        return date.atStartOfDay(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    }
+
+    /**
+     * Converts end-of-day in user timezone to UTC LocalDateTime.
+     * Rails parity: Time.use_zone(tz) { Time.zone.parse(date).end_of_day }.utc
+     */
+    public static LocalDateTime endOfDayInUtc(LocalDate date, String timezone) {
+        ZoneId zone = (timezone != null && !timezone.isEmpty()) ? ZoneId.of(timezone) : DEFAULT_ZONE;
+        return date.atTime(LocalTime.MAX).atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    }
 }

@@ -17,6 +17,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import com.digitalgroup.holape.util.DateTimeUtils;
+
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.LocalDate;
@@ -135,8 +137,10 @@ public class DashboardController {
                     break;
             }
 
-            LocalDateTime startDate = fromDate.atStartOfDay();
-            LocalDateTime endDate = toDate.atTime(LocalTime.MAX);
+            // Convert dates to UTC using user's timezone (Rails parity)
+            String userTimezone = user.getTimeZone();
+            LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
+            LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
 
             // Determine which agents to include based on object type and user role
             List<Long> agentIds = getAgentIdsForCalculation(clientId, userRole, user.getId(), object, object_option);
@@ -144,7 +148,7 @@ public class DashboardController {
 
             // Calculate overall KPIs with percentages
             Map<String, Object> overallKpis = kpiService.calculateOverallKpisWithPercentages(
-                    clientId, agentIds, fromDate, toDate);
+                    clientId, agentIds, startDate, endDate);
 
             // Calculate individual KPIs per agent
             Map<Long, Map<String, Object>> individualKpis = kpiService.calculateIndividualKpisForAgents(
@@ -325,8 +329,13 @@ public class DashboardController {
         List<Long> agentIds = getAgentIdsForCalculation(
                 clientId, user.getUserRole(), user.getId(), object, object_option);
 
+        // Convert dates to UTC using user's timezone (Rails parity)
+        String userTimezone = user.getTimeZone();
+        LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
+        LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
+
         Map<String, Object> overallKpis = kpiService.calculateOverallKpisWithPercentages(
-                clientId, agentIds, fromDate, toDate);
+                clientId, agentIds, startDate, endDate);
 
         // Build CSV with BOM for Excel compatibility
         StringBuilder csv = new StringBuilder();

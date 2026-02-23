@@ -256,6 +256,22 @@ public interface KpiRepository extends JpaRepository<Kpi, Long> {
             @Param("endDate") LocalDateTime endDate);
 
     /**
+     * Count KPIs where both KPI and user were created in the date range (Rails parity)
+     * Rails: Kpi.joins(:user).where(kpis: { kpi_type: 'new_client', created_at: range },
+     *                               users: { id: ids, client_id: cid, created_at: range }).count
+     */
+    @Query("SELECT COUNT(k) FROM Kpi k WHERE k.user.id IN :userIds AND k.kpiType = :kpiType " +
+           "AND k.createdAt BETWEEN :startDate AND :endDate " +
+           "AND k.user.createdAt BETWEEN :startDate AND :endDate " +
+           "AND k.client.id = :clientId")
+    long countByUsersKpiTypeAndDateRangeWithUserCreatedInRange(
+            @Param("userIds") List<Long> userIds,
+            @Param("kpiType") KpiType kpiType,
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
+    /**
      * Count KPIs by single user, kpi type, and date range
      */
     @Query("SELECT COUNT(k) FROM Kpi k WHERE k.user.id = :userId AND k.kpiType = :kpiType " +

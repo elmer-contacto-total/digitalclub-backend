@@ -117,18 +117,17 @@ public class KpiService {
     /**
      * Calculate overall KPIs with values and percentages (Rails parity)
      * Equivalent to Rails Admin::DashboardController#calculate_overall_kpis_for_sectoristas
+     * Accepts pre-converted UTC LocalDateTime (timezone conversion done in controller)
      */
     @Transactional(readOnly = true)
     public Map<String, Object> calculateOverallKpisWithPercentages(
             Long clientId,
             List<Long> agentIds,
-            LocalDate fromDate,
-            LocalDate toDate) {
+            LocalDateTime startDate,
+            LocalDateTime endDate) {
 
         try {
-            LocalDateTime startDate = fromDate.atStartOfDay();
-            LocalDateTime endDate = toDate.atTime(LocalTime.MAX);
-            long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(fromDate, toDate);
+            long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(startDate.toLocalDate(), endDate.toLocalDate());
             if (daysDiff == 0) daysDiff = 1;
 
             // Previous period for comparison
@@ -205,9 +204,10 @@ public class KpiService {
                 kpis.put("new_cases_period", newCases);
             }
 
-            // Open cases (tickets with status OPEN)
+            // Open cases (tickets with status OPEN, filtered by date range - Rails parity)
             if (hasAgents) {
-                long openCases = ticketRepository.countByAgentIdInAndStatus(agentIds, TicketStatus.OPEN);
+                long openCases = ticketRepository.countByAgentIdInAndStatusAndCreatedAtBetween(
+                        agentIds, TicketStatus.OPEN, startDate, endDate);
                 kpis.put("open_cases", openCases);
             }
 
@@ -223,14 +223,15 @@ public class KpiService {
                 kpis.put("tmo", avgTmo != null ? Math.round(avgTmo) : 0L);
             }
 
-            // Users created in period (for contact ratio)
+            // Users created in period (for contact ratio) - Rails: distinct.count(:codigo)
             if (clientId != null) {
-                long usersCreated = userRepository.countByClientIdAndCreatedAtBetween(clientId, startDate, endDate);
+                long usersCreated = userRepository.countDistinctCodigoByClientIdAndCreatedAtBetween(clientId, startDate, endDate);
                 kpis.put("users_created", usersCreated);
 
-                // Unique clients contacted (clients that opened cases)
+                // Unique clients contacted (Rails: KPIs new_client where user also created in range)
                 long uniqueClientsContacted = hasAgents ?
-                        kpiRepository.countDistinctUsersByKpiTypeAndDateRange(agentIds, KpiType.NEW_CLIENT, startDate, endDate) : 0L;
+                        kpiRepository.countByUsersKpiTypeAndDateRangeWithUserCreatedInRange(
+                                agentIds, KpiType.NEW_CLIENT, clientId, startDate, endDate) : 0L;
                 kpis.put("unique_clients_contacted", uniqueClientsContacted);
 
                 // Contact ratio
@@ -288,7 +289,7 @@ public class KpiService {
 
                 // Unique responded to
                 long uniqueRespondedTo = kpiRepository.countByUserKpiTypeAndDateRange(
-                        agentId, KpiType.RESPONDED_TO_CLIENT, startDate, endDate);
+                        agentId, KpiType.UNIQUE_RESPONDED_TO_CLIENT, startDate, endDate);
                 kpis.put("client_unique_responded_to", uniqueRespondedTo);
 
                 // Require response (pending)

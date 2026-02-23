@@ -799,6 +799,16 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    /**
+     * Count DISTINCT codigo by client and created date range (Rails parity)
+     * Rails: User.where(client_id: ..., created_at: ...).distinct.count(:codigo)
+     */
+    @Query("SELECT COUNT(DISTINCT u.codigo) FROM User u WHERE u.client.id = :clientId AND u.createdAt BETWEEN :startDate AND :endDate")
+    long countDistinctCodigoByClientIdAndCreatedAtBetween(
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
     // ==================== MANAGER ASSIGNMENTS QUERIES ====================
 
     /**

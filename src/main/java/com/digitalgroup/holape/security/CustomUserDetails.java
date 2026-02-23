@@ -23,6 +23,7 @@ public class CustomUserDetails implements UserDetails {
     private final Long clientId;
     private final String role;
     private final UserRole userRole;
+    private final String timeZone;
     private final boolean active;
     private final Collection<? extends GrantedAuthority> authorities;
 
@@ -45,6 +46,7 @@ public class CustomUserDetails implements UserDetails {
         this.clientId = overrideClientId;
         this.role = user.getRole().name();
         this.userRole = user.getRole();
+        this.timeZone = user.getTimeZone() != null ? user.getTimeZone() : "America/Lima";
         this.active = user.getStatus() == Status.ACTIVE;
         this.authorities = Collections.singletonList(
                 new SimpleGrantedAuthority("ROLE_" + user.getRole().name())
