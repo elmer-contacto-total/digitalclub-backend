@@ -22,9 +22,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -258,58 +264,135 @@ public class TicketService {
     }
 
     /**
-     * Export ticket transcripts to a structured format
-     * Returns all messages for given tickets in a format suitable for ZIP export
+     * Export ticket transcripts grouped by agent (Rails parity).
+     * Returns a list of files: 1 CSV summary + 1 TXT per agent.
      * Equivalent to Rails: Admin::TicketsController#export_ticket_transcripts
      */
     @Transactional(readOnly = true)
-    public List<TicketTranscript> exportTicketTranscripts(List<Long> ticketIds) {
-        // 1 query: load all tickets with user+agent eagerly
-        List<Ticket> tickets = ticketRepository.findAllByIdWithUserAndAgent(ticketIds);
+    public List<ExportFile> exportTicketTranscripts(List<Long> ticketIds, LocalDate dateFrom, LocalDate dateTo) {
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("MMMM dd, yyyy HH:mm:ss", Locale.ENGLISH);
 
-        // 1 query: load all messages with sender eagerly
+        // Load all tickets with user+agent eagerly
+        List<Ticket> tickets = new ArrayList<>(ticketRepository.findAllByIdWithUserAndAgent(ticketIds));
+
+        // Sort by agent_id, then created_at (Rails: .order(:agent_id, :created_at))
+        tickets.sort(Comparator
+                .comparing((Ticket t) -> t.getAgent() != null ? t.getAgent().getId() : Long.MAX_VALUE)
+                .thenComparing(Ticket::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+
+        // Load all messages with sender eagerly, sorted by sentAt
         Map<Long, List<Message>> messagesByTicket = messageRepository
                 .findByTicketIdInWithSender(ticketIds)
                 .stream()
                 .collect(Collectors.groupingBy(m -> m.getTicket().getId()));
+        messagesByTicket.values().forEach(msgs ->
+                msgs.sort(Comparator.comparing(Message::getSentAt, Comparator.nullsLast(Comparator.naturalOrder()))));
 
-        return tickets.stream()
-                .map(ticket -> buildTicketTranscript(ticket,
-                        messagesByTicket.getOrDefault(ticket.getId(), List.of())))
-                .toList();
+        List<ExportFile> files = new ArrayList<>();
+
+        // 1. CSV summary
+        String csvFilename = String.format("tickets_%s_to_%s.csv",
+                dateFrom != null ? dateFrom : LocalDate.now(),
+                dateTo != null ? dateTo : LocalDate.now());
+        files.add(new ExportFile(csvFilename, generateCsv(tickets, messagesByTicket, dateFormatter)));
+
+        // 2. One TXT per agent
+        Map<User, List<Ticket>> ticketsByAgent = new LinkedHashMap<>();
+        for (Ticket ticket : tickets) {
+            ticketsByAgent.computeIfAbsent(ticket.getAgent(), k -> new ArrayList<>()).add(ticket);
+        }
+        for (Map.Entry<User, List<Ticket>> entry : ticketsByAgent.entrySet()) {
+            User agent = entry.getKey();
+            String agentName = agent != null ? agent.getFullName() : "Unknown Agent";
+            files.add(new ExportFile(agentName + ".txt",
+                    generateAgentFile(agentName, entry.getValue(), messagesByTicket, dateFormatter)));
+        }
+
+        return files;
     }
 
-    private TicketTranscript buildTicketTranscript(Ticket ticket, List<Message> messages) {
-        Long ticketId = ticket.getId();
+    private String generateCsv(List<Ticket> tickets, Map<Long, List<Message>> messagesByTicket,
+                                DateTimeFormatter dateFormatter) {
+        StringBuilder csv = new StringBuilder();
+        csv.append('\uFEFF'); // UTF-8 BOM
+        csv.append("ID,Agent Name,Client Name,Transcript,Created Time,Closed,Closed Time,Notes\n");
+
+        for (Ticket ticket : tickets) {
+            csv.append(ticket.getId()).append(',');
+            csv.append(csvEscape(ticket.getAgent() != null ? ticket.getAgent().getFullName() : "")).append(',');
+            csv.append(csvEscape(ticket.getUser() != null ? ticket.getUser().getFullName() : "")).append(',');
+            csv.append(csvEscape(buildTranscript(ticket, messagesByTicket, dateFormatter))).append(',');
+            csv.append(csvEscape(ticket.getCreatedAt() != null ? ticket.getCreatedAt().format(dateFormatter) : "")).append(',');
+            csv.append(ticket.getClosedAt() != null ? "Yes" : "No").append(',');
+            csv.append(csvEscape(ticket.getClosedAt() != null ? ticket.getClosedAt().format(dateFormatter) : "")).append(',');
+            csv.append(csvEscape(ticket.getNotes() != null ? ticket.getNotes() : ""));
+            csv.append('\n');
+        }
+
+        return csv.toString();
+    }
+
+    private String buildTranscript(Ticket ticket, Map<Long, List<Message>> messagesByTicket,
+                                    DateTimeFormatter dateFormatter) {
+        List<Message> messages = messagesByTicket.getOrDefault(ticket.getId(), List.of());
         StringBuilder content = new StringBuilder();
-        content.append("=== TICKET #").append(ticketId).append(" ===\n");
-        content.append("Usuario: ").append(ticket.getUser() != null ? ticket.getUser().getFullName() : "N/A").append("\n");
-        content.append("Teléfono: ").append(ticket.getUser() != null ? ticket.getUser().getPhone() : "N/A").append("\n");
-        content.append("Agente: ").append(ticket.getAgent() != null ? ticket.getAgent().getFullName() : "N/A").append("\n");
-        content.append("Estado: ").append(ticket.getStatus()).append("\n");
-        content.append("Creado: ").append(ticket.getCreatedAt()).append("\n");
-        if (ticket.getClosedAt() != null) {
-            content.append("Cerrado: ").append(ticket.getClosedAt()).append("\n");
-        }
-        content.append("\n--- MENSAJES ---\n\n");
-
         for (Message message : messages) {
-            String senderName = message.getHistoricSenderName() != null
-                    ? message.getHistoricSenderName()
-                    : (message.getSender() != null ? message.getSender().getFullName() : "Sistema");
-            String direction = message.getDirection() == MessageDirection.INCOMING ? "[CLIENTE]" : "[AGENTE]";
-            content.append(message.getSentAt()).append(" ").append(direction).append(" ").append(senderName).append(":\n");
-            content.append(message.getContent()).append("\n\n");
+            if (message.getSentAt() != null) {
+                content.append(message.getSentAt().format(dateFormatter));
+            }
+            content.append(" - ");
+            String senderName = message.getSenderDisplayName();
+            content.append(senderName != null ? senderName : "");
+            content.append(": ");
+            content.append(message.getContent() != null ? message.getContent() : "");
+            content.append('\n');
         }
-
-        String filename = String.format("ticket_%d_%s.txt",
-                ticketId,
-                ticket.getUser() != null ? ticket.getUser().getPhone() : "unknown");
-
-        return new TicketTranscript(ticketId, filename, content.toString());
+        return content.toString().strip();
     }
 
-    public record TicketTranscript(Long ticketId, String filename, String content) {}
+    private String generateAgentFile(String agentName, List<Ticket> tickets,
+                                      Map<Long, List<Message>> messagesByTicket,
+                                      DateTimeFormatter dateFormatter) {
+        StringBuilder content = new StringBuilder();
+        content.append("Agent Name: ").append(agentName).append('\n');
+        content.append("Number of Tickets: ").append(tickets.size()).append("\n\n");
+
+        for (Ticket ticket : tickets) {
+            content.append("Ticket ID: ").append(ticket.getId()).append('\n');
+            content.append("Subject: ").append(ticket.getSubject() != null ? ticket.getSubject() : "").append('\n');
+            content.append("Created At: ");
+            if (ticket.getCreatedAt() != null) {
+                content.append(ticket.getCreatedAt().format(dateFormatter));
+            }
+            content.append("\n\n");
+
+            List<Message> messages = messagesByTicket.getOrDefault(ticket.getId(), List.of());
+            for (Message message : messages) {
+                if (message.getSentAt() != null) {
+                    content.append(message.getSentAt().format(dateFormatter));
+                }
+                content.append(" - ");
+                String senderName = message.getSenderDisplayName();
+                content.append(senderName != null ? senderName : "");
+                content.append(": ");
+                content.append(message.getContent() != null ? message.getContent() : "");
+                content.append('\n');
+            }
+            content.append('\n');
+        }
+
+        return content.toString();
+    }
+
+    private static String csvEscape(String value) {
+        if (value == null || value.isEmpty()) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    public record ExportFile(String filename, String content) {}
 
     /**
      * Find tickets with advanced filters (for index endpoint)

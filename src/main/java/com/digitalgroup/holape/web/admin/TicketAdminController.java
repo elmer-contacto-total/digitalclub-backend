@@ -277,12 +277,16 @@ public class TicketAdminController {
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody ExportTranscriptsRequest request) {
 
+        // Parse dates for CSV filename and filtering
+        LocalDate dateFromParsed = request.dateFrom() != null ? LocalDate.parse(request.dateFrom()) : null;
+        LocalDate dateToParsed = request.dateTo() != null ? LocalDate.parse(request.dateTo()) : null;
+
         // Resolve ticket IDs: use explicit list or query by filters
         List<Long> ticketIds = request.ticketIds();
         if (ticketIds == null || ticketIds.isEmpty()) {
             Long effectiveClientId = request.clientId() != null ? request.clientId() : currentUser.getClientId();
-            LocalDateTime startDate = request.dateFrom() != null ? LocalDate.parse(request.dateFrom()).atStartOfDay() : null;
-            LocalDateTime endDate = request.dateTo() != null ? LocalDate.parse(request.dateTo()).atTime(23, 59, 59) : null;
+            LocalDateTime startDate = dateFromParsed != null ? dateFromParsed.atStartOfDay() : null;
+            LocalDateTime endDate = dateToParsed != null ? dateToParsed.atTime(23, 59, 59) : null;
             ticketIds = ticketService.findTicketsForExport(effectiveClientId, request.status(), request.agentId(), startDate, endDate);
         }
 
@@ -292,28 +296,31 @@ public class TicketAdminController {
                     .body("{\"error\": \"No tickets found for the given filters\"}".getBytes(StandardCharsets.UTF_8));
         }
 
-        List<TicketService.TicketTranscript> transcripts = ticketService.exportTicketTranscripts(ticketIds);
+        List<TicketService.ExportFile> files = ticketService.exportTicketTranscripts(ticketIds, dateFromParsed, dateToParsed);
 
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ZipOutputStream zos = new ZipOutputStream(baos);
 
-            for (TicketService.TicketTranscript transcript : transcripts) {
-                ZipEntry entry = new ZipEntry(transcript.filename());
+            for (TicketService.ExportFile file : files) {
+                ZipEntry entry = new ZipEntry(file.filename());
                 zos.putNextEntry(entry);
-                zos.write(transcript.content().getBytes(StandardCharsets.UTF_8));
+                zos.write(file.content().getBytes(StandardCharsets.UTF_8));
                 zos.closeEntry();
             }
 
             zos.close();
             byte[] zipBytes = baos.toByteArray();
 
+            String zipFilename = String.format("tickets_%s_to_%s.zip",
+                    dateFromParsed != null ? dateFromParsed : LocalDate.now(),
+                    dateToParsed != null ? dateToParsed : LocalDate.now());
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.parseMediaType("application/zip"));
-            headers.setContentDispositionFormData("attachment",
-                    "ticket_transcripts_" + LocalDate.now() + ".zip");
+            headers.setContentDispositionFormData("attachment", zipFilename);
 
-            log.info("Exported {} ticket transcripts to ZIP", transcripts.size());
+            log.info("Exported {} files to ZIP ({} tickets)", files.size(), ticketIds.size());
 
             return ResponseEntity.ok()
                     .headers(headers)
