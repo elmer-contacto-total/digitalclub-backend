@@ -1035,9 +1035,14 @@ public class ImportService {
         }
 
         // PARIDAD RAILS: Auto-generate email if empty — "#{phone}@#{client.name.parameterize}.com"
+        // Financiera Oh: usar @foh.com por paridad con flujo FOH de Rails
         if ((tempUser.getEmail() == null || tempUser.getEmail().isEmpty()) && tempUser.getPhone() != null) {
-            String clientSlug = parameterize(importEntity.getClient().getName());
-            tempUser.setEmail(tempUser.getPhone() + "@" + clientSlug + ".com");
+            if ("Financiera Oh".equalsIgnoreCase(importEntity.getClient().getName())) {
+                tempUser.setEmail(tempUser.getPhone() + "@foh.com");
+            } else {
+                String clientSlug = parameterize(importEntity.getClient().getName());
+                tempUser.setEmail(tempUser.getPhone() + "@" + clientSlug + ".com");
+            }
         }
 
         return tempUser;
