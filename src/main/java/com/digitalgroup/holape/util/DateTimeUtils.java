@@ -3,11 +3,31 @@ package com.digitalgroup.holape.util;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 
 public final class DateTimeUtils {
 
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("America/Lima");
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    /**
+     * Maps Rails ActiveSupport timezone names to IANA zone IDs.
+     * Rails stores short names like "Lima", Java needs "America/Lima".
+     */
+    private static final Map<String, String> RAILS_TO_IANA = Map.ofEntries(
+            Map.entry("Lima", "America/Lima"),
+            Map.entry("Bogota", "America/Bogota"),
+            Map.entry("Quito", "America/Guayaquil"),
+            Map.entry("Mexico City", "America/Mexico_City"),
+            Map.entry("Buenos Aires", "America/Argentina/Buenos_Aires"),
+            Map.entry("Santiago", "America/Santiago"),
+            Map.entry("Brasilia", "America/Sao_Paulo"),
+            Map.entry("Eastern Time (US & Canada)", "America/New_York"),
+            Map.entry("Central Time (US & Canada)", "America/Chicago"),
+            Map.entry("Pacific Time (US & Canada)", "America/Los_Angeles"),
+            Map.entry("Mountain Time (US & Canada)", "America/Denver"),
+            Map.entry("UTC", "UTC")
+    );
 
     private DateTimeUtils() {}
 
@@ -33,7 +53,7 @@ public final class DateTimeUtils {
             return dateTime;
         }
 
-        ZoneId zoneId = ZoneId.of(timezone);
+        ZoneId zoneId = resolveZoneId(timezone);
         ZonedDateTime zonedDateTime = dateTime.atZone(DEFAULT_ZONE);
         return zonedDateTime.withZoneSameInstant(zoneId).toLocalDateTime();
     }
@@ -100,11 +120,30 @@ public final class DateTimeUtils {
     }
 
     /**
+     * Resolves a timezone string to a ZoneId.
+     * Handles Rails short names (e.g. "Lima") and IANA IDs (e.g. "America/Lima").
+     */
+    public static ZoneId resolveZoneId(String timezone) {
+        if (timezone == null || timezone.isEmpty()) {
+            return DEFAULT_ZONE;
+        }
+        String mapped = RAILS_TO_IANA.get(timezone);
+        if (mapped != null) {
+            return ZoneId.of(mapped);
+        }
+        try {
+            return ZoneId.of(timezone);
+        } catch (Exception e) {
+            return DEFAULT_ZONE;
+        }
+    }
+
+    /**
      * Converts start-of-day in user timezone to UTC LocalDateTime.
      * Rails parity: Time.use_zone(tz) { Time.zone.parse(date).beginning_of_day }.utc
      */
     public static LocalDateTime startOfDayInUtc(LocalDate date, String timezone) {
-        ZoneId zone = (timezone != null && !timezone.isEmpty()) ? ZoneId.of(timezone) : DEFAULT_ZONE;
+        ZoneId zone = resolveZoneId(timezone);
         return date.atStartOfDay(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 
@@ -113,7 +152,7 @@ public final class DateTimeUtils {
      * Rails parity: Time.use_zone(tz) { Time.zone.parse(date).end_of_day }.utc
      */
     public static LocalDateTime endOfDayInUtc(LocalDate date, String timezone) {
-        ZoneId zone = (timezone != null && !timezone.isEmpty()) ? ZoneId.of(timezone) : DEFAULT_ZONE;
+        ZoneId zone = resolveZoneId(timezone);
         return date.atTime(LocalTime.MAX).atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 }
