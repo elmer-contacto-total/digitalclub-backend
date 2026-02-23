@@ -47,14 +47,15 @@ public class AlertAdminController {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
 
+        // PARIDAD RAILS: Alert.where(user_id: current_user.id) — solo alertas del usuario actual
         Page<Alert> alertsPage;
         if (type != null && !type.isEmpty()) {
             AlertType alertType = AlertType.valueOf(type.toUpperCase());
-            alertsPage = alertService.findByClientAndType(
-                    currentUser.getClientId(), alertType, acknowledged, pageable);
+            alertsPage = alertService.findByUserAndType(
+                    currentUser.getId(), alertType, acknowledged, pageable);
         } else {
-            alertsPage = alertService.findByClient(
-                    currentUser.getClientId(), acknowledged, pageable);
+            alertsPage = alertService.findByUser(
+                    currentUser.getId(), acknowledged, pageable);
         }
 
         List<Map<String, Object>> data = alertsPage.getContent().stream()
@@ -85,7 +86,8 @@ public class AlertAdminController {
     public ResponseEntity<Map<String, Object>> count(
             @AuthenticationPrincipal CustomUserDetails currentUser) {
 
-        long count = alertService.countUnacknowledged(currentUser.getClientId());
+        // PARIDAD RAILS: solo contar alertas del usuario actual, no de todo el cliente
+        long count = alertService.getUnacknowledgedCount(currentUser.getId());
 
         return ResponseEntity.ok(Map.of(
                 "count", count

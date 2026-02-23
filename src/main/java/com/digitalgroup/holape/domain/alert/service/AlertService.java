@@ -62,6 +62,11 @@ public class AlertService {
         return alertRepository.findByUserIdAndAcknowledged(userId, acknowledged, pageable);
     }
 
+    public Page<Alert> findByUserAndType(Long userId, AlertType type,
+                                         boolean acknowledged, Pageable pageable) {
+        return alertRepository.findByUserIdAndAlertTypeAndRead(userId, type, acknowledged, pageable);
+    }
+
     public List<Alert> findByTicket(Long ticketId) {
         return alertRepository.findByTicketId(ticketId);
     }

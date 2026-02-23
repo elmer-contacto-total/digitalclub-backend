@@ -52,6 +52,9 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
     // Find by user and read status (PARIDAD: acknowledged -> read)
     Page<Alert> findByUserIdAndRead(Long userId, boolean read, Pageable pageable);
 
+    // Find by user, type, and read status
+    Page<Alert> findByUserIdAndAlertTypeAndRead(Long userId, AlertType alertType, boolean read, Pageable pageable);
+
     // Alias para compatibilidad (acknowledged -> read)
     default Page<Alert> findByUserIdAndAcknowledged(Long userId, boolean acknowledged, Pageable pageable) {
         return findByUserIdAndRead(userId, acknowledged, pageable);
