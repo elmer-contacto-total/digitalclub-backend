@@ -44,7 +44,8 @@ public class TicketAutoCloseJob {
      * PARIDAD RAILS: close_expired_tickets in ticket.rb
      * Runs every hour — single scheduled entry point (removed duplicate from TicketService)
      */
-    @Scheduled(cron = "0 0 * * * *") // Every hour at minute 0
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 * * * *") // Every hour at minute 0
     @Transactional
     public void closeExpiredTickets() {
         log.info("Starting auto-close job for expired tickets");
@@ -118,7 +119,8 @@ public class TicketAutoCloseJob {
      * Send warnings for tickets about to expire
      * Runs every 30 minutes
      */
-    @Scheduled(cron = "0 */30 * * * *") // Every 30 minutes
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 */30 * * * *") // Every 30 minutes
     @Transactional
     public void sendExpirationWarnings() {
         log.debug("Checking for tickets about to expire");

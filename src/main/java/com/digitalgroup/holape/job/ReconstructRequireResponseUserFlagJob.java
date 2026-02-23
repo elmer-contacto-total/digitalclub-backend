@@ -148,7 +148,8 @@ public class ReconstructRequireResponseUserFlagJob {
      * PARIDAD RAILS: Rails procesa TODOS los usuarios estándar, no solo flag=true
      * Para eficiencia, procesamos en batch con paginación
      */
-    @Scheduled(cron = "0 0 * * * *") // Every hour at minute 0
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 * * * *") // Every hour at minute 0
     @Transactional
     public void reconstructForAllUsers() {
         log.info("Starting hourly require_response reconstruction for all users");

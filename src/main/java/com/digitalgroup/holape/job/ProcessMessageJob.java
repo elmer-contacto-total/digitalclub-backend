@@ -47,7 +47,8 @@ public class ProcessMessageJob {
      * Runs every minute to pick up any messages that weren't processed immediately
      * PARIDAD RAILS: retryCount no existe, simplemente procesa mensajes pendientes
      */
-    @Scheduled(fixedDelay = 60000) // Every 1 minute
+    // DISABLED: Delegated to Rails
+    // @Scheduled(fixedDelay = 60000) // Every 1 minute
     @Transactional
     public void processUnprocessedMessages() {
         List<Message> unprocessedMessages = messageRepository
@@ -74,7 +75,8 @@ public class ProcessMessageJob {
      * Runs every 5 minutes
      * PARIDAD RAILS: sin retryCount, simplemente re-intenta mensajes fallidos una vez
      */
-    @Scheduled(fixedDelay = 300000) // Every 5 minutes
+    // DISABLED: Delegated to Rails
+    // @Scheduled(fixedDelay = 300000) // Every 5 minutes
     @Transactional
     public void retryFailedMessages() {
         List<Message> failedMessages = messageRepository

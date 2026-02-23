@@ -28,7 +28,8 @@ public class ImportProcessingJob {
      * Check for stuck imports and reset them
      * Runs every 10 minutes
      */
-    @Scheduled(fixedDelay = 600000) // Every 10 minutes
+    // DISABLED: Delegated to Rails
+    // @Scheduled(fixedDelay = 600000) // Every 10 minutes
     @Transactional
     public void checkStuckImports() {
         log.debug("Checking for stuck imports");
@@ -63,7 +64,8 @@ public class ImportProcessingJob {
      * Clean up old completed imports
      * Runs daily at 4:00 AM
      */
-    @Scheduled(cron = "0 0 4 * * *") // 4:00 AM daily
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 4 * * *") // 4:00 AM daily
     @Transactional
     public void cleanupOldImports() {
         log.info("Starting cleanup of old imports");

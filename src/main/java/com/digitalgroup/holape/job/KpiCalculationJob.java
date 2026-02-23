@@ -28,7 +28,8 @@ public class KpiCalculationJob {
      * Calculate daily KPI aggregates
      * Runs at 1:00 AM every day
      */
-    @Scheduled(cron = "0 0 1 * * *") // 1:00 AM daily
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 1 * * *") // 1:00 AM daily
     @Transactional
     public void calculateDailyKpis() {
         log.info("Starting daily KPI calculation");
@@ -53,7 +54,8 @@ public class KpiCalculationJob {
      * Calculate weekly KPI aggregates
      * Runs at 2:00 AM every Monday
      */
-    @Scheduled(cron = "0 0 2 * * MON") // 2:00 AM every Monday
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 2 * * MON") // 2:00 AM every Monday
     @Transactional
     public void calculateWeeklyKpis() {
         log.info("Starting weekly KPI calculation");
@@ -80,7 +82,8 @@ public class KpiCalculationJob {
      * Calculate monthly KPI aggregates
      * Runs at 3:00 AM on the 1st of each month
      */
-    @Scheduled(cron = "0 0 3 1 * *") // 3:00 AM on 1st of month
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 0 3 1 * *") // 3:00 AM on 1st of month
     @Transactional
     public void calculateMonthlyKpis() {
         log.info("Starting monthly KPI calculation");
@@ -108,7 +111,8 @@ public class KpiCalculationJob {
      * Real-time KPI update for dashboard
      * Runs every 5 minutes during business hours
      */
-    @Scheduled(cron = "0 */5 9-18 * * MON-FRI") // Every 5 min, 9AM-6PM, Mon-Fri
+    // DISABLED: Delegated to Rails
+    // @Scheduled(cron = "0 */5 9-18 * * MON-FRI") // Every 5 min, 9AM-6PM, Mon-Fri
     @Transactional
     public void updateRealtimeKpis() {
         log.debug("Updating realtime KPIs");
