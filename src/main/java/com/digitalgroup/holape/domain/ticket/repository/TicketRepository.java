@@ -262,10 +262,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
      */
     @Query("""
             SELECT t FROM Ticket t WHERE t.agent.client.id = :clientId
-            AND (:status IS NULL OR t.status = :status)
+            AND (CAST(:status AS string) IS NULL OR t.status = :status)
             AND (:agentId IS NULL OR t.agent.id = :agentId)
-            AND (:startDate IS NULL OR t.createdAt >= :startDate)
-            AND (:endDate IS NULL OR t.createdAt <= :endDate)
+            AND (CAST(:startDate AS timestamp) IS NULL OR t.createdAt >= :startDate)
+            AND (CAST(:endDate AS timestamp) IS NULL OR t.createdAt <= :endDate)
             ORDER BY t.createdAt DESC
             """)
     List<Ticket> findTicketsForExportFiltered(
