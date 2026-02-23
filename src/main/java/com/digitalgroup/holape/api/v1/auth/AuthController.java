@@ -6,9 +6,12 @@ import com.digitalgroup.holape.api.v1.dto.auth.RefreshTokenResponse;
 import com.digitalgroup.holape.domain.auth.service.RefreshTokenService;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
+import com.digitalgroup.holape.integration.storage.S3StorageService;
 import com.digitalgroup.holape.security.jwt.JwtTokenProvider;
 import com.digitalgroup.holape.security.otp.OtpService;
 import com.digitalgroup.holape.util.PhoneUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +37,8 @@ public class AuthController {
     private final OtpService otpService;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
+    private final S3StorageService s3StorageService;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.universal-password:}")
     private String universalPassword;
@@ -364,7 +369,23 @@ public class AuthController {
         userResponse.put("uuid_token", uuidToken);
         userResponse.put("role", user.getRole().getValue());
         userResponse.put("has_temporary_password", user.hasTempPassword());
+        userResponse.put("avatar_data", resolveAvatarUrl(user.getAvatarData()));
         return userResponse;
+    }
+
+    private String resolveAvatarUrl(String avatarData) {
+        if (avatarData == null || avatarData.isBlank()) return null;
+        if (avatarData.startsWith("http")) return avatarData;
+        try {
+            JsonNode node = objectMapper.readTree(avatarData);
+            String id = node.has("id") ? node.get("id").asText() : null;
+            if (id != null && !id.isBlank()) {
+                return s3StorageService.getDownloadUrl(id);
+            }
+        } catch (Exception e) {
+            log.warn("Could not parse avatarData: {}", avatarData);
+        }
+        return null;
     }
 
     // ==================== REQUEST RECORDS ====================
