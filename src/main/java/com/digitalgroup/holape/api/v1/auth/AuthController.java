@@ -366,6 +366,7 @@ public class AuthController {
         var userClient = user.getClient();
         userResponse.put("client_type", userClient != null && userClient.getClientType() != null
                 ? userClient.getClientType().name().toLowerCase() : null);
+        userResponse.put("client_logo_url", userClient != null ? userClient.getLogoUrl() : null);
         userResponse.put("uuid_token", uuidToken);
         userResponse.put("role", user.getRole().getValue());
         userResponse.put("has_temporary_password", user.hasTempPassword());
