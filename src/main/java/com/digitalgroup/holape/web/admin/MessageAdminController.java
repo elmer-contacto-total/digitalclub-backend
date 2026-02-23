@@ -72,7 +72,9 @@ public class MessageAdminController {
             @RequestParam(required = false, defaultValue = "incoming") String direction,
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "0") int page,
-            @RequestParam(required = false, defaultValue = "25") int pageSize) {
+            @RequestParam(required = false, defaultValue = "25") int pageSize,
+            @RequestParam(required = false, defaultValue = "sentAt") String sortBy,
+            @RequestParam(required = false, defaultValue = "desc") String sortDir) {
 
         // Mode 1: Full conversation detail (PARIDAD Rails when client_id is provided)
         if (clientId != null) {
@@ -99,7 +101,13 @@ public class MessageAdminController {
         }
 
         // Mode 3: Messages list view (PARIDAD Rails Admin::MessagesController#index)
-        Pageable pageable = PageRequest.of(page, pageSize, Sort.by("sentAt").descending());
+        // Validate sortBy against whitelist to prevent injection
+        String validSortBy = java.util.Set.of("sentAt", "content", "sender.firstName")
+                .contains(sortBy) ? sortBy : "sentAt";
+        Sort sort = "asc".equalsIgnoreCase(sortDir)
+                ? Sort.by(validSortBy).ascending()
+                : Sort.by(validSortBy).descending();
+        Pageable pageable = PageRequest.of(page, pageSize, sort);
 
         Page<Message> messagesPage;
 
@@ -113,7 +121,7 @@ public class MessageAdminController {
                 // No subordinates, return empty
                 messagesPage = Page.empty(pageable);
             } else {
-                messagesPage = messageService.findByDirectionAndUserIds(
+                messagesPage = messageService.findByDirectionAndUserIdsSortable(
                         agentIds,
                         direction,
                         search,
@@ -122,7 +130,7 @@ public class MessageAdminController {
             }
         } else {
             // For regular users (agents), show their own messages
-            messagesPage = messageService.findByDirectionAndUser(
+            messagesPage = messageService.findByDirectionAndUserSortable(
                     currentUser.getId(),
                     direction,
                     search,

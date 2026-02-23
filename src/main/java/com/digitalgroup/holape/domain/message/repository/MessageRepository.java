@@ -400,4 +400,94 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
             @Param("senderIds") List<Long> senderIds,
             @Param("search") String search,
             Pageable pageable);
+
+    // ==================== SORTABLE VARIANTS (no ORDER BY — Pageable controls sort) ====================
+
+    @Query("""
+            SELECT m FROM Message m
+            LEFT JOIN FETCH m.sender
+            WHERE m.recipient.id = :recipientId
+            AND m.direction = :direction
+            """)
+    Page<Message> findByRecipientIdAndDirectionSortable(
+            @Param("recipientId") Long recipientId,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            LEFT JOIN FETCH m.recipient
+            WHERE m.sender.id = :senderId
+            AND m.direction = :direction
+            """)
+    Page<Message> findBySenderIdAndDirectionSortable(
+            @Param("senderId") Long senderId,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            LEFT JOIN FETCH m.sender
+            WHERE m.recipient.id = :recipientId
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            """)
+    Page<Message> findIncomingMessagesWithSearchSortable(
+            @Param("recipientId") Long recipientId,
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            LEFT JOIN FETCH m.recipient
+            WHERE m.sender.id = :senderId
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.OUTGOING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            """)
+    Page<Message> findOutgoingMessagesWithSearchSortable(
+            @Param("senderId") Long senderId,
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.recipient.id IN :recipientIds
+            AND m.direction = :direction
+            """)
+    Page<Message> findByRecipientIdInAndDirectionSortable(
+            @Param("recipientIds") List<Long> recipientIds,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.sender.id IN :senderIds
+            AND m.direction = :direction
+            """)
+    Page<Message> findBySenderIdInAndDirectionSortable(
+            @Param("senderIds") List<Long> senderIds,
+            @Param("direction") MessageDirection direction,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.recipient.id IN :recipientIds
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            """)
+    Page<Message> findIncomingMessagesByUserIdsWithSearchSortable(
+            @Param("recipientIds") List<Long> recipientIds,
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.sender.id IN :senderIds
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.OUTGOING
+            AND LOWER(m.content) LIKE LOWER(CONCAT('%', :search, '%'))
+            """)
+    Page<Message> findOutgoingMessagesByUserIdsWithSearchSortable(
+            @Param("senderIds") List<Long> senderIds,
+            @Param("search") String search,
+            Pageable pageable);
 }

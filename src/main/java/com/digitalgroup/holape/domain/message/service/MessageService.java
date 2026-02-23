@@ -147,6 +147,47 @@ public class MessageService {
     }
 
     /**
+     * Find messages by direction and user — sortable variant (no hardcoded ORDER BY)
+     * Pageable controls sort direction and field.
+     */
+    @Transactional(readOnly = true)
+    public Page<Message> findByDirectionAndUserSortable(Long userId, String direction, String search, Pageable pageable) {
+        if ("incoming".equalsIgnoreCase(direction)) {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findIncomingMessagesWithSearchSortable(userId, search, pageable);
+            }
+            return messageRepository.findByRecipientIdAndDirectionSortable(
+                    userId, MessageDirection.INCOMING, pageable);
+        } else {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findOutgoingMessagesWithSearchSortable(userId, search, pageable);
+            }
+            return messageRepository.findBySenderIdAndDirectionSortable(
+                    userId, MessageDirection.OUTGOING, pageable);
+        }
+    }
+
+    /**
+     * Find messages by direction for multiple user IDs (for supervisors) — sortable variant
+     */
+    @Transactional(readOnly = true)
+    public Page<Message> findByDirectionAndUserIdsSortable(List<Long> userIds, String direction, String search, Pageable pageable) {
+        if ("incoming".equalsIgnoreCase(direction)) {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findIncomingMessagesByUserIdsWithSearchSortable(userIds, search, pageable);
+            }
+            return messageRepository.findByRecipientIdInAndDirectionSortable(
+                    userIds, MessageDirection.INCOMING, pageable);
+        } else {
+            if (search != null && !search.isBlank()) {
+                return messageRepository.findOutgoingMessagesByUserIdsWithSearchSortable(userIds, search, pageable);
+            }
+            return messageRepository.findBySenderIdInAndDirectionSortable(
+                    userIds, MessageDirection.OUTGOING, pageable);
+        }
+    }
+
+    /**
      * Find messages by direction for multiple user IDs (for supervisors)
      * PARIDAD Rails: MessagesController#index for manager_level_4
      * - Incoming: messages where recipient_id IN agent IDs
