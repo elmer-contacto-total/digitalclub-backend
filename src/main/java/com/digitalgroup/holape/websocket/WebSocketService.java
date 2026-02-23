@@ -104,15 +104,22 @@ public class WebSocketService {
 
     /**
      * Send alert to user
-     * PARIDAD RAILS: payload matches Angular WsAlertPayload { id, alertType, title, body, severity }
+     * PARIDAD RAILS: payload matches Angular WsAlertPayload { id, alertType, title, body, severity, senderId }
      */
     public void sendAlertToUser(Long userId, String alertType, String title, String body, String severity) {
+        sendAlertToUser(userId, alertType, title, body, severity, null);
+    }
+
+    public void sendAlertToUser(Long userId, String alertType, String title, String body, String severity, Long senderId) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("id", System.currentTimeMillis());
         payload.put("alertType", alertType);
         payload.put("title", title);
         payload.put("body", body);
         payload.put("severity", severity);
+        if (senderId != null) {
+            payload.put("senderId", senderId);
+        }
 
         messagingTemplate.convertAndSendToUser(
                 userId.toString(),

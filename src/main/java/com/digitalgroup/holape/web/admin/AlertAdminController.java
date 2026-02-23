@@ -197,6 +197,15 @@ public class AlertAdminController {
         }
         // PARIDAD: acknowledgedBy no existe
 
+        // PARIDAD RAILS: sender_id para navegación a agent_clients
+        if (alert.getSenderId() != null) {
+            try {
+                map.put("sender_id", Long.valueOf(alert.getSenderId()));
+            } catch (NumberFormatException e) {
+                map.put("sender_id", null);
+            }
+        }
+
         return map;
     }
 

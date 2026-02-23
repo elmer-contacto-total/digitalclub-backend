@@ -89,7 +89,8 @@ public class RequireResponseAlertJob {
                                         "conversation_response_overdue",
                                         "Mensaje no respondido a tiempo",
                                         "El ticket #" + ticket.getId() + " requiere respuesta.",
-                                        "priority"
+                                        "priority",
+                                        ticket.getUser() != null ? ticket.getUser().getId() : null
                                 );
                             }
 
@@ -180,7 +181,8 @@ public class RequireResponseAlertJob {
                     "conversation_response_overdue",
                     "Mensaje no respondido a tiempo",
                     "El mensaje de " + sender.getFullName() + " no ha sido respondido luego de " + delayMinutes + " minutos.",
-                    "priority"
+                    "priority",
+                    senderId
             );
 
             // DISABLED: Flag management delegated to Rails
