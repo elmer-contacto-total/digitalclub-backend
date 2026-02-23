@@ -76,11 +76,12 @@ public class RequireResponseAlertJob {
 
                 for (Ticket ticket : ticketsNeedingResponse) {
                     try {
-                        // Check if alert already exists for this ticket
+                        // Check if alert already exists for this ticket (created by Rails)
                         if (!hasRecentAlert(ticket)) {
-                            alertService.createRequireResponseAlert(ticket);
+                            // DISABLED: Alert DB creation delegated to Rails
+                            // alertService.createRequireResponseAlert(ticket);
 
-                            // Notify via WebSocket
+                            // Notify via WebSocket (Spring Boot only sends real-time notification)
                             if (ticket.getAgent() != null) {
                                 webSocketService.sendAlertToUser(
                                         ticket.getAgent().getId(),
@@ -92,7 +93,7 @@ public class RequireResponseAlertJob {
                             alertsCreated++;
                         }
                     } catch (Exception e) {
-                        log.error("Failed to create alert for ticket {}", ticket.getId(), e);
+                        log.error("Failed to send alert notification for ticket {}", ticket.getId(), e);
                     }
                 }
 
@@ -135,15 +136,12 @@ public class RequireResponseAlertJob {
 
             // Check if a response was already sent
             if (hasResponseAfterMessage(message, recipientId)) {
-                // PARIDAD RAILS: Response was sent, clear the require_response flag (líneas 18-21)
-                // Diferencia según dirección del mensaje original
-                if (message.getDirection() == MessageDirection.INCOMING) {
-                    // Si el mensaje original era incoming, limpiar flag del sender (cliente)
-                    clearRequireResponseFlag(senderId);
-                } else {
-                    // Si el mensaje original era outgoing, limpiar flag del recipient
-                    clearRequireResponseFlag(recipientId);
-                }
+                // DISABLED: Flag management delegated to Rails
+                // if (message.getDirection() == MessageDirection.INCOMING) {
+                //     clearRequireResponseFlag(senderId);
+                // } else {
+                //     clearRequireResponseFlag(recipientId);
+                // }
                 log.debug("Response found for message {}, no alert needed", messageId);
                 return;
             }
@@ -160,19 +158,17 @@ public class RequireResponseAlertJob {
             User sender = senderOpt.get();
             User recipient = recipientOpt.get();
 
-            // Create the alert
-            if (ticket != null) {
-                // Create alert for ticket
-                if (!hasRecentAlert(ticket)) {
-                    alertService.createRequireResponseAlert(ticket);
-                    log.info("Created require_response alert for ticket {} (message {})",
-                            ticket.getId(), messageId);
-                }
-            } else {
-                // Create alert without ticket
-                alertService.createRequireResponseAlertForMessage(message, sender, recipient, delayMinutes);
-                log.info("Created require_response alert for message {}", messageId);
-            }
+            // DISABLED: Alert DB creation delegated to Rails
+            // if (ticket != null) {
+            //     if (!hasRecentAlert(ticket)) {
+            //         alertService.createRequireResponseAlert(ticket);
+            //         log.info("Created require_response alert for ticket {} (message {})",
+            //                 ticket.getId(), messageId);
+            //     }
+            // } else {
+            //     alertService.createRequireResponseAlertForMessage(message, sender, recipient, delayMinutes);
+            //     log.info("Created require_response alert for message {}", messageId);
+            // }
 
             // Send WebSocket notification
             webSocketService.sendAlertToUser(
@@ -181,23 +177,20 @@ public class RequireResponseAlertJob {
                     "Mensaje de " + sender.getFullName() + " requiere respuesta (esperando " + delayMinutes + " min)"
             );
 
-            // PARIDAD RAILS: Ensure require_response flag is set (líneas 26-30)
-            // Diferencia según dirección del mensaje original
-            if (message.getDirection() == MessageDirection.INCOMING) {
-                // Si incoming: mantener flag en sender (cliente que espera respuesta)
-                sender.setRequireResponse(true);
-                if (sender.getLastMessageAt() == null) {
-                    sender.setLastMessageAt(message.getCreatedAt());
-                }
-                userRepository.save(sender);
-            } else {
-                // Si outgoing: mantener flag en recipient
-                recipient.setRequireResponse(true);
-                if (recipient.getLastMessageAt() == null) {
-                    recipient.setLastMessageAt(message.getCreatedAt());
-                }
-                userRepository.save(recipient);
-            }
+            // DISABLED: Flag management delegated to Rails
+            // if (message.getDirection() == MessageDirection.INCOMING) {
+            //     sender.setRequireResponse(true);
+            //     if (sender.getLastMessageAt() == null) {
+            //         sender.setLastMessageAt(message.getCreatedAt());
+            //     }
+            //     userRepository.save(sender);
+            // } else {
+            //     recipient.setRequireResponse(true);
+            //     if (recipient.getLastMessageAt() == null) {
+            //         recipient.setLastMessageAt(message.getCreatedAt());
+            //     }
+            //     userRepository.save(recipient);
+            // }
 
         } catch (Exception e) {
             log.error("Error checking/creating alert for message {}: {}", messageId, e.getMessage(), e);
@@ -227,15 +220,12 @@ public class RequireResponseAlertJob {
         return false;
     }
 
-    /**
-     * Clear the require_response flag for a user
-     * PARIDAD RAILS: requireResponseAt no existe en schema
-     */
-    private void clearRequireResponseFlag(Long userId) {
-        userRepository.findById(userId).ifPresent(user -> {
-            user.setRequireResponse(false);
-            userRepository.save(user);
-        });
-    }
+    // DISABLED: Flag management delegated to Rails
+    // private void clearRequireResponseFlag(Long userId) {
+    //     userRepository.findById(userId).ifPresent(user -> {
+    //         user.setRequireResponse(false);
+    //         userRepository.save(user);
+    //     });
+    // }
 
 }

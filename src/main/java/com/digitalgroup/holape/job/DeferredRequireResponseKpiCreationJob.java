@@ -16,7 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -35,7 +34,7 @@ import java.util.Optional;
 public class DeferredRequireResponseKpiCreationJob {
 
     private final MessageRepository messageRepository;
-    private final KpiRepository kpiRepository;
+    private final KpiRepository kpiRepository; // DISABLED: KPI creation delegated to Rails
     private final UserRepository userRepository;
     private final ClientSettingRepository clientSettingRepository;
     private final DelayedJobService delayedJobService;
@@ -82,45 +81,37 @@ public class DeferredRequireResponseKpiCreationJob {
                 return;
             }
 
+            // DISABLED: KPI creation and require_response flag management delegated to Rails
+            // Map<String, Object> dataHash = new HashMap<>();
+            // dataHash.put("message_id", messageId);
+            // dataHash.put("deferred", true);
+            // if (message.getTicket() != null) {
+            //     dataHash.put("ticket_id", message.getTicket().getId());
+            // }
+            //
+            // Kpi kpi = new Kpi();
+            // kpi.setKpiType(KpiType.REQUIRE_RESPONSE);
+            // kpi.setValue(1);
+            // kpi.setClient(client);
+            // kpi.setUser(recipient);
+            // if (message.getTicket() != null) {
+            //     kpi.setTicket(message.getTicket());
+            // }
+            // kpi.setDataHash(dataHash);
+            // kpi.setCreatedAt(message.getCreatedAt());
+            // kpi.setUpdatedAt(message.getUpdatedAt() != null ? message.getUpdatedAt() : message.getCreatedAt());
+            // kpiRepository.save(kpi);
+            // log.debug("Created require_response KPI for message {}", messageId);
+            //
+            // userRepository.updateRequireResponseColumns(sender.getId(), true);
+
             Client client = sender.getClient();
             if (client == null) {
                 log.warn("Sender {} has no client", sender.getId());
                 return;
             }
 
-            // Create require_response KPI
-            Map<String, Object> dataHash = new HashMap<>();
-            dataHash.put("message_id", messageId);
-            dataHash.put("deferred", true);
-            if (message.getTicket() != null) {
-                dataHash.put("ticket_id", message.getTicket().getId());
-            }
-
-            Kpi kpi = new Kpi();
-            kpi.setKpiType(KpiType.REQUIRE_RESPONSE);
-            kpi.setValue(1);
-            kpi.setClient(client);
-            kpi.setUser(recipient); // The agent who needs to respond
-            // PARIDAD RAILS: messageId no existe como campo, almacenado en dataHash
-            if (message.getTicket() != null) {
-                kpi.setTicket(message.getTicket());
-            }
-            kpi.setDataHash(dataHash);
-
-            // PARIDAD RAILS: Copiar timestamps del message (líneas 16-17)
-            // created_at: message.created_at, updated_at: message.updated_at
-            kpi.setCreatedAt(message.getCreatedAt());
-            kpi.setUpdatedAt(message.getUpdatedAt() != null ? message.getUpdatedAt() : message.getCreatedAt());
-
-            kpiRepository.save(kpi);
-            log.debug("Created require_response KPI for message {}", messageId);
-
-            // Update sender's require_response flag
-            // PARIDAD RAILS: Usar update directo sin callbacks (equivalente a update_columns)
-            // Rails: User.find(message.sender_id).update_columns(require_response: true)
-            userRepository.updateRequireResponseColumns(sender.getId(), true);
-
-            // Schedule alert check based on client settings
+            // Schedule alert check based on client settings (notification-only)
             int alertDelayMinutes = getAlertDelayMinutes(client.getId());
             scheduleAlertCheck(message, sender, recipient, alertDelayMinutes);
 
