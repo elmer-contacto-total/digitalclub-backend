@@ -258,20 +258,31 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             Pageable pageable);
 
     /**
-     * Find tickets for export with filters (no pagination, status nullable for "all")
+     * Find ticket IDs for export with filters (returns IDs only, no full entity load)
      */
     @Query("""
-            SELECT t FROM Ticket t WHERE t.agent.client.id = :clientId
+            SELECT t.id FROM Ticket t WHERE t.agent.client.id = :clientId
             AND (CAST(:status AS string) IS NULL OR t.status = :status)
             AND (:agentId IS NULL OR t.agent.id = :agentId)
             AND (CAST(:startDate AS timestamp) IS NULL OR t.createdAt >= :startDate)
             AND (CAST(:endDate AS timestamp) IS NULL OR t.createdAt <= :endDate)
             ORDER BY t.createdAt DESC
             """)
-    List<Ticket> findTicketsForExportFiltered(
+    List<Long> findTicketIdsForExport(
             @Param("clientId") Long clientId,
             @Param("status") TicketStatus status,
             @Param("agentId") Long agentId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
+
+    /**
+     * Batch-load tickets with user and agent eagerly fetched (for export)
+     */
+    @Query("""
+            SELECT t FROM Ticket t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH t.agent
+            WHERE t.id IN :ids
+            """)
+    List<Ticket> findAllByIdWithUserAndAgent(@Param("ids") List<Long> ids);
 }

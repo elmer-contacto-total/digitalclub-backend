@@ -490,4 +490,15 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
             @Param("senderIds") List<Long> senderIds,
             @Param("search") String search,
             Pageable pageable);
+
+    /**
+     * Batch-load messages for multiple tickets with sender eagerly fetched (for export)
+     */
+    @Query("""
+            SELECT m FROM Message m
+            LEFT JOIN FETCH m.sender
+            WHERE m.ticket.id IN :ticketIds
+            ORDER BY m.ticket.id, m.createdAt ASC
+            """)
+    List<Message> findByTicketIdInWithSender(@Param("ticketIds") List<Long> ticketIds);
 }

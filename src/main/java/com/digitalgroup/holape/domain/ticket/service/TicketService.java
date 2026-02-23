@@ -14,6 +14,7 @@ import com.digitalgroup.holape.domain.audit.service.AuditService;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.util.WorkingHoursUtils;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -263,15 +264,23 @@ public class TicketService {
      */
     @Transactional(readOnly = true)
     public List<TicketTranscript> exportTicketTranscripts(List<Long> ticketIds) {
-        return ticketIds.stream()
-                .map(this::buildTicketTranscript)
+        // 1 query: load all tickets with user+agent eagerly
+        List<Ticket> tickets = ticketRepository.findAllByIdWithUserAndAgent(ticketIds);
+
+        // 1 query: load all messages with sender eagerly
+        Map<Long, List<Message>> messagesByTicket = messageRepository
+                .findByTicketIdInWithSender(ticketIds)
+                .stream()
+                .collect(Collectors.groupingBy(m -> m.getTicket().getId()));
+
+        return tickets.stream()
+                .map(ticket -> buildTicketTranscript(ticket,
+                        messagesByTicket.getOrDefault(ticket.getId(), List.of())))
                 .toList();
     }
 
-    private TicketTranscript buildTicketTranscript(Long ticketId) {
-        Ticket ticket = findById(ticketId);
-        List<Message> messages = messageRepository.findByTicketIdOrderByCreatedAtAsc(ticketId);
-
+    private TicketTranscript buildTicketTranscript(Ticket ticket, List<Message> messages) {
+        Long ticketId = ticket.getId();
         StringBuilder content = new StringBuilder();
         content.append("=== TICKET #").append(ticketId).append(" ===\n");
         content.append("Usuario: ").append(ticket.getUser() != null ? ticket.getUser().getFullName() : "N/A").append("\n");
@@ -320,8 +329,7 @@ public class TicketService {
         TicketStatus ticketStatus = (status != null && !"all".equals(status))
                 ? ("closed".equalsIgnoreCase(status) ? TicketStatus.CLOSED : TicketStatus.OPEN)
                 : null;
-        return ticketRepository.findTicketsForExportFiltered(clientId, ticketStatus, agentId, startDate, endDate)
-                .stream().map(Ticket::getId).toList();
+        return ticketRepository.findTicketIdsForExport(clientId, ticketStatus, agentId, startDate, endDate);
     }
 
     /**
