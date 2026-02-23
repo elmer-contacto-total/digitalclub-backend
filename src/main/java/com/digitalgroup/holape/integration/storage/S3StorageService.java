@@ -43,6 +43,9 @@ public class S3StorageService {
     @Value("${aws.s3.bucket:}")
     private String bucketName;
 
+    @Value("${aws.s3.legacy-bucket:}")
+    private String legacyBucketName;
+
     @Value("${aws.s3.enabled:false}")
     private boolean enabled;
 
@@ -262,6 +265,7 @@ public class S3StorageService {
 
     /**
      * Download file content from S3
+     * Falls back to legacy bucket if the file is not found in the primary bucket.
      * @return The file content as byte array
      */
     public byte[] downloadFile(String key) {
@@ -269,15 +273,28 @@ public class S3StorageService {
             throw new IllegalStateException("S3 Storage is not enabled");
         }
         try {
-            GetObjectRequest request = GetObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(key)
-                    .build();
-            return s3Client.getObjectAsBytes(request).asByteArray();
+            return downloadFromBucket(key, bucketName);
         } catch (S3Exception e) {
+            if (e.statusCode() == 404 && legacyBucketName != null && !legacyBucketName.isBlank()) {
+                log.info("File not found in primary bucket, trying legacy bucket: {}", key);
+                try {
+                    return downloadFromBucket(key, legacyBucketName);
+                } catch (S3Exception e2) {
+                    log.error("Failed to download file from legacy S3 bucket: {}", key, e2);
+                    throw new RuntimeException("Failed to download file: " + e2.getMessage());
+                }
+            }
             log.error("Failed to download file from S3: {}", key, e);
             throw new RuntimeException("Failed to download file: " + e.getMessage());
         }
+    }
+
+    private byte[] downloadFromBucket(String key, String bucket) {
+        GetObjectRequest request = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .build();
+        return s3Client.getObjectAsBytes(request).asByteArray();
     }
 
     public boolean isEnabled() {

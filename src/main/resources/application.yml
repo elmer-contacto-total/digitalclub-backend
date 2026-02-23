@@ -119,6 +119,7 @@ aws:
   region: ${AWS_REGION:us-east-1}
   s3:
     bucket: ${AWS_S3_BUCKET:}
+    legacy-bucket: ${AWS_S3_LEGACY_BUCKET:}
     enabled: ${AWS_S3_ENABLED:true}
 
 # Media Storage Configuration (from ms-media integration)
