@@ -1,14 +1,20 @@
 package com.digitalgroup.holape.web.admin;
 
 import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
+import com.digitalgroup.holape.domain.common.enums.MessageDirection;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.kpi.service.KpiService;
+import com.digitalgroup.holape.domain.message.entity.Message;
+import com.digitalgroup.holape.domain.message.repository.MessageRepository;
+import com.digitalgroup.holape.domain.ticket.entity.Ticket;
+import com.digitalgroup.holape.domain.ticket.repository.TicketRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.multitenancy.TenantContext;
 import com.digitalgroup.holape.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -21,6 +27,7 @@ import com.digitalgroup.holape.util.DateTimeUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -29,6 +36,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +54,8 @@ public class DashboardController {
     private final KpiService kpiService;
     private final UserRepository userRepository;
     private final ClientSettingRepository clientSettingRepository;
+    private final TicketRepository ticketRepository;
+    private final MessageRepository messageRepository;
 
     /**
      * Dashboard data endpoint
@@ -300,18 +310,17 @@ public class DashboardController {
     }
 
     /**
-     * Export KPIs to CSV
-     * Only managers, admins, and staff can export KPIs
+     * Export KPIs to CSV — one row per ticket (Rails parity)
+     * PARIDAD RAILS: Admin::DashboardController#export_kpis
+     * Rails allows admin? (includes super_admin) and manager_level_4
      */
     @GetMapping("/export_kpis")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'STAFF')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_4')")
     public ResponseEntity<byte[]> exportKpis(
             @AuthenticationPrincipal CustomUserDetails user,
             @RequestParam(required = false, defaultValue = "30") int last_x_days,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from_date,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to_date,
-            @RequestParam(required = false, defaultValue = "agent") String object,
-            @RequestParam(required = false, defaultValue = "Todos") String object_option) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to_date) {
 
         Long clientId = user.getClientId();
 
@@ -326,48 +335,108 @@ public class DashboardController {
             fromDate = toDate.minusDays(last_x_days);
         }
 
-        List<Long> agentIds = getAgentIdsForCalculation(
-                clientId, user.getUserRole(), user.getId(), object, object_option);
-
         // Convert dates to UTC using user's timezone (Rails parity)
         String userTimezone = user.getTimeZone();
         LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
         LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
 
-        Map<String, Object> overallKpis = kpiService.calculateOverallKpisWithPercentages(
-                clientId, agentIds, startDate, endDate);
+        // Query all tickets for the client in the range (Rails does NOT filter by agent)
+        List<Ticket> tickets = ticketRepository.findForKpiExport(clientId, startDate, endDate);
+
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yy");
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         // Build CSV with BOM for Excel compatibility
         StringBuilder csv = new StringBuilder();
         csv.append('\ufeff'); // UTF-8 BOM
-        csv.append("Tipo de KPI,Nombre de KPI,Valor,Cambio en %\n");
+        csv.append("Ticket Id,Fecha,Hora,Nombre Campaña,Nombre del Asesor,Nombre del Cliente,");
+        csv.append("Móvil del Cliente,Clientes Únicos (DNI),Caso Finalizado,Últimos Mensajes,");
+        csv.append("Tiempo de Respuesta (min),Tiempo de Respuesta (dd:hh:mm),TMO (min),TMO (dd:hh:mm)\n");
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> values = (Map<String, Object>) overallKpis.get("values");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> percentages = (Map<String, Object>) overallKpis.get("percentages");
+        for (Ticket ticket : tickets) {
+            // First incoming message (for date/time and response time calculation)
+            Optional<Message> firstIncoming = messageRepository
+                    .findFirstByTicketIdAndDirectionOrderByCreatedAtAsc(ticket.getId(), MessageDirection.INCOMING);
 
-        Map<String, String> kpiNames = Map.of(
-                "unique_clients", "Clientes Únicos",
-                "new_cases_period", "Nuevos Casos",
-                "open_cases", "Total Casos Abiertos",
-                "first_response_time", "Tiempo 1era Respuesta",
-                "tmo", "TMO",
-                "users_created", "Usuarios Creados",
-                "unique_clients_contacted", "Clientes Contactados",
-                "contact_ratio", "Tasa de Contacto"
-        );
+            // First outgoing message (first response)
+            Optional<Message> firstOutgoing = messageRepository
+                    .findFirstResponseToTicket(ticket.getId());
 
-        for (Map.Entry<String, Object> entry : values.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            Object percentage = percentages.get(key);
-            String displayName = kpiNames.getOrDefault(key, key);
+            // Last 3 incoming messages
+            List<Message> lastIncoming = messageRepository
+                    .findLastIncomingByTicketId(ticket.getId(), PageRequest.of(0, 3));
 
-            csv.append("Generales,");
-            csv.append(displayName).append(",");
-            csv.append(value).append(",");
-            csv.append(percentage != null ? percentage + "%" : "N/A");
+            // first_incoming_message_sent_at (fallback to ticket.createdAt)
+            LocalDateTime firstIncomingSentAt = firstIncoming
+                    .map(m -> m.getSentAt() != null ? m.getSentAt() : m.getCreatedAt())
+                    .orElse(ticket.getCreatedAt());
+
+            // Convert to user's timezone for display
+            LocalDateTime displayDateTime = DateTimeUtils.toTimezone(firstIncomingSentAt, userTimezone);
+            String fecha = displayDateTime.format(dateFormatter);
+            String hora = displayDateTime.format(timeFormatter);
+
+            // Campaign name (from agent's manager)
+            String campaignName = ticket.getAgent() != null ? ticket.getAgent().getCampaignName() : "";
+
+            // Agent name
+            String agentName = ticket.getAgent() != null ? ticket.getAgent().getFullName() : "";
+
+            // Client name & phone & DNI
+            User client = ticket.getUser();
+            String clientName = client != null ? client.getFullName() : "";
+            String clientPhone = client != null && client.getPhone() != null ? client.getPhone() : "";
+            String dni = client != null && client.getCodigo() != null ? client.getCodigo() : "";
+
+            // Caso Finalizado
+            String casoFinalizado;
+            if (ticket.isOpen()) {
+                casoFinalizado = "Ticket Abierto";
+            } else if ("sin_acuerdo".equals(ticket.getCloseType())) {
+                casoFinalizado = "Sin Acuerdo";
+            } else {
+                casoFinalizado = "Con Acuerdo";
+            }
+
+            // Last 3 incoming messages joined with " | "
+            String ultimosMensajes = lastIncoming.stream()
+                    .map(m -> m.getContent() != null ? m.getContent() : "")
+                    .collect(Collectors.joining(" | "));
+
+            // First response time (minutes between first incoming and first outgoing)
+            Long firstResponseMin = null;
+            if (firstIncoming.isPresent() && firstOutgoing.isPresent()) {
+                LocalDateTime inAt = firstIncoming.get().getSentAt() != null
+                        ? firstIncoming.get().getSentAt() : firstIncoming.get().getCreatedAt();
+                LocalDateTime outAt = firstOutgoing.get().getCreatedAt();
+                long mins = Duration.between(inAt, outAt).toMinutes();
+                firstResponseMin = Math.max(mins, 0L);
+            }
+
+            // TMO (minutes between first incoming and closedAt — only for closed tickets)
+            Long tmoMin = null;
+            if (ticket.isClosed() && ticket.getClosedAt() != null && firstIncoming.isPresent()) {
+                LocalDateTime inAt = firstIncoming.get().getSentAt() != null
+                        ? firstIncoming.get().getSentAt() : firstIncoming.get().getCreatedAt();
+                long mins = Duration.between(inAt, ticket.getClosedAt()).toMinutes();
+                tmoMin = Math.max(mins, 0L);
+            }
+
+            // Write CSV row
+            csv.append(ticket.getId()).append(",");
+            csv.append(escapeCSV(fecha)).append(",");
+            csv.append(escapeCSV(hora)).append(",");
+            csv.append(escapeCSV(campaignName)).append(",");
+            csv.append(escapeCSV(agentName)).append(",");
+            csv.append(escapeCSV(clientName)).append(",");
+            csv.append(escapeCSV(clientPhone)).append(",");
+            csv.append(escapeCSV(dni)).append(",");
+            csv.append(escapeCSV(casoFinalizado)).append(",");
+            csv.append(escapeCSV(ultimosMensajes)).append(",");
+            csv.append(firstResponseMin != null ? firstResponseMin : "").append(",");
+            csv.append(firstResponseMin != null ? formatDdHhMm(firstResponseMin) : "").append(",");
+            csv.append(tmoMin != null ? tmoMin : "").append(",");
+            csv.append(tmoMin != null ? formatDdHhMm(tmoMin) : "");
             csv.append("\n");
         }
 
@@ -378,9 +447,18 @@ public class DashboardController {
         headers.setContentDispositionFormData("attachment",
                 "kpi_export_" + LocalDate.now() + ".csv");
 
+        log.info("Exported {} tickets to KPI CSV", tickets.size());
+
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(csvBytes);
+    }
+
+    private String formatDdHhMm(long totalMinutes) {
+        long days = totalMinutes / 1440;
+        long hours = (totalMinutes % 1440) / 60;
+        long mins = totalMinutes % 60;
+        return String.format("%02d:%02d:%02d", days, hours, mins);
     }
 
     /**

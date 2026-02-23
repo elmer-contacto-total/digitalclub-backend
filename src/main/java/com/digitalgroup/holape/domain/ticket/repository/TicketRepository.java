@@ -146,6 +146,21 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
     @Query("SELECT t FROM Ticket t WHERE t.agent.client.id = :clientId AND t.status = com.digitalgroup.holape.domain.common.enums.TicketStatus.OPEN")
     List<Ticket> findOpenTicketsByClient(@Param("clientId") Long clientId);
 
+    // Find tickets for KPI export with eager loading (Rails parity: export_kpis)
+    @Query("""
+            SELECT t FROM Ticket t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH t.agent a
+            LEFT JOIN FETCH a.manager
+            WHERE a.client.id = :clientId
+            AND t.createdAt BETWEEN :startDate AND :endDate
+            ORDER BY t.createdAt DESC
+            """)
+    List<Ticket> findForKpiExport(
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
     // Find tickets for export
     @Query("""
             SELECT t FROM Ticket t

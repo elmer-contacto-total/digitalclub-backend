@@ -55,6 +55,15 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
 
     Optional<Message> findFirstByTicketIdAndDirectionOrderByCreatedAtAsc(Long ticketId, MessageDirection direction);
 
+    // Last N incoming messages for a ticket (for KPI export - Rails parity)
+    @Query("""
+            SELECT m FROM Message m
+            WHERE m.ticket.id = :ticketId
+            AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING
+            ORDER BY m.sentAt DESC
+            """)
+    List<Message> findLastIncomingByTicketId(@Param("ticketId") Long ticketId, Pageable pageable);
+
     @Query("SELECT m FROM Message m WHERE m.recipient.id = :recipientId AND m.direction = com.digitalgroup.holape.domain.common.enums.MessageDirection.INCOMING " +
            "AND m.ticket.id IS NULL ORDER BY m.createdAt DESC")
     List<Message> findUnassignedIncomingMessages(@Param("recipientId") Long recipientId);
