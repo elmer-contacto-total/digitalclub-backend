@@ -43,6 +43,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1757,7 +1758,12 @@ public class UserAdminController {
             JsonNode node = objectMapper.readTree(avatarData);
             String id = node.has("id") ? node.get("id").asText() : null;
             if (id != null && !id.isBlank()) {
-                return s3StorageService.getDownloadUrl(id);
+                if (id.startsWith("avatars/")) {
+                    return s3StorageService.getDownloadUrl(id);
+                } else {
+                    // Legacy Shrine files in bucket root — need presigned URL
+                    return s3StorageService.getPresignedUrl(id, Duration.ofHours(24)).toString();
+                }
             }
         } catch (Exception e) {
             log.warn("Could not parse avatarData: {}", avatarData);

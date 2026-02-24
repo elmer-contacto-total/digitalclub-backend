@@ -21,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -381,7 +382,12 @@ public class AuthController {
             JsonNode node = objectMapper.readTree(avatarData);
             String id = node.has("id") ? node.get("id").asText() : null;
             if (id != null && !id.isBlank()) {
-                return s3StorageService.getDownloadUrl(id);
+                if (id.startsWith("avatars/")) {
+                    return s3StorageService.getDownloadUrl(id);
+                } else {
+                    // Legacy Shrine files in bucket root — need presigned URL
+                    return s3StorageService.getPresignedUrl(id, Duration.ofHours(24)).toString();
+                }
             }
         } catch (Exception e) {
             log.warn("Could not parse avatarData: {}", avatarData);
