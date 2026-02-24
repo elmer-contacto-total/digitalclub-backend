@@ -298,7 +298,7 @@ public class BulkSendService {
         }
 
         // Loop: get recipients, skip if concurrency checks fail
-        LocalDateTime activeConvCutoff = LocalDateTime.now().minusMinutes(30);
+        // LocalDateTime activeConvCutoff = LocalDateTime.now().minusMinutes(30);
         int maxSkips = 50;
 
         for (int i = 0; i < maxSkips; i++) {
@@ -321,18 +321,18 @@ public class BulkSendService {
             BulkSendRecipient recipient = next.get();
             String phone = recipient.getPhone();
 
-            // CHECK: Active conversation — contact has recent messages?
-            User contactUser = recipient.getUser();
-            if (contactUser == null) {
-                contactUser = userRepository.findByPhoneAndClientId(phone, clientId).orElse(null);
-            }
-            if (contactUser != null && contactUser.getLastMessageAt() != null
-                    && contactUser.getLastMessageAt().isAfter(activeConvCutoff)) {
-                recipient.markSkipped("Conversación activa - saltado para no interrumpir");
-                bulkSendRepository.atomicIncrementFailed(bulkSendId);
-                recipientRepository.save(recipient);
-                continue;
-            }
+            // CHECK: Active conversation — disabled to allow duplicate phones in same bulk send
+            // User contactUser = recipient.getUser();
+            // if (contactUser == null) {
+            //     contactUser = userRepository.findByPhoneAndClientId(phone, clientId).orElse(null);
+            // }
+            // if (contactUser != null && contactUser.getLastMessageAt() != null
+            //         && contactUser.getLastMessageAt().isAfter(activeConvCutoff)) {
+            //     recipient.markSkipped("Conversación activa - saltado para no interrumpir");
+            //     bulkSendRepository.atomicIncrementFailed(bulkSendId);
+            //     recipientRepository.save(recipient);
+            //     continue;
+            // }
 
             // All checks passed — mark IN_PROGRESS and return
             recipient.setStatus("IN_PROGRESS");
