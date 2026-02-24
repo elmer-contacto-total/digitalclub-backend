@@ -1760,9 +1760,14 @@ public class UserAdminController {
             if (id != null && !id.isBlank()) {
                 if (id.startsWith("avatars/")) {
                     return s3StorageService.getDownloadUrl(id);
-                } else {
-                    // Legacy Shrine files in bucket root — need presigned URL
+                }
+                // Legacy Shrine files in bucket root — try presigned URL
+                try {
                     return s3StorageService.getPresignedUrl(id, Duration.ofHours(24)).toString();
+                } catch (Exception presignEx) {
+                    log.warn("Presigned URL failed for avatar key '{}': {}, falling back to public URL",
+                            id, presignEx.getMessage());
+                    return s3StorageService.getDownloadUrl(id);
                 }
             }
         } catch (Exception e) {
