@@ -155,20 +155,6 @@ public class DashboardController {
             LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
             LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
 
-            // PARIDAD RAILS: object='Cliente' → return empty KPIs + client dropdown
-            if ("Cliente".equals(object)) {
-                List<Object[]> clientDropdown = getDropdownOptions(clientId, userRole, user.getId(), object);
-                boolean showCloseTypeKpis = clientSettingRepository.existsByClientIdAndNameWithHashValue(
-                        clientId, "ticket_close_types");
-                Map<String, Object> response = new HashMap<>();
-                response.put("overall_kpis", Map.of("values", Map.of(), "percentages", Map.of()));
-                response.put("individual_kpis", Map.of());
-                response.put("comparison_label", comparisonLabel);
-                response.put("dropdown_options", clientDropdown);
-                response.put("show_close_type_kpis", showCloseTypeKpis);
-                return ResponseEntity.ok(response);
-            }
-
             // Determine which agents to include based on object type and user role
             List<Long> agentIds = getAgentIdsForCalculation(clientId, userRole, user.getId(), object, object_option);
             log.debug("Agent IDs for calculation: {}", agentIds);
@@ -214,7 +200,7 @@ public class DashboardController {
      * Key differences from previous implementation:
      * - object='manager_level_4' + "Todos" → ALL AGENTS (not supervisors)
      * - object='manager_level_4' + specific supervisor → supervisor's SUBORDINATES (not the supervisor ID itself)
-     * - object='Cliente' is handled before this method (early return with empty KPIs)
+     * - object='Cliente' → all agents of the active client (same as "Todos")
      */
     private List<Long> getAgentIdsForCalculation(
             Long clientId,
@@ -222,6 +208,12 @@ public class DashboardController {
             Long currentUserId,
             String object,
             String objectOption) {
+
+        // PARIDAD RAILS: 'Cliente' → KPIs de todos los agentes del cliente activo
+        if ("Cliente".equals(object)) {
+            return userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT)
+                    .stream().map(User::getId).collect(Collectors.toList());
+        }
 
         // PARIDAD RAILS: when 'manager_level_4'
         if ("manager_level_4".equals(object)) {
