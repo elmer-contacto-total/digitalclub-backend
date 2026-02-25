@@ -87,12 +87,12 @@ public class KpiService {
         // Average first response time (minutes)
         Double avgFirstResponseTime = kpiRepository.avgValueByClientKpiTypeAndDateRange(
                 clientId, KpiType.FIRST_RESPONSE_TIME, startDate, endDate);
-        kpis.put("avg_first_response_time", avgFirstResponseTime != null ? Math.round(avgFirstResponseTime) : 0);
+        kpis.put("avg_first_response_time", avgFirstResponseTime != null ? (long) avgFirstResponseTime.doubleValue() : 0);
 
         // Average TMO (minutes)
         Double avgTmo = kpiRepository.avgValueByClientKpiTypeAndDateRange(
                 clientId, KpiType.TMO, startDate, endDate);
-        kpis.put("avg_tmo", avgTmo != null ? Math.round(avgTmo) : 0);
+        kpis.put("avg_tmo", avgTmo != null ? (long) avgTmo.doubleValue() : 0);
 
         // Pending responses
         long pendingResponses = kpiRepository.countByClientKpiTypeAndDateRange(
@@ -214,13 +214,13 @@ public class KpiService {
             // First response time (average)
             if (hasAgents) {
                 Double avgFrt = kpiRepository.avgValueByUsersKpiTypeAndDateRange(agentIds, KpiType.FIRST_RESPONSE_TIME, startDate, endDate);
-                kpis.put("first_response_time", avgFrt != null ? Math.round(avgFrt) : 0L);
+                kpis.put("first_response_time", avgFrt != null ? (long) avgFrt.doubleValue() : 0L);
             }
 
             // TMO (average)
             if (hasAgents) {
                 Double avgTmo = kpiRepository.avgValueByUsersKpiTypeAndDateRange(agentIds, KpiType.TMO, startDate, endDate);
-                kpis.put("tmo", avgTmo != null ? Math.round(avgTmo) : 0L);
+                kpis.put("tmo", avgTmo != null ? (long) avgTmo.doubleValue() : 0L);
             }
 
             // Users created in period (for contact ratio) - Rails: distinct.count(:codigo)
@@ -370,7 +370,7 @@ public class KpiService {
                 .mapToInt(Kpi::getValue)
                 .average()
                 .orElse(0);
-        kpis.put("avg_first_response_time", Math.round(avgFirstResponse));
+        kpis.put("avg_first_response_time", (long) avgFirstResponse);
 
         // Sent messages by user
         List<Kpi> sentMessages = kpiRepository.findByUserKpiTypeAndDateRange(
@@ -423,12 +423,12 @@ public class KpiService {
         // Average first response time
         Double avgFrt = kpiRepository.avgValueByClientKpiTypeAndDateRange(
                 clientId, KpiType.FIRST_RESPONSE_TIME, startDate, endDate);
-        summary.put("avg_first_response_time_minutes", avgFrt != null ? Math.round(avgFrt) : 0);
+        summary.put("avg_first_response_time_minutes", avgFrt != null ? (long) avgFrt.doubleValue() : 0);
 
         // Average TMO
         Double avgTmo = kpiRepository.avgValueByClientKpiTypeAndDateRange(
                 clientId, KpiType.TMO, startDate, endDate);
-        summary.put("avg_tmo_minutes", avgTmo != null ? Math.round(avgTmo) : 0);
+        summary.put("avg_tmo_minutes", avgTmo != null ? (long) avgTmo.doubleValue() : 0);
 
         return summary;
     }
