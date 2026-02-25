@@ -103,7 +103,7 @@ public class EmailService {
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Tu código de verificación - Holape",
+                    "Tu código de verificación - MWS Desktop",
                     htmlContent
             );
 
