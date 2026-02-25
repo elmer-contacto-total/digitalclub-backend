@@ -124,11 +124,10 @@ public class KpiService {
             Long clientId,
             List<Long> agentIds,
             LocalDateTime startDate,
-            LocalDateTime endDate) {
+            LocalDateTime endDate,
+            long daysDiff) {
 
         try {
-            long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(startDate.toLocalDate(), endDate.toLocalDate());
-            if (daysDiff == 0) daysDiff = 1;
 
             // Previous period for comparison
             LocalDateTime previousStartDate = startDate.minusDays(daysDiff);

@@ -159,9 +159,13 @@ public class DashboardController {
             List<Long> agentIds = getAgentIdsForCalculation(clientId, userRole, user.getId(), object, object_option);
             log.debug("Agent IDs for calculation: {}", agentIds);
 
+            // Calculate daysDiff from original LocalDate range (before UTC conversion)
+            long daysDiff = java.time.temporal.ChronoUnit.DAYS.between(fromDate, toDate);
+            if (daysDiff == 0) daysDiff = 1;
+
             // Calculate overall KPIs with percentages
             Map<String, Object> overallKpis = kpiService.calculateOverallKpisWithPercentages(
-                    clientId, agentIds, startDate, endDate);
+                    clientId, agentIds, startDate, endDate, daysDiff);
 
             // Calculate individual KPIs per agent
             Map<Long, Map<String, Object>> individualKpis = kpiService.calculateIndividualKpisForAgents(
