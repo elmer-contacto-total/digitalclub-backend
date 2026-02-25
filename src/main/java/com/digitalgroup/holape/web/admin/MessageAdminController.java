@@ -615,7 +615,8 @@ public class MessageAdminController {
             Map<String, Object> result = messageService.activateIncomingTicket(
                     request.senderPhone(),
                     request.recipientId(),
-                    request.clientId()
+                    request.clientId(),
+                    request.messageContent()
             );
 
             log.info("Activated incoming ticket for phone={} recipientId={} clientId={}",
@@ -634,7 +635,8 @@ public class MessageAdminController {
     public record ActivateTicketRequest(
             String senderPhone,
             Long recipientId,
-            Long clientId
+            Long clientId,
+            String messageContent
     ) {}
 
     /**

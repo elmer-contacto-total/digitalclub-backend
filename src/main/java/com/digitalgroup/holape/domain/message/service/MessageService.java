@@ -299,7 +299,7 @@ public class MessageService {
      * @return Map with ticketId, userId, requireResponse
      */
     @Transactional
-    public Map<String, Object> activateIncomingTicket(String senderPhone, Long recipientId, Long clientId) {
+    public Map<String, Object> activateIncomingTicket(String senderPhone, Long recipientId, Long clientId, String messageContent) {
         User recipient = userRepository.findById(recipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", recipientId));
 
@@ -329,7 +329,10 @@ public class MessageService {
             ticket.setUser(sender);
             ticket.setAgent(agent);
             ticket.setStatus(TicketStatus.OPEN);
-            ticket.setSubject("Incoming message from " + senderPhone);
+            String subject = (messageContent != null && !messageContent.isBlank())
+                    ? truncateForSubject(messageContent)
+                    : "Mensaje de " + senderPhone;
+            ticket.setSubject(subject);
             ticket = ticketRepository.save(ticket);
             created = true;
 
