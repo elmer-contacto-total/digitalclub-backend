@@ -1,5 +1,7 @@
 package com.digitalgroup.holape.web.admin;
 
+import com.digitalgroup.holape.domain.client.entity.Client;
+import com.digitalgroup.holape.domain.client.repository.ClientRepository;
 import com.digitalgroup.holape.domain.client.repository.ClientSettingRepository;
 import com.digitalgroup.holape.domain.common.enums.MessageDirection;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
@@ -53,6 +55,7 @@ public class DashboardController {
 
     private final KpiService kpiService;
     private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
     private final ClientSettingRepository clientSettingRepository;
     private final TicketRepository ticketRepository;
     private final MessageRepository messageRepository;
@@ -73,8 +76,8 @@ public class DashboardController {
         ));
         response.put("clientId", clientId);
 
-        // Get today's KPIs as default
-        LocalDate today = LocalDate.now();
+        // Get today's KPIs as default (use user's timezone, not system timezone)
+        LocalDate today = LocalDate.now(DateTimeUtils.resolveZoneId(user.getTimeZone()));
         Map<String, Object> kpis = kpiService.calculateKpis(clientId, today, today);
         response.put("kpis", kpis);
 
@@ -112,9 +115,9 @@ public class DashboardController {
                 return ResponseEntity.badRequest().body(Map.of("error", "Client ID is required"));
             }
 
-            // Calculate date range based on button_id
+            // Calculate date range based on button_id (use user's timezone, not system timezone)
             LocalDate fromDate;
-            LocalDate toDate = LocalDate.now();
+            LocalDate toDate = LocalDate.now(DateTimeUtils.resolveZoneId(user.getTimeZone()));
             String comparisonLabel;
 
             switch (button_id) {
@@ -151,6 +154,20 @@ public class DashboardController {
             String userTimezone = user.getTimeZone();
             LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
             LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
+
+            // PARIDAD RAILS: object='Cliente' → return empty KPIs + client dropdown
+            if ("Cliente".equals(object)) {
+                List<Object[]> clientDropdown = getDropdownOptions(clientId, userRole, user.getId(), object);
+                boolean showCloseTypeKpis = clientSettingRepository.existsByClientIdAndNameWithHashValue(
+                        clientId, "ticket_close_types");
+                Map<String, Object> response = new HashMap<>();
+                response.put("overall_kpis", Map.of("values", Map.of(), "percentages", Map.of()));
+                response.put("individual_kpis", Map.of());
+                response.put("comparison_label", comparisonLabel);
+                response.put("dropdown_options", clientDropdown);
+                response.put("show_close_type_kpis", showCloseTypeKpis);
+                return ResponseEntity.ok(response);
+            }
 
             // Determine which agents to include based on object type and user role
             List<Long> agentIds = getAgentIdsForCalculation(clientId, userRole, user.getId(), object, object_option);
@@ -192,6 +209,12 @@ public class DashboardController {
 
     /**
      * Get agent IDs for KPI calculation based on filters
+     * PARIDAD RAILS: calculate_kpis method in dashboard_controller.rb
+     *
+     * Key differences from previous implementation:
+     * - object='manager_level_4' + "Todos" → ALL AGENTS (not supervisors)
+     * - object='manager_level_4' + specific supervisor → supervisor's SUBORDINATES (not the supervisor ID itself)
+     * - object='Cliente' is handled before this method (early return with empty KPIs)
      */
     private List<Long> getAgentIdsForCalculation(
             Long clientId,
@@ -200,63 +223,71 @@ public class DashboardController {
             String object,
             String objectOption) {
 
-        List<Long> agentIds = new ArrayList<>();
+        // PARIDAD RAILS: when 'manager_level_4'
+        if ("manager_level_4".equals(object)) {
+            if (objectOption == null || "Todos".equals(objectOption)) {
+                // Rails: User.where(client_id: @current_client.id, role: 'agent').pluck(:id)
+                return userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT)
+                        .stream().map(User::getId).collect(Collectors.toList());
+            } else {
+                // Rails: User.find(object_option).subordinates.pluck(:id)
+                // A supervisor's subordinates are agents managed by them
+                try {
+                    Long supervisorId = Long.parseLong(objectOption);
+                    return userRepository.findByManager_Id(supervisorId)
+                            .stream()
+                            .map(User::getId)
+                            .collect(Collectors.toList());
+                } catch (NumberFormatException e) {
+                    return new ArrayList<>();
+                }
+            }
+        }
 
-        // If a specific user is selected
+        // PARIDAD RAILS: else branch — default agent-level logic
+        // If a specific agent is selected
         if (objectOption != null && !objectOption.equals("Todos")) {
             try {
-                agentIds.add(Long.parseLong(objectOption));
-                return agentIds;
+                // Rails: list_of_sectoristas = [object_option]
+                return List.of(Long.parseLong(objectOption));
             } catch (NumberFormatException e) {
                 // Fall through to default behavior
             }
         }
 
-        // Get agents based on role and object type
+        // "Todos" or no specific selection — depends on current user's role
         switch (userRole) {
             case SUPER_ADMIN:
-                if ("manager_level_4".equals(object)) {
-                    // Get all supervisors
-                    agentIds = userRepository.findByClient_IdAndRole(clientId, UserRole.MANAGER_LEVEL_4)
-                            .stream().map(User::getId).collect(Collectors.toList());
-                } else {
-                    // Get all agents
-                    agentIds = userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT)
-                            .stream().map(User::getId).collect(Collectors.toList());
-                }
-                break;
-
             case ADMIN:
-                // Admin sees all agents
-                agentIds = userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT)
+                // Rails: agent_list = User.where(client_id: @current_client.id, role: 'agent')
+                return userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT)
                         .stream().map(User::getId).collect(Collectors.toList());
-                break;
 
             case MANAGER_LEVEL_4:
-                // Supervisor sees only their agents
-                agentIds = userRepository.findByManager_Id(currentUserId)
-                        .stream()
-                        .filter(u -> u.getRole() == UserRole.AGENT)
-                        .map(User::getId)
-                        .collect(Collectors.toList());
-                break;
+                // Rails: agent_list = User.where(client_id: @current_client.id, manager_id: current_user.id, role: 'agent')
+                if ("agent".equals(object)) {
+                    return userRepository.findByManager_Id(currentUserId)
+                            .stream()
+                            .filter(u -> u.getRole() == UserRole.AGENT)
+                            .map(User::getId)
+                            .collect(Collectors.toList());
+                } else {
+                    // Rails: list_of_sectoristas = [current_user.id]
+                    return List.of(currentUserId);
+                }
 
             case AGENT:
-                // Agent sees only their own KPIs
-                agentIds.add(currentUserId);
-                break;
+                // Rails: list_of_sectoristas = [current_user.id]
+                return List.of(currentUserId);
 
             default:
-                // For other roles, show only their own
-                agentIds.add(currentUserId);
-                break;
+                return List.of(currentUserId);
         }
-
-        return agentIds;
     }
 
     /**
      * Get dropdown options for agent/supervisor selection
+     * PARIDAD RAILS: options_list logic in calculate_kpis
      */
     private List<Object[]> getDropdownOptions(
             Long clientId,
@@ -271,17 +302,31 @@ public class DashboardController {
             return options;
         }
 
+        // PARIDAD RAILS: 'Cliente' → dropdown with client name
+        if ("Cliente".equals(object)) {
+            Client client = clientRepository.findById(clientId).orElse(null);
+            if (client != null) {
+                options.add(new Object[]{client.getName(), " ", client.getId()});
+            }
+            return options;
+        }
+
+        // PARIDAD RAILS: 'manager_level_4' → dropdown with supervisors list
+        if ("manager_level_4".equals(object)) {
+            List<User> supervisors = userRepository.findByClient_IdAndRole(clientId, UserRole.MANAGER_LEVEL_4);
+            for (User u : supervisors) {
+                String firstName = u.getFirstName() != null ? u.getFirstName() : "";
+                String lastName = u.getLastName() != null ? u.getLastName() : "";
+                options.add(new Object[]{firstName, lastName, u.getId()});
+            }
+            return options;
+        }
+
+        // Default: agent-level dropdown
         List<User> users;
 
         switch (userRole) {
             case SUPER_ADMIN:
-                if ("manager_level_4".equals(object)) {
-                    users = userRepository.findByClient_IdAndRole(clientId, UserRole.MANAGER_LEVEL_4);
-                } else {
-                    users = userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT);
-                }
-                break;
-
             case ADMIN:
                 users = userRepository.findByClient_IdAndRole(clientId, UserRole.AGENT);
                 break;
@@ -331,7 +376,7 @@ public class DashboardController {
             fromDate = from_date;
             toDate = to_date;
         } else {
-            toDate = LocalDate.now();
+            toDate = LocalDate.now(DateTimeUtils.resolveZoneId(user.getTimeZone()));
             fromDate = toDate.minusDays(last_x_days);
         }
 
