@@ -2,6 +2,7 @@ package com.digitalgroup.holape.security.otp;
 
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
+import com.digitalgroup.holape.integration.email.EmailService;
 import com.digitalgroup.holape.integration.sms.SmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ public class OtpService {
 
     private final UserRepository userRepository;
     private final SmsService smsService;
+    private final EmailService emailService;
 
     @Value("${spring.profiles.active:dev}")
     private String activeProfile;
@@ -44,7 +46,8 @@ public class OtpService {
         if (!"dev".equals(activeProfile)) {
             String message = String.format("%s es su código de seguridad de MWS", otp);
             smsService.sendSms(user.getPhone(), message);
-            log.info("OTP sent to user: {}", user.getEmail());
+            emailService.sendOtpCode(user, otp);
+            log.info("OTP sent via SMS and email to user: {}", user.getEmail());
         } else {
             log.info("DEV MODE - OTP for user {}: {}", user.getEmail(), otp);
         }

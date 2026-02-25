@@ -18,7 +18,7 @@ import java.util.Properties;
 @Configuration
 public class MailConfig {
 
-    @Value("${spring.mail.host:smtp.gmail.com}")
+    @Value("${spring.mail.host:email-smtp.us-east-1.amazonaws.com}")
     private String host;
 
     @Value("${spring.mail.port:587}")
@@ -36,6 +36,9 @@ public class MailConfig {
     @Value("${spring.mail.properties.mail.smtp.starttls.enable:true}")
     private boolean starttls;
 
+    @Value("${spring.mail.properties.mail.smtp.ssl.enable:false}")
+    private boolean sslEnable;
+
     @Bean
     public JavaMailSender javaMailSender() {
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
@@ -48,6 +51,7 @@ public class MailConfig {
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", String.valueOf(smtpAuth));
         props.put("mail.smtp.starttls.enable", String.valueOf(starttls));
+        props.put("mail.smtp.ssl.enable", String.valueOf(sslEnable));
         props.put("mail.debug", "false");
 
         return mailSender;
