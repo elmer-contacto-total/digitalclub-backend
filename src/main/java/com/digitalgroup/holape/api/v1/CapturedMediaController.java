@@ -222,6 +222,32 @@ public class CapturedMediaController {
     }
 
     /**
+     * Get known whatsappMessageIds for a chat phone (lightweight, for Electron cross-agent sync).
+     * Returns only IDs + deleted status so the IIFE can seed its tracking sets.
+     */
+    @GetMapping("/chat/{phone}/known-ids")
+    public ResponseEntity<List<Map<String, Object>>> getKnownMessageIds(
+            @PathVariable String phone,
+            @RequestParam(defaultValue = "500") int limit) {
+
+        log.info("[MediaController] Getting known message IDs for chat: {} limit: {}", phone, limit);
+
+        List<Object[]> rows = mediaService.findKnownMessageIdsByChatPhone(phone, limit);
+
+        List<Map<String, Object>> response = rows.stream()
+                .map(row -> {
+                    Map<String, Object> entry = new HashMap<>();
+                    entry.put("whatsappMessageId", row[0]);
+                    entry.put("deleted", Boolean.TRUE.equals(row[1]));
+                    entry.put("chatName", row[2]);
+                    return entry;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Health check endpoint
      */
     @GetMapping("/health")

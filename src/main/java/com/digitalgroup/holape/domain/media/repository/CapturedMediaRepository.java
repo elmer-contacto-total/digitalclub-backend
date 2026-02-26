@@ -69,4 +69,13 @@ public interface CapturedMediaRepository extends JpaRepository<CapturedMedia, Lo
     @Query("SELECT m FROM CapturedMedia m WHERE m.clientUser.id = :clientUserId " +
            "ORDER BY COALESCE(m.messageSentAt, m.capturedAt) DESC")
     List<CapturedMedia> findByClientUserIdOrderedByEffectiveTime(@Param("clientUserId") Long clientUserId, Pageable pageable);
+
+    /**
+     * Lightweight projection: only whatsappMessageId, deleted, chatName for a given phone.
+     * Used by Electron to seed IIFE tracking sets on agent reassignment (cross-agent sync).
+     */
+    @Query("SELECT m.whatsappMessageId, m.deleted, m.chatName FROM CapturedMedia m " +
+           "WHERE m.chatPhone = :phone AND m.whatsappMessageId IS NOT NULL " +
+           "ORDER BY m.capturedAt DESC")
+    List<Object[]> findKnownMessageIdsByChatPhone(@Param("phone") String phone, Pageable pageable);
 }

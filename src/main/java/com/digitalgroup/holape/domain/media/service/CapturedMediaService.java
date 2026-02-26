@@ -10,6 +10,7 @@ import com.digitalgroup.holape.integration.storage.MediaStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -318,6 +319,14 @@ public class CapturedMediaService {
             case "application/pdf" -> "pdf";
             default -> "bin";
         };
+    }
+
+    /**
+     * Lightweight query: only whatsappMessageId, deleted, chatName for a given phone.
+     * Used by Electron to seed IIFE tracking sets on agent reassignment.
+     */
+    public List<Object[]> findKnownMessageIdsByChatPhone(String phone, int limit) {
+        return mediaRepository.findKnownMessageIdsByChatPhone(phone, PageRequest.of(0, limit));
     }
 
     /**
