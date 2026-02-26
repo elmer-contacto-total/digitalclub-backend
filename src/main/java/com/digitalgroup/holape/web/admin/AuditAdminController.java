@@ -44,19 +44,25 @@ public class AuditAdminController {
     private final AuditService auditService;
 
     /**
-     * List audits
+     * List audits with search/filter support.
+     * PARIDAD RAILS: Rails uses DataTables client-side search; this provides server-side equivalent.
+     *
+     * @param search        Free text search across username, auditable_type, action, auditable_id, audited_changes
+     * @param auditableType Filter by entity type (e.g. "User", "Ticket", "Client")
+     * @param action        Filter by action: "create", "update", "destroy"
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> index(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String auditableType,
+            @RequestParam(required = false) String action,
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "50") int size) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-
-        Page<Audit> auditsPage;
+        Pageable pageable = PageRequest.of(page, size, Sort.by("created_at").descending());
 
         // Default date range: last 30 days
         LocalDateTime start = startDate != null ?
@@ -66,23 +72,22 @@ public class AuditAdminController {
                 endDate.atTime(LocalTime.MAX) :
                 LocalDateTime.now();
 
-        if (currentUser.getRole().equals("SUPER_ADMIN")) {
-            auditsPage = auditService.findByDateRange(start, end, pageable);
-        } else {
-            auditsPage = auditService.findByClientAndDateRange(
-                    currentUser.getClientId(), start, end, pageable);
-        }
+        Long clientId = currentUser.getRole().equals("SUPER_ADMIN") ? null : currentUser.getClientId();
+
+        Page<Audit> auditsPage = auditService.searchAudits(
+                start, end, clientId, auditableType, action, search, pageable);
 
         List<Map<String, Object>> data = auditsPage.getContent().stream()
                 .map(this::mapAuditToResponse)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
-                "audits", data,
-                "total", auditsPage.getTotalElements(),
-                "page", page,
-                "totalPages", auditsPage.getTotalPages()
-        ));
+        Map<String, Object> response = new HashMap<>();
+        response.put("audits", data);
+        response.put("total", auditsPage.getTotalElements());
+        response.put("page", page);
+        response.put("totalPages", auditsPage.getTotalPages());
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -118,13 +123,16 @@ public class AuditAdminController {
     }
 
     /**
-     * Export audits to CSV
+     * Export audits to CSV (supports same search filters as index)
      */
     @GetMapping("/export")
     public ResponseEntity<byte[]> exportAudits(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String auditableType,
+            @RequestParam(required = false) String action) {
 
         LocalDateTime start = startDate != null ?
                 startDate.atStartOfDay() :
@@ -133,15 +141,11 @@ public class AuditAdminController {
                 endDate.atTime(LocalTime.MAX) :
                 LocalDateTime.now();
 
-        Pageable pageable = PageRequest.of(0, 10000, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(0, 10000, Sort.by("created_at").descending());
+        Long clientId = currentUser.getRole().equals("SUPER_ADMIN") ? null : currentUser.getClientId();
 
-        Page<Audit> auditsPage;
-        if (currentUser.getRole().equals("SUPER_ADMIN")) {
-            auditsPage = auditService.findByDateRange(start, end, pageable);
-        } else {
-            auditsPage = auditService.findByClientAndDateRange(
-                    currentUser.getClientId(), start, end, pageable);
-        }
+        Page<Audit> auditsPage = auditService.searchAudits(
+                start, end, clientId, auditableType, action, search, pageable);
 
         // Generate CSV
         ByteArrayOutputStream baos = new ByteArrayOutputStream();

@@ -68,6 +68,21 @@ public class AuditService {
     }
 
     /**
+     * Search audits with multiple optional filters.
+     * PARIDAD RAILS: Equivalent to DataTables client-side search in Rails view.
+     */
+    public Page<Audit> searchAudits(LocalDateTime startDate, LocalDateTime endDate,
+                                     Long clientId, String auditableType,
+                                     String action, String search, Pageable pageable) {
+        // Normalize empty strings to null so the native query treats them as "no filter"
+        String type = (auditableType != null && !auditableType.isBlank()) ? auditableType : null;
+        String act = (action != null && !action.isBlank()) ? action : null;
+        String srch = (search != null && !search.isBlank()) ? search : null;
+
+        return auditRepository.searchAudits(startDate, endDate, clientId, type, act, srch, pageable);
+    }
+
+    /**
      * Log creation of entity
      */
     @Async
