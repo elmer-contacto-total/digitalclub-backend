@@ -515,12 +515,13 @@ public class ImportAdminController {
     }
 
     /**
-     * Find matching template for given headers
+     * Find matching templates for given headers.
+     * Returns all matching templates sorted by specificity (most headers first).
      * Body: { "headers": [...], "isFoh": false }
      */
     @SuppressWarnings("unchecked")
     @PostMapping("/mapping_templates/match")
-    public ResponseEntity<Map<String, Object>> findMatchingTemplate(
+    public ResponseEntity<Map<String, Object>> findMatchingTemplates(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody Map<String, Object> body) {
 
@@ -531,15 +532,16 @@ public class ImportAdminController {
             return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "headers is required"));
         }
 
-        ImportMappingTemplate match = importService.findMatchingTemplate(
+        List<ImportMappingTemplate> matches = importService.findMatchingTemplates(
                 currentUser.getClientId(), headers, isFoh);
 
         Map<String, Object> response = new HashMap<>();
-        if (match != null) {
+        if (!matches.isEmpty()) {
             response.put("found", true);
-            response.put("template", mapTemplateToResponse(match));
+            response.put("templates", matches.stream().map(this::mapTemplateToResponse).toList());
         } else {
             response.put("found", false);
+            response.put("templates", List.of());
         }
         return ResponseEntity.ok(response);
     }

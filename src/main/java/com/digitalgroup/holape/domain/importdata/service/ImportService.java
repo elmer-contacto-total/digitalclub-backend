@@ -2180,24 +2180,31 @@ public class ImportService {
     }
 
     /**
-     * Find a matching template for the given CSV headers.
-     * Match is order-independent: template matches if the CSV has the same set of headers.
+     * Find matching templates for the given CSV headers.
+     * Match is order-independent and subset-based: template matches if ALL of the template's
+     * headers are present in the CSV (extra CSV columns are allowed).
+     * Returns all matches sorted by specificity (most headers first).
      */
-    public ImportMappingTemplate findMatchingTemplate(Long clientId, List<String> csvHeaders, boolean isFoh) {
+    public List<ImportMappingTemplate> findMatchingTemplates(Long clientId, List<String> csvHeaders, boolean isFoh) {
         List<ImportMappingTemplate> templates = mappingTemplateRepository.findByClientIdAndIsFoh(clientId, isFoh);
 
         Set<String> csvHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         csvHeaderSet.addAll(csvHeaders);
+
+        List<ImportMappingTemplate> matches = new ArrayList<>();
 
         for (ImportMappingTemplate template : templates) {
             if (template.getHeaders() == null) continue;
             Set<String> templateHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             templateHeaderSet.addAll(template.getHeaders());
 
-            if (csvHeaderSet.equals(templateHeaderSet)) {
-                return template;
+            if (csvHeaderSet.containsAll(templateHeaderSet)) {
+                matches.add(template);
             }
         }
-        return null;
+
+        // Sort by specificity: most headers first
+        matches.sort((a, b) -> Integer.compare(b.getHeaders().size(), a.getHeaders().size()));
+        return matches;
     }
 }
