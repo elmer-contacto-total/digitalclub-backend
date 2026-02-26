@@ -1096,9 +1096,12 @@ public class UserAdminController {
     }
 
     /**
-     * Get action history for a user (audit log)
+     * Get action history for a user based on their tickets.
      * PARIDAD ELECTRON: CRM panel action history
-     * Returns audits related to the user to show what actions other agents have taken
+     *
+     * Queries the tickets table directly (source of truth) instead of the audits table.
+     * Each closed ticket produces a "Cerró ticket" entry; each ticket produces an "Abrió ticket" entry.
+     * Response format is compatible with the frontend's UserActionHistory interface.
      */
     @GetMapping("/{id}/action_history")
     @Transactional(readOnly = true)
@@ -1107,30 +1110,63 @@ public class UserAdminController {
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        // Fetch recent tickets for this user (with agent eagerly loaded)
+        Pageable ticketPageable = PageRequest.of(0, size, Sort.by("updatedAt").descending());
+        List<Ticket> tickets = ticketRepository.findByUserIdWithAgent(id, ticketPageable);
 
-        // Find audits for this user (User audits + Ticket audits associated to user)
-        Page<Audit> auditsPage = auditRepository.findByUserOrAssociatedUser(id, pageable);
+        List<Map<String, Object>> entries = new ArrayList<>();
 
-        List<Map<String, Object>> data = auditsPage.getContent().stream()
-                .map(audit -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", audit.getId());
-                    map.put("action", audit.getAction());
-                    // Prefer agent's full name over email
-                    String displayName = audit.getUser() != null ? audit.getUser().getNameOrEmail() : audit.getUsername();
-                    map.put("username", displayName);
-                    map.put("auditedChanges", audit.getAuditedChanges());
-                    map.put("auditableType", audit.getAuditableType()); // "User" or "Ticket"
-                    map.put("comment", audit.getComment());
-                    map.put("createdAt", audit.getCreatedAt());
-                    return map;
-                })
-                .collect(Collectors.toList());
+        for (Ticket ticket : tickets) {
+            String agentName = ticket.getAgent() != null ? ticket.getAgent().getNameOrEmail() : "Sistema";
+
+            // Close event (for closed tickets)
+            if (ticket.isClosed() && ticket.getClosedAt() != null) {
+                Map<String, Object> closeEntry = new HashMap<>();
+                closeEntry.put("id", ticket.getId());
+                closeEntry.put("action", "update");
+                closeEntry.put("username", agentName);
+                closeEntry.put("auditableType", "Ticket");
+
+                Map<String, Object> changes = new HashMap<>();
+                changes.put("status", List.of("open", "closed"));
+                if (ticket.getCloseType() != null) {
+                    changes.put("close_type", java.util.Arrays.asList(null, ticket.getCloseType()));
+                }
+                if (ticket.getNotes() != null && !ticket.getNotes().isBlank()) {
+                    changes.put("notes", java.util.Arrays.asList(null, ticket.getNotes()));
+                }
+                closeEntry.put("auditedChanges", changes);
+                closeEntry.put("comment", "Ticket #" + ticket.getId() + " cerrado"
+                        + (ticket.getCloseType() != null ? " — " + ticket.getCloseType() : ""));
+                closeEntry.put("createdAt", ticket.getClosedAt());
+                entries.add(closeEntry);
+            }
+
+            // Open event
+            Map<String, Object> openEntry = new HashMap<>();
+            openEntry.put("id", -ticket.getId()); // negative ID to differentiate from close entry
+            openEntry.put("action", "create");
+            openEntry.put("username", agentName);
+            openEntry.put("auditableType", "Ticket");
+            openEntry.put("auditedChanges", null);
+            openEntry.put("comment", ticket.getSubject());
+            openEntry.put("createdAt", ticket.getCreatedAt());
+            entries.add(openEntry);
+        }
+
+        // Sort all entries by date descending (close events will appear before their open events)
+        entries.sort((a, b) -> {
+            var dateA = (Comparable) a.get("createdAt");
+            var dateB = (Comparable) b.get("createdAt");
+            if (dateA == null && dateB == null) return 0;
+            if (dateA == null) return 1;
+            if (dateB == null) return -1;
+            return dateB.compareTo(dateA);
+        });
 
         return ResponseEntity.ok(Map.of(
-                "history", data,
-                "total", auditsPage.getTotalElements()
+                "history", entries,
+                "total", entries.size()
         ));
     }
 

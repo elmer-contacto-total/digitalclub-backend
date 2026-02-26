@@ -5,10 +5,12 @@ import com.digitalgroup.holape.domain.audit.repository.AuditRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.multitenancy.TenantContext;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,6 +33,14 @@ import java.util.Map;
 public class AuditService {
 
     private final AuditRepository auditRepository;
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    private static final String INSERT_AUDIT_SQL =
+            "INSERT INTO audits (auditable_id, auditable_type, associated_id, associated_type, " +
+            "user_id, user_type, username, action, audited_changes, version, comment, " +
+            "remote_address, request_uuid, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, NOW())";
 
     public Page<Audit> findAll(Pageable pageable) {
         return auditRepository.findAll(pageable);
@@ -213,36 +223,47 @@ public class AuditService {
     }
 
     /**
-     * Log ticket close action for audit trail
-     * Creates an audit record so the close appears in the user's action history
+     * Log ticket close action for audit trail.
+     * Creates an audit record so the close appears in the user's action history.
+     *
+     * Uses JdbcTemplate (direct SQL) instead of auditRepository.save() to avoid
+     * issues with transient User entity references in the @Async thread context.
+     * This matches the approach used by AuditEntityListener.saveAuditViaJdbc().
      */
     @Async
-    @Transactional
     public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName, String closeType, String notes) {
         try {
-            Audit audit = new Audit();
-            audit.setAuditableType("Ticket");
-            audit.setAuditableId(ticketId);
-            audit.setAssociatedType("User");
-            audit.setAssociatedId(userId);
-            // Set agent by reference (avoids detached proxy issues in @Async)
-            User agentRef = new User();
-            agentRef.setId(agentId);
-            audit.setUser(agentRef);
-            audit.setUsername(agentName);
-            audit.setAction("update");
             Map<String, Object> changes = new HashMap<>();
             changes.put("status", List.of("open", "closed"));
             changes.put("close_type", java.util.Arrays.asList(null, closeType != null ? closeType : "manual"));
             if (notes != null && !notes.isBlank()) {
                 changes.put("notes", java.util.Arrays.asList(null, notes));
             }
-            audit.setAuditedChanges(changes);
-            audit.setComment("Ticket #" + ticketId + " cerrado" +
-                    (closeType != null ? " — " + closeType : ""));
-            long version = auditRepository.countByAuditableTypeAndAuditableId("Ticket", ticketId);
-            audit.setVersion((int) version + 1);
-            auditRepository.save(audit);
+
+            String changesJson = objectMapper.writeValueAsString(changes);
+            String comment = "Ticket #" + ticketId + " cerrado" +
+                    (closeType != null ? " — " + closeType : "");
+
+            Long versionCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM audits WHERE auditable_type = ? AND auditable_id = ?",
+                    Long.class, "Ticket", ticketId);
+            int version = (versionCount != null ? versionCount.intValue() : 0) + 1;
+
+            jdbcTemplate.update(INSERT_AUDIT_SQL,
+                    ticketId,           // auditable_id
+                    "Ticket",           // auditable_type
+                    userId,             // associated_id (links to User)
+                    "User",             // associated_type
+                    agentId,            // user_id (agent who closed)
+                    "User",             // user_type
+                    agentName,          // username
+                    "update",           // action
+                    changesJson,        // audited_changes
+                    version,            // version
+                    comment,            // comment
+                    null,               // remote_address
+                    null);              // request_uuid
+
             log.debug("Logged ticket close audit for ticket {} by {}", ticketId, agentName);
         } catch (Exception e) {
             log.error("Failed to log ticket close audit for ticket {}", ticketId, e);

@@ -22,6 +22,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
 
     Page<Ticket> findByUserIdAndStatus(Long userId, TicketStatus status, Pageable pageable);
 
+    // Find all tickets by user ordered by most recent activity (for action history)
+    @Query("SELECT t FROM Ticket t LEFT JOIN FETCH t.agent WHERE t.user.id = :userId ORDER BY t.updatedAt DESC")
+    List<Ticket> findByUserIdWithAgent(@Param("userId") Long userId, Pageable pageable);
+
     // Find first open ticket by user (for CRM panel - electron_clients)
     Optional<Ticket> findFirstByUserIdAndStatusOrderByCreatedAtDesc(Long userId, TicketStatus status);
 
