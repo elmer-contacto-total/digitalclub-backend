@@ -74,7 +74,7 @@ public class AuditAdminController {
                 endDate.atTime(LocalTime.MAX) :
                 LocalDateTime.now();
 
-        Long clientId = currentUser.getRole().equals("SUPER_ADMIN") ? null : currentUser.getClientId();
+        Long clientId = currentUser.getClientId();
 
         Page<Audit> auditsPage = auditService.searchAudits(
                 start, end, clientId, auditableType, action, search, pageable);
@@ -144,7 +144,7 @@ public class AuditAdminController {
                 LocalDateTime.now();
 
         Pageable pageable = PageRequest.of(0, 10000, Sort.by("created_at").descending());
-        Long clientId = currentUser.getRole().equals("SUPER_ADMIN") ? null : currentUser.getClientId();
+        Long clientId = currentUser.getClientId();
 
         Page<Audit> auditsPage = auditService.searchAudits(
                 start, end, clientId, auditableType, action, search, pageable);
