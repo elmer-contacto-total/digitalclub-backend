@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.*;
@@ -94,7 +95,8 @@ public class AuditEntityListener {
 
     // Fields that are entity relationships (should capture ID only)
     private static final Set<String> RELATIONSHIP_FIELDS = Set.of(
-            "client", "user", "manager", "agent", "sender", "recipient", "ticket"
+            "client", "user", "manager", "agent", "sender", "recipient", "ticket",
+            "country", "language"
     );
 
     @Autowired
@@ -190,6 +192,7 @@ public class AuditEntityListener {
             audit.setAuditableType(entity.getClass().getSimpleName());
             audit.setAuditableId(entityId);
             audit.setAction("create");
+            audit.setVersion(1);
             audit.setAuditedChanges(newValues);
             populateUserInfo(audit);
             populateRequestInfo(audit);
@@ -279,10 +282,13 @@ public class AuditEntityListener {
             Long entityId = getEntityId(entity);
             Map<String, Object> oldValues = extractFieldValues(entity, auditable);
 
+            long version = countAuditsViaJdbc(entity.getClass().getSimpleName(), entityId);
+
             Audit audit = new Audit();
             audit.setAuditableType(entity.getClass().getSimpleName());
             audit.setAuditableId(entityId);
             audit.setAction("destroy");
+            audit.setVersion((int) version + 1);
             audit.setAuditedChanges(oldValues);
             populateUserInfo(audit);
             populateRequestInfo(audit);
@@ -421,6 +427,9 @@ public class AuditEntityListener {
                             if (relatedId != null) {
                                 values.put(fieldName + "_id", relatedId);
                             }
+                        } else if (isJsonbField(field)) {
+                            // JSONB/JSON fields: serialize to JSON string for auditing
+                            values.put(fieldName, serializeJsonValue(value));
                         } else if (!isComplexType(field.getType())) {
                             values.put(fieldName, formatValue(value));
                         }
@@ -442,6 +451,40 @@ public class AuditEntityListener {
         return Collection.class.isAssignableFrom(type) ||
                Map.class.isAssignableFrom(type) ||
                type.isAnnotationPresent(Entity.class);
+    }
+
+    /**
+     * Check if field is a JSONB/JSON database column that should be audited
+     * even though its Java type (Map, Object) would normally be skipped.
+     */
+    private boolean isJsonbField(Field field) {
+        // Check @Column(columnDefinition = "jsonb")
+        Column column = field.getAnnotation(Column.class);
+        if (column != null && column.columnDefinition().toLowerCase().contains("jsonb")) {
+            return true;
+        }
+        // Check for JSON type annotations by name (avoids hard dependency on Hibernate-specific classes)
+        for (Annotation ann : field.getAnnotations()) {
+            String annName = ann.annotationType().getSimpleName();
+            if ("JdbcTypeCode".equals(annName) || "Type".equals(annName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Serialize a JSONB value for audit storage
+     */
+    private Object serializeJsonValue(Object value) {
+        if (objectMapper == null) {
+            return value.toString();
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return value.toString();
+        }
     }
 
     /**

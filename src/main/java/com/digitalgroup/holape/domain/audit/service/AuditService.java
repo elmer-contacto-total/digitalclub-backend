@@ -231,7 +231,8 @@ public class AuditService {
      * This matches the approach used by AuditEntityListener.saveAuditViaJdbc().
      */
     @Async
-    public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName, String closeType, String notes) {
+    public void logTicketClose(Long ticketId, Long userId, Long agentId, String agentName,
+                               String closeType, String notes, String remoteAddress, String requestUuid) {
         try {
             Map<String, Object> changes = new HashMap<>();
             changes.put("status", List.of("open", "closed"));
@@ -261,8 +262,8 @@ public class AuditService {
                     changesJson,        // audited_changes
                     version,            // version
                     comment,            // comment
-                    null,               // remote_address
-                    null);              // request_uuid
+                    remoteAddress,      // remote_address
+                    requestUuid);       // request_uuid
 
             log.debug("Logged ticket close audit for ticket {} by {}", ticketId, agentName);
         } catch (Exception e) {

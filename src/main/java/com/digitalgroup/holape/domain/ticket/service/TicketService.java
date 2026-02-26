@@ -15,12 +15,15 @@ import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.util.WorkingHoursUtils;
 import java.util.stream.Collectors;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -130,11 +133,14 @@ public class TicketService {
         userRepository.save(user);
 
         // Create audit record for ticket close (pass primitives to avoid detached proxy in @Async)
+        // Capture request context before @Async call (unavailable in async thread)
+        String remoteAddress = getRemoteAddress();
+        String requestUuid = getRequestUuid();
         User agent = ticket.getAgent();
         auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
                 agent != null ? agent.getId() : null,
                 agent != null ? agent.getNameOrEmail() : null,
-                closeType, notes);
+                closeType, notes, remoteAddress, requestUuid);
 
         log.info("Closed ticket {} with type {}", ticketId, closeType);
 
@@ -179,11 +185,13 @@ public class TicketService {
         userRepository.save(user);
 
         // Create audit record for auto-close (pass primitives to avoid detached proxy in @Async)
+        String autoRemoteAddress = getRemoteAddress();
+        String autoRequestUuid = getRequestUuid();
         User autoAgent = ticket.getAgent();
         auditService.logTicketClose(ticket.getId(), ticket.getUser().getId(),
                 autoAgent != null ? autoAgent.getId() : null,
                 autoAgent != null ? autoAgent.getNameOrEmail() : null,
-                "auto_closed", null);
+                "auto_closed", null, autoRemoteAddress, autoRequestUuid);
 
         log.info("Auto-closed ticket {}", ticketId);
         return ticket;
@@ -456,5 +464,35 @@ public class TicketService {
         details.put("minutes", minutes);
 
         return details;
+    }
+
+    /**
+     * Get remote IP address from current request context.
+     * Must be called BEFORE @Async methods (request context is unavailable in async threads).
+     */
+    private String getRemoteAddress() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            return attrs != null ? attrs.getRequest().getRemoteAddr() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get request UUID from current request context.
+     * Must be called BEFORE @Async methods (request context is unavailable in async threads).
+     */
+    private String getRequestUuid() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                String requestId = attrs.getRequest().getHeader("X-Request-ID");
+                return requestId != null ? requestId : UUID.randomUUID().toString();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
