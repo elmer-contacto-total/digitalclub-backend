@@ -984,7 +984,7 @@ public class ImportService {
             if (value == null || value.isEmpty()) continue;
 
             // Detectar sufijo +cf: guardar también en custom_fields con el header CSV original
-            boolean alsoCustomField = field.endsWith("+cf");
+            boolean alsoCustomField = field.endsWith("+cf") && !field.startsWith("custom_field:");
             if (alsoCustomField) {
                 field = field.substring(0, field.length() - 3);
             }
