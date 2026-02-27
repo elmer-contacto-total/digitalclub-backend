@@ -347,7 +347,7 @@ public class ImportService {
 
             try {
                 TempImportUser tempUser = createFohTempImportUser(
-                        importEntity, columnMapping, values, rowNumber);
+                        importEntity, columnMapping, headers, values, rowNumber);
 
                 // Agent linking is now handled generically by validateTempUser
                 // (manager_email → email lookup → import_string fallback)
