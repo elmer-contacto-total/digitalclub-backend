@@ -2242,8 +2242,8 @@ public class ImportService {
      * Returns all matches sorted by specificity (most headers first).
      */
     public List<ImportMappingTemplate> findMatchingTemplates(Long clientId, List<String> csvHeaders, boolean isFoh) {
-        log.info("findMatchingTemplates: clientId={}, isFoh={}, csvHeaders({})={}",
-                clientId, isFoh, csvHeaders != null ? csvHeaders.size() : 0, csvHeaders);
+        log.info("findMatchingTemplates: clientId={}, isFoh={}, csvHeaders({})",
+                clientId, isFoh, csvHeaders != null ? csvHeaders.size() : 0);
 
         List<ImportMappingTemplate> templates = mappingTemplateRepository.findByClientIdAndIsFoh(clientId, isFoh);
         log.info("findMatchingTemplates: found {} templates for clientId={} isFoh={}",
@@ -2255,30 +2255,33 @@ public class ImportService {
         List<ImportMappingTemplate> matches = new ArrayList<>();
 
         for (ImportMappingTemplate template : templates) {
-            if (template.getHeaders() == null) {
-                log.warn("findMatchingTemplates: template '{}' (id={}) has null headers, skipping",
+            if (template.getColumnMapping() == null || template.getColumnMapping().isEmpty()) {
+                log.warn("findMatchingTemplates: template '{}' (id={}) has no columnMapping, skipping",
                         template.getName(), template.getId());
                 continue;
             }
-            Set<String> templateHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            templateHeaderSet.addAll(template.getHeaders());
 
-            boolean match = csvHeaderSet.containsAll(templateHeaderSet);
-            if (!match) {
-                // Find which template headers are missing from CSV
-                Set<String> missing = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                missing.addAll(templateHeaderSet);
-                missing.removeAll(csvHeaderSet);
-                log.info("findMatchingTemplates: template '{}' (id={}) NOT matched — missing headers: {}",
-                        template.getName(), template.getId(), missing);
-            } else {
-                log.info("findMatchingTemplates: template '{}' (id={}) MATCHED", template.getName(), template.getId());
+            // Match using only MAPPED headers (keys of columnMapping).
+            // Unmapped/ignored columns in the template should not block matching.
+            Set<String> mappedHeaders = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            mappedHeaders.addAll(template.getColumnMapping().keySet());
+
+            if (csvHeaderSet.containsAll(mappedHeaders)) {
+                log.info("findMatchingTemplates: template '{}' (id={}) MATCHED ({} mapped headers)",
+                        template.getName(), template.getId(), mappedHeaders.size());
                 matches.add(template);
+            } else {
+                Set<String> missing = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                missing.addAll(mappedHeaders);
+                missing.removeAll(csvHeaderSet);
+                log.info("findMatchingTemplates: template '{}' (id={}) NOT matched — missing mapped headers: {}",
+                        template.getName(), template.getId(), missing);
             }
         }
 
-        // Sort by specificity: most headers first
-        matches.sort((a, b) -> Integer.compare(b.getHeaders().size(), a.getHeaders().size()));
+        // Sort by specificity: most mapped headers first
+        matches.sort((a, b) -> Integer.compare(
+                b.getColumnMapping().size(), a.getColumnMapping().size()));
         log.info("findMatchingTemplates: returning {} matches", matches.size());
         return matches;
     }
