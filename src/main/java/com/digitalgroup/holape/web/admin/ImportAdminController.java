@@ -215,7 +215,17 @@ public class ImportAdminController {
             ));
         }
 
-        importService.confirmMappingAndValidate(id, columnMapping, isFoh);
+        log.info("confirmMapping: importId={}, mappingSize={}, isFoh={}", id, columnMapping.size(), isFoh);
+
+        try {
+            importService.confirmMappingAndValidate(id, columnMapping, isFoh);
+        } catch (Exception e) {
+            log.error("confirmMapping FAILED for import {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "result", "error",
+                    "message", "Error validando importación: " + e.getMessage()
+            ));
+        }
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
