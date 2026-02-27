@@ -196,6 +196,13 @@ public class CapturedMediaService {
     }
 
     /**
+     * Find all captured media by whatsappMessageId (for ownership checks).
+     */
+    public List<CapturedMedia> findAllByWhatsappMessageId(String whatsappMessageId) {
+        return mediaRepository.findAllByWhatsappMessageId(whatsappMessageId);
+    }
+
+    /**
      * Mark a captured media as deleted (the original WhatsApp message was deleted)
      * @return the updated entity if successfully marked, empty otherwise
      */

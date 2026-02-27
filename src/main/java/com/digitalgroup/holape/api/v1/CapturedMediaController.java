@@ -9,10 +9,12 @@ import com.digitalgroup.holape.domain.media.enums.CapturedMediaType;
 import com.digitalgroup.holape.domain.media.enums.MediaAuditAction;
 import com.digitalgroup.holape.domain.media.service.CapturedMediaService;
 import com.digitalgroup.holape.domain.media.service.MediaAuditLogService;
+import com.digitalgroup.holape.security.CustomUserDetails;
 import com.digitalgroup.holape.websocket.WebSocketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -83,7 +85,9 @@ public class CapturedMediaController {
      * Mark a captured media as deleted (original WhatsApp message was deleted)
      */
     @PostMapping("/mark-deleted")
-    public ResponseEntity<?> markDeleted(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> markDeleted(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody Map<String, String> request) {
         String whatsappMessageId = request.get("whatsappMessageId");
         if (whatsappMessageId == null || whatsappMessageId.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -92,7 +96,25 @@ public class CapturedMediaController {
             ));
         }
 
-        log.info("[MediaController] Marking media as deleted: whatsappMessageId={}", whatsappMessageId);
+        // Ownership check: verify media belongs to same organization
+        if (currentUser != null && !currentUser.isAdmin()) {
+            List<CapturedMedia> mediaList = mediaService.findAllByWhatsappMessageId(whatsappMessageId);
+            if (!mediaList.isEmpty()) {
+                CapturedMedia sample = mediaList.get(0);
+                if (sample.getAgent() != null && sample.getAgent().getClientId() != null
+                        && !sample.getAgent().getClientId().equals(currentUser.getClientId())) {
+                    log.warn("[MediaController] Forbidden: user clientId={} tried to mark-deleted media owned by clientId={}",
+                            currentUser.getClientId(), sample.getAgent().getClientId());
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                            "status", "error",
+                            "message", "Not authorized to modify this media"
+                    ));
+                }
+            }
+        }
+
+        log.info("[MediaController] Marking media as deleted: whatsappMessageId={} by userId={}",
+                whatsappMessageId, currentUser != null ? currentUser.getId() : "unknown");
         Optional<CapturedMedia> updated = mediaService.markAsDeleted(whatsappMessageId);
 
         if (updated.isPresent()) {
