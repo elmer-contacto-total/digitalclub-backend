@@ -197,7 +197,9 @@ public class CapturedMediaService {
 
     /**
      * Find all captured media by whatsappMessageId (for ownership checks).
+     * Uses @Transactional to keep session open for lazy-loaded relationships.
      */
+    @Transactional(readOnly = true)
     public List<CapturedMedia> findAllByWhatsappMessageId(String whatsappMessageId) {
         return mediaRepository.findAllByWhatsappMessageId(whatsappMessageId);
     }
