@@ -458,6 +458,29 @@ public class ImportAdminController {
     // ========== Mapping Templates ==========
 
     /**
+     * Preview CSV file: parse headers + sample data without creating an Import record.
+     * Used by template creation flow to avoid phantom imports in the list.
+     */
+    @PostMapping("/preview_csv")
+    public ResponseEntity<Map<String, Object>> previewCsv(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam("file") MultipartFile file) {
+        byte[] fileContent;
+        try {
+            fileContent = file.getBytes();
+        } catch (java.io.IOException e) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "Error reading file"));
+        }
+
+        Map<String, Object> preview = importService.previewCsvFile(fileContent, currentUser.getClientId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", "success");
+        response.put("mapping", preview);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * List mapping templates for the current client
      */
     @GetMapping("/mapping_templates")

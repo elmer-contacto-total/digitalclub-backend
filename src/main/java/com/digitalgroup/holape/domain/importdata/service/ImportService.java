@@ -1827,6 +1827,49 @@ public class ImportService {
     }
 
     /**
+     * Preview a CSV file in-memory: parse headers + sample data + auto-suggestions.
+     * Does NOT create an Import record — used for template creation.
+     */
+    public Map<String, Object> previewCsvFile(byte[] fileContent, Long clientId) {
+        String content = readAndEncodeFile(fileContent);
+        List<String[]> rows = parseCsv(content);
+
+        if (rows.isEmpty()) {
+            throw new BusinessException("Empty file or invalid CSV format");
+        }
+
+        String[] headers = rows.get(0);
+        Map<Integer, String> autoMapping = mapColumnsWithDetection(headers, clientId).mapping();
+
+        List<Map<String, Object>> columns = new ArrayList<>();
+        for (int i = 0; i < headers.length; i++) {
+            Map<String, Object> col = new HashMap<>();
+            col.put("index", i);
+            col.put("header", headers[i].trim());
+
+            String mapped = autoMapping.get(i);
+            if (mapped != null && !mapped.startsWith("unmatched_")) {
+                col.put("suggestion", mapped.startsWith("custom_field:") ? "custom_field" : mapped);
+            }
+
+            List<String> samples = new ArrayList<>();
+            for (int r = 1; r <= Math.min(2, rows.size() - 1); r++) {
+                String[] rowValues = rows.get(r);
+                if (i < rowValues.length && rowValues[i] != null && !rowValues[i].trim().isEmpty()) {
+                    samples.add(rowValues[i].trim());
+                }
+            }
+            col.put("sampleData", samples);
+            columns.add(col);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("columns", columns);
+        result.put("totalRows", rows.size() - 1);
+        return result;
+    }
+
+    /**
      * Get CSV headers and auto-suggested mapping for the interactive mapping page.
      * Parses the stored CSV, reads headers, and applies COLUMN_ALIASES + FOH heuristics.
      * Also returns sample data (first 2 rows) for each column.
