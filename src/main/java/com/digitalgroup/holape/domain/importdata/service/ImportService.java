@@ -264,7 +264,7 @@ public class ImportService {
 
             try {
                 TempImportUser tempUser = createTempImportUser(
-                        importEntity, columnMapping, values, rowNumber);
+                        importEntity, columnMapping, headers, values, rowNumber);
 
                 // Validate the temp user
                 List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
@@ -966,7 +966,7 @@ public class ImportService {
      */
     private TempImportUser createTempImportUser(Import importEntity,
                                                  Map<Integer, String> columnMapping,
-                                                 String[] values, int rowNumber) {
+                                                 String[] headers, String[] values, int rowNumber) {
         TempImportUser tempUser = new TempImportUser();
         tempUser.setUserImport(importEntity);
         // PARIDAD RAILS: Usar phoneOrder para almacenar el número de fila
@@ -982,6 +982,12 @@ public class ImportService {
             String value = cleanValue(values[i]);
 
             if (value == null || value.isEmpty()) continue;
+
+            // Detectar sufijo +cf: guardar también en custom_fields con el header CSV original
+            boolean alsoCustomField = field.endsWith("+cf");
+            if (alsoCustomField) {
+                field = field.substring(0, field.length() - 3);
+            }
 
             switch (field) {
                 case "phone" -> tempUser.setPhone(normalizePhone(value));
@@ -1020,6 +1026,11 @@ public class ImportService {
                     }
                 }
             }
+
+            // Si tiene +cf, también guardar en custom_fields con el header CSV original como key
+            if (alsoCustomField && headers != null && i < headers.length) {
+                customFields.put(headers[i].trim(), value);
+            }
         }
 
         if (!customFields.isEmpty()) {
@@ -1054,8 +1065,8 @@ public class ImportService {
      */
     private TempImportUser createFohTempImportUser(Import importEntity,
                                                     Map<Integer, String> columnMapping,
-                                                    String[] values, int rowNumber) {
-        TempImportUser tempUser = createTempImportUser(importEntity, columnMapping, values, rowNumber);
+                                                    String[] headers, String[] values, int rowNumber) {
+        TempImportUser tempUser = createTempImportUser(importEntity, columnMapping, headers, values, rowNumber);
 
         // Extract phone order if present
         for (int i = 0; i < values.length && i < columnMapping.size(); i++) {
@@ -1927,6 +1938,7 @@ public class ImportService {
             throw new BusinessException("Empty file or invalid CSV format");
         }
 
+        String[] headers = rows.get(0);
         importEntity.setTotRecords(rows.size() - 1);
 
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -1939,7 +1951,7 @@ public class ImportService {
 
             try {
                 TempImportUser tempUser = createTempImportUser(
-                        importEntity, columnMapping, values, rowNumber);
+                        importEntity, columnMapping, headers, values, rowNumber);
 
                 List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
 
@@ -1998,6 +2010,7 @@ public class ImportService {
             throw new BusinessException("Empty file or invalid CSV format");
         }
 
+        String[] headers = rows.get(0);
         importEntity.setTotRecords(rows.size() - 1);
 
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -2010,7 +2023,7 @@ public class ImportService {
 
             try {
                 TempImportUser tempUser = createFohTempImportUser(
-                        importEntity, columnMapping, values, rowNumber);
+                        importEntity, columnMapping, headers, values, rowNumber);
 
                 // Agent linking is now handled generically by validateTempUser
 
