@@ -2242,12 +2242,12 @@ public class ImportService {
      * Returns all matches sorted by specificity (most headers first).
      */
     public List<ImportMappingTemplate> findMatchingTemplates(Long clientId, List<String> csvHeaders, boolean isFoh) {
-        log.info("findMatchingTemplates: clientId={}, isFoh={}, csvHeaders({})",
-                clientId, isFoh, csvHeaders != null ? csvHeaders.size() : 0);
+        log.info("findMatchingTemplates: clientId={}, csvHeaders({})",
+                clientId, csvHeaders != null ? csvHeaders.size() : 0);
 
-        List<ImportMappingTemplate> templates = mappingTemplateRepository.findByClientIdAndIsFoh(clientId, isFoh);
-        log.info("findMatchingTemplates: found {} templates for clientId={} isFoh={}",
-                templates.size(), clientId, isFoh);
+        // Single import flow — isFoh is not used for filtering.
+        List<ImportMappingTemplate> templates = mappingTemplateRepository.findByClientIdOrderByNameAsc(clientId);
+        log.info("findMatchingTemplates: found {} templates for clientId={}", templates.size(), clientId);
 
         Set<String> csvHeaderSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         csvHeaderSet.addAll(csvHeaders);
