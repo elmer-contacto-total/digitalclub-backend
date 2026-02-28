@@ -98,7 +98,9 @@ public class ImportService {
             Map.entry("country_code", "phone_code"),
             Map.entry("apellido_p", "last_name"),
             Map.entry("apellido_m", "last_name_2"),
-            Map.entry("ejecutivo", "manager_email")
+            Map.entry("ejecutivo", "manager_email"),
+            Map.entry("import_string", "import_string"),
+            Map.entry("vinculador", "import_string")
     );
 
     // Required fields for validation
@@ -578,6 +580,11 @@ public class ImportService {
         // PARIDAD RAILS: Apply importId
         user.setImportId(importEntity.getId());
 
+        // Apply import_string from crmFields reserved key
+        if (tempUser.getCrmFields() != null && tempUser.getCrmFields().containsKey("__import_string")) {
+            user.setImportString(tempUser.getCrmFields().get("__import_string"));
+        }
+
         // Set manager from pre-fetched map (no DB query)
         if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isEmpty()) {
             User manager = managerMap.get(tempUser.getManagerEmail().trim().toLowerCase());
@@ -594,6 +601,7 @@ public class ImportService {
         if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
             cf.putAll(tempUser.getCustomFields());
         }
+        cf.remove("__import_string");
         user.setCustomFields(cf);
 
         User savedUser = userRepository.save(user);
@@ -1148,6 +1156,7 @@ public class ImportService {
                 case "codigo" -> tempUser.setCodigo(value);
                 case "role" -> tempUser.setRole(value);
                 case "manager_email" -> tempUser.setManagerEmail(value.trim());
+                case "import_string" -> crmFields.put("__import_string", value.trim());
                 default -> {
                     if (field.startsWith("custom_field:")) {
                         // Explicit custom field: use header name as key
@@ -1377,6 +1386,11 @@ public class ImportService {
         // PARIDAD RAILS: Apply importId
         user.setImportId(importEntity.getId());
 
+        // Apply import_string from crmFields reserved key
+        if (tempUser.getCrmFields() != null && tempUser.getCrmFields().containsKey("__import_string")) {
+            user.setImportString(tempUser.getCrmFields().get("__import_string"));
+        }
+
         // Set manager if specified
         if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isEmpty()) {
             userRepository.findByEmailAndClientId(tempUser.getManagerEmail(), clientId)
@@ -1394,6 +1408,8 @@ public class ImportService {
             if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
                 cf.putAll(tempUser.getCustomFields());
             }
+            // Remove reserved keys from custom_fields
+            cf.remove("__import_string");
 
             user.setCustomFields(cf);
         }
