@@ -26,6 +26,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
@@ -69,6 +70,7 @@ public class ImportService {
     private final CrmInfoSettingRepository crmInfoSettingRepository;
     private final S3StorageService s3StorageService;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transactionTemplate;
 
     // Standard column mappings
     private static final Map<String, String> COLUMN_ALIASES = Map.ofEntries(
@@ -1934,20 +1936,36 @@ public class ImportService {
     }
 
     /**
-     * Confirm user-provided column mapping and trigger validation.
-     * Called after the user reviews/adjusts column mapping on the mapping page.
-     *
-     * @param importId      the import ID
-     * @param columnMapping user-confirmed mapping: key = column index (as string), value = field name
-     * @param isFoh         whether this is a FOH import
+     * Prepare import for validation — sync step before async processing.
+     * Sets status to VALIDATING and deletes old temp users.
      */
     @Transactional
-    public void confirmMappingAndValidate(Long importId, Map<String, String> columnMapping, boolean isFoh) {
+    public void prepareForValidation(Long importId) {
         Import importEntity = findById(importId);
-        byte[] fileContent = retrieveCsvContent(importEntity);
-
-        // Delete existing TempImportUsers if any (re-mapping case)
+        importEntity.setStatus(ImportStatus.STATUS_VALIDATING);
+        importEntity.setProgress(0);
+        importRepository.save(importEntity);
         tempImportUserRepository.deleteByImportId(importId);
+    }
+
+    /**
+     * Mark import as error (used when async validation fails).
+     */
+    @Transactional
+    public void markImportError(Long importId, String errorMessage) {
+        Import importEntity = findById(importId);
+        importEntity.setStatus(ImportStatus.STATUS_ERROR);
+        importEntity.setErrorsText(errorMessage);
+        importRepository.save(importEntity);
+    }
+
+    /**
+     * Confirm user-provided column mapping and trigger validation.
+     * Called from the async path in the controller.
+     */
+    public void confirmMappingAndValidate(Long importId, Map<String, String> columnMapping, boolean isFoh) {
+        Import importEntity = transactionTemplate.execute(status -> findById(importId));
+        byte[] fileContent = retrieveCsvContent(importEntity);
 
         // Convert string keys to integer keys
         Map<Integer, String> intMapping = new HashMap<>();
@@ -1961,12 +1979,240 @@ public class ImportService {
         if (isFoh) {
             validateImportFohWithMapping(importId, fileContent, intMapping);
         } else {
-            validateImportWithMapping(importId, fileContent, intMapping);
+            validateImportWithMappingBulk(importId, fileContent, intMapping);
         }
     }
 
     /**
-     * Validate import using a user-provided column mapping (standard imports).
+     * Optimized bulk validation: pre-fetches client users, validates in memory,
+     * saves in batches with incremental progress visible to polling.
+     * Replaces the old per-row-query approach (~50,000 queries → ~10 queries).
+     */
+    public void validateImportWithMappingBulk(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {
+        // Parse CSV (no transaction needed)
+        String content = readAndEncodeFile(fileContent);
+        List<String[]> rows = parseCsv(content);
+        if (rows.isEmpty()) {
+            throw new BusinessException("Empty file or invalid CSV format");
+        }
+
+        String[] headers = rows.get(0);
+        int totalRecords = rows.size() - 1;
+
+        // Load import entity and client ID
+        Import importEntity = transactionTemplate.execute(status -> findById(importId));
+        Long clientId = importEntity.getClient().getId();
+
+        // Update total records
+        transactionTemplate.executeWithoutResult(status -> {
+            Import imp = findById(importId);
+            imp.setTotRecords(totalRecords);
+            importRepository.save(imp);
+        });
+
+        // === PRE-FETCH: Load all client users for in-memory lookups (1 query) ===
+        log.info("Import {}: pre-fetching client users for clientId={}", importId, clientId);
+        List<User> clientUsers = userRepository.findForImportLookup(clientId);
+
+        Map<String, User> emailMap = new HashMap<>();    // lowercase email → User
+        Map<String, User> phoneMap = new HashMap<>();    // phone → User
+        Map<String, User> importStringMap = new HashMap<>(); // lowercase importString → User
+
+        for (User u : clientUsers) {
+            if (u.getEmail() != null && !u.getEmail().isEmpty()) {
+                emailMap.put(u.getEmail().toLowerCase(), u);
+            }
+            if (u.getPhone() != null && !u.getPhone().isEmpty()) {
+                phoneMap.put(u.getPhone(), u);
+            }
+            if (u.getImportString() != null && !u.getImportString().isEmpty()) {
+                importStringMap.put(u.getImportString().toLowerCase(), u);
+            }
+        }
+        log.info("Import {}: pre-fetched {} users ({} emails, {} phones, {} importStrings)",
+                importId, clientUsers.size(), emailMap.size(), phoneMap.size(), importStringMap.size());
+
+        // === PROCESS ROWS: Create TempImportUsers with in-memory validation ===
+        Map<String, Integer> phoneSeen = new HashMap<>();  // phone → first row number
+        Map<String, Integer> emailSeen = new HashMap<>();  // email → first row number
+        List<TempImportUser> batch = new ArrayList<>();
+        List<Map<String, Object>> allErrors = new ArrayList<>();
+        int validCount = 0;
+        int invalidCount = 0;
+        int batchSize = 500;
+
+        for (int i = 1; i < rows.size(); i++) {
+            String[] values = rows.get(i);
+            int rowNumber = i + 1;
+
+            try {
+                TempImportUser tempUser = createTempImportUser(
+                        importEntity, columnMapping, headers, values, rowNumber);
+
+                List<String> validationErrors = validateTempUserBulk(
+                        tempUser, emailMap, phoneMap, importStringMap, phoneSeen, emailSeen);
+
+                if (validationErrors.isEmpty()) {
+                    validCount++;
+                } else {
+                    tempUser.setErrorMessage(String.join("; ", validationErrors));
+                    invalidCount++;
+                    Map<String, Object> errorDetail = new HashMap<>();
+                    errorDetail.put("row", rowNumber);
+                    errorDetail.put("errors", validationErrors);
+                    errorDetail.put("phone", tempUser.getPhone());
+                    allErrors.add(errorDetail);
+                }
+
+                // Track for duplicate detection
+                if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty()) {
+                    phoneSeen.putIfAbsent(tempUser.getPhone(), rowNumber);
+                }
+                if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
+                    emailSeen.putIfAbsent(tempUser.getEmail().toLowerCase(), rowNumber);
+                }
+
+                batch.add(tempUser);
+
+            } catch (Exception e) {
+                invalidCount++;
+                Map<String, Object> errorDetail = new HashMap<>();
+                errorDetail.put("row", rowNumber);
+                errorDetail.put("errors", List.of(e.getMessage() != null ? e.getMessage() : "Unknown error"));
+                allErrors.add(errorDetail);
+            }
+
+            // Save batch and update progress (separate transaction so polling sees it)
+            if (batch.size() >= batchSize || i == rows.size() - 1) {
+                final List<TempImportUser> toSave = new ArrayList<>(batch);
+                final int progress = i;
+                transactionTemplate.executeWithoutResult(status -> {
+                    tempImportUserRepository.saveAll(toSave);
+                    Import imp = importRepository.getReferenceById(importId);
+                    imp.setProgress(progress);
+                    importRepository.save(imp);
+                });
+                batch.clear();
+            }
+        }
+
+        // === FINALIZE: Mark cross-duplicates and set status ===
+        final int fValid = validCount;
+        final int fInvalid = invalidCount;
+        final List<Map<String, Object>> fErrors = allErrors;
+        transactionTemplate.executeWithoutResult(status -> {
+            markCrossDuplicates(importId);
+            Import imp = findById(importId);
+            imp.setErrorsText(serializeValidationResult(fErrors, List.of()));
+            imp.setStatus(ImportStatus.STATUS_VALID);
+            importRepository.save(imp);
+        });
+
+        log.info("Import {} validated (bulk): {} valid, {} invalid, {} total rows",
+                importId, fValid, fInvalid, totalRecords);
+    }
+
+    /**
+     * In-memory validation using pre-fetched lookup maps.
+     * No database queries per row — all lookups are in-memory.
+     */
+    private List<String> validateTempUserBulk(TempImportUser tempUser,
+                                               Map<String, User> emailMap,
+                                               Map<String, User> phoneMap,
+                                               Map<String, User> importStringMap,
+                                               Map<String, Integer> phoneSeen,
+                                               Map<String, Integer> emailSeen) {
+        List<String> errors = new ArrayList<>();
+
+        // Required field validation
+        if (tempUser.getPhone() == null || tempUser.getPhone().isEmpty()) {
+            errors.add("El teléfono no puede estar en blanco");
+        }
+        if (tempUser.getFirstName() == null || tempUser.getFirstName().isBlank()) {
+            errors.add("El nombre no puede estar en blanco");
+        }
+        if (tempUser.getLastName() == null || tempUser.getLastName().isBlank()) {
+            errors.add("El apellido no puede estar en blanco");
+        }
+
+        // Phone format validation
+        if (tempUser.getPhone() != null && !isValidPhone(tempUser.getPhone())) {
+            errors.add("Formato de teléfono inválido: " + tempUser.getPhone());
+        }
+
+        // Email format validation
+        if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()
+                && !isValidEmail(tempUser.getEmail())) {
+            errors.add("Formato de email inválido: " + tempUser.getEmail());
+        }
+
+        // Duplicate phone in same import (in-memory)
+        if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty()) {
+            Integer firstRow = phoneSeen.get(tempUser.getPhone());
+            if (firstRow != null) {
+                errors.add("Teléfono duplicado en importación: fila " + firstRow);
+            }
+        }
+
+        // Duplicate email in same import (in-memory)
+        if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
+            Integer firstRow = emailSeen.get(tempUser.getEmail().toLowerCase());
+            if (firstRow != null) {
+                errors.add("Email duplicado en importación: " + tempUser.getEmail());
+            }
+        }
+
+        // Email uniqueness in DB (in-memory lookup)
+        if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
+            User existingByEmail = emailMap.get(tempUser.getEmail().toLowerCase());
+            if (existingByEmail != null) {
+                User existingByPhone = findUserByPhoneInMap(tempUser, phoneMap);
+                boolean isSameUser = existingByPhone != null
+                        && existingByPhone.getId().equals(existingByEmail.getId());
+                if (!isSameUser) {
+                    errors.add("El email ya está en uso por: " + existingByEmail.getFullName()
+                            + " (Tel: " + existingByEmail.getPhone() + ")");
+                }
+            }
+        }
+
+        // Manager validation (in-memory lookup)
+        if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isBlank()) {
+            String managerKey = tempUser.getManagerEmail().trim().toLowerCase();
+            User manager = emailMap.get(managerKey);
+            if (manager == null) {
+                manager = importStringMap.get(managerKey);
+                if (manager != null) {
+                    tempUser.setManagerEmail(manager.getEmail());
+                } else {
+                    errors.add("El agente asignado no existe: " + tempUser.getManagerEmail().trim());
+                }
+            }
+        }
+
+        return errors;
+    }
+
+    /**
+     * Phone lookup using pre-fetched map (equivalent to findUserByPhoneFlexible).
+     */
+    private User findUserByPhoneInMap(TempImportUser tempUser, Map<String, User> phoneMap) {
+        String normalizedPhone = tempUser.getNormalizedPhone();
+        if (normalizedPhone != null) {
+            User found = phoneMap.get(normalizedPhone);
+            if (found != null) return found;
+        }
+        String rawPhone = normalizePhone(tempUser.getPhone());
+        if (rawPhone != null && !rawPhone.equals(normalizedPhone)) {
+            return phoneMap.get(rawPhone);
+        }
+        return null;
+    }
+
+    /**
+     * Legacy per-row validation method.
+     * Still used by revalidate, edit, and single-user flows.
+     * For bulk imports, use validateImportWithMappingBulk instead.
      */
     @Transactional
     public void validateImportWithMapping(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {

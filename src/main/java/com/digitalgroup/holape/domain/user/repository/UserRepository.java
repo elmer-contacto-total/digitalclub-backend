@@ -224,6 +224,10 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query("SELECT u FROM User u WHERE LOWER(u.importString) = LOWER(:importString) AND u.client.id = :clientId")
     Optional<User> findByImportStringAndClientId(@Param("importString") String importString, @Param("clientId") Long clientId);
 
+    // Bulk lookup for import validation — loads all users with at least one lookup field
+    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND (u.email IS NOT NULL OR u.phone IS NOT NULL OR u.importString IS NOT NULL)")
+    List<User> findForImportLookup(@Param("clientId") Long clientId);
+
     // ==================== RAILS SCOPE EQUIVALENTS ====================
 
     // Equivalent to Rails: clients_of(user) - Standard users assigned to a manager/agent

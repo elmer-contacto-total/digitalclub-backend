@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -217,15 +218,30 @@ public class ImportAdminController {
 
         log.info("confirmMapping: importId={}, mappingSize={}, isFoh={}", id, columnMapping.size(), isFoh);
 
+        // Sync: mark as VALIDATING + delete old temp users (so frontend sees correct state immediately)
         try {
-            importService.confirmMappingAndValidate(id, columnMapping, isFoh);
+            importService.prepareForValidation(id);
         } catch (Exception e) {
-            log.error("confirmMapping FAILED for import {}: {}", id, e.getMessage(), e);
+            log.error("confirmMapping: prepareForValidation FAILED for import {}: {}", id, e.getMessage(), e);
             return ResponseEntity.internalServerError().body(Map.of(
                     "result", "error",
-                    "message", "Error validando importación: " + e.getMessage()
+                    "message", "Error preparando validación: " + e.getMessage()
             ));
         }
+
+        // Async: run validation in background thread — returns immediately
+        CompletableFuture.runAsync(() -> {
+            try {
+                importService.confirmMappingAndValidate(id, columnMapping, isFoh);
+            } catch (Exception e) {
+                log.error("Async validation FAILED for import {}: {}", id, e.getMessage(), e);
+                try {
+                    importService.markImportError(id, e.getMessage());
+                } catch (Exception e2) {
+                    log.error("Failed to mark import {} as error: {}", id, e2.getMessage());
+                }
+            }
+        });
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",
