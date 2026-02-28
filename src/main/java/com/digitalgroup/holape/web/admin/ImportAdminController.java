@@ -273,9 +273,32 @@ public class ImportAdminController {
             sendInvitationEmail = Boolean.TRUE.equals(body.get("sendInvitationEmail"));
         }
 
-        // TODO: Pass sendInvitationEmail to processImport when email sending is implemented
         log.info("Confirming import {} with sendInvitationEmail={}", id, sendInvitationEmail);
-        importService.confirmImport(id);
+
+        // Sync: validate and mark as PROCESSING (commits immediately to prevent double-click)
+        try {
+            importService.prepareForProcessing(id);
+        } catch (Exception e) {
+            log.error("confirm: prepareForProcessing FAILED for import {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", e.getMessage()
+            ));
+        }
+
+        // Async: run processing in background thread
+        CompletableFuture.runAsync(() -> {
+            try {
+                importService.processImport(id);
+            } catch (Exception e) {
+                log.error("Async processing FAILED for import {}: {}", id, e.getMessage(), e);
+                try {
+                    importService.markImportError(id, e.getMessage());
+                } catch (Exception e2) {
+                    log.error("Failed to mark import {} as error: {}", id, e2.getMessage());
+                }
+            }
+        });
 
         return ResponseEntity.ok(Map.of(
                 "result", "success",

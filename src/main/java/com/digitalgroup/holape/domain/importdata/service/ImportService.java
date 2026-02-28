@@ -397,79 +397,211 @@ public class ImportService {
     }
 
     /**
-     * Process validated import - creates actual users from TempImportUser
-     */
-    @Async
-    public void processImportAsync(Long importId) {
-        try {
-            processImport(importId);
-        } catch (Exception e) {
-            log.error("Error processing import {}", importId, e);
-            markAsFailed(importId, "Processing error: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Process validated TempImportUser records and create real users
+     * Process validated TempImportUser records and create real users.
+     * Optimized: pre-fetches phone/manager maps to eliminate per-row DB queries.
+     * Called from async context (CompletableFuture) in controller.
+     *
      * PARIDAD RAILS: usa progress, tot_records, errors_text
      * PARIDAD RAILS: User.without_auditing (create_user_import_worker.rb línea 10)
      */
     public void processImport(Long importId) {
-        Import importEntity = findById(importId);
+        // Phase 1: Load import and valid users
+        Import importEntity = transactionTemplate.execute(status -> findById(importId));
+        Long clientId = importEntity.getClient().getId();
 
-        if (importEntity.getStatus() != ImportStatus.STATUS_VALID) {
-            throw new BusinessException("Import must be validated before processing");
+        List<TempImportUser> validUsers = transactionTemplate.execute(status ->
+                tempImportUserRepository.findValidByImport(importId)
+        );
+
+        if (validUsers == null || validUsers.isEmpty()) {
+            markImportError(importId, "No valid records to process");
+            return;
         }
 
-        importEntity.setStatus(ImportStatus.STATUS_PROCESSING);
-        importEntity.setProgress(0);
-        importRepository.save(importEntity);
+        // Phase 2: Collect unique phones and manager keys from all temp users
+        Set<String> allPhones = new HashSet<>();
+        Set<String> allManagerKeys = new HashSet<>();
 
-        List<TempImportUser> validUsers = tempImportUserRepository.findValidByImport(importId);
-        List<Map<String, Object>> errors = parseErrorsText(importEntity.getErrorsText());
+        for (TempImportUser tu : validUsers) {
+            String normalizedPhone = tu.getNormalizedPhone();
+            if (normalizedPhone != null) allPhones.add(normalizedPhone);
+            String rawPhone = normalizePhone(tu.getPhone());
+            if (rawPhone != null) allPhones.add(rawPhone);
+
+            if (tu.getManagerEmail() != null && !tu.getManagerEmail().isEmpty()) {
+                allManagerKeys.add(tu.getManagerEmail().trim().toLowerCase());
+            }
+        }
+
+        // Phase 3: Pre-fetch targeted lookups (eliminates ~2 queries per row)
+        Map<String, User> phoneMap = new HashMap<>();
+        Map<String, User> managerMap = new HashMap<>();
+
+        transactionTemplate.execute(status -> {
+            if (!allPhones.isEmpty()) {
+                chunkedQuery(allPhones, chunk ->
+                        userRepository.findByClientIdAndPhoneIn(clientId, chunk)
+                ).forEach(u -> phoneMap.put(u.getPhone(), u));
+            }
+            if (!allManagerKeys.isEmpty()) {
+                chunkedQuery(allManagerKeys, chunk ->
+                        userRepository.findByClientIdAndEmailOrImportStringIn(clientId, chunk)
+                ).forEach(u -> {
+                    if (u.getEmail() != null) managerMap.put(u.getEmail().toLowerCase(), u);
+                    if (u.getImportString() != null) managerMap.put(u.getImportString().toLowerCase(), u);
+                });
+            }
+            return null;
+        });
+
+        log.info("Import {} processing: phoneMap={}, managerMap={}, totalUsers={}",
+                importId, phoneMap.size(), managerMap.size(), validUsers.size());
+
+        // Phase 4: Auto-sync CRM settings
+        transactionTemplate.execute(status -> {
+            syncCrmInfoSettings(importEntity.getClient(), validUsers);
+            return null;
+        });
+
+        // Phase 5: Process users in batches with per-batch commits
+        List<Map<String, Object>> allErrors = new ArrayList<>();
         int successCount = 0;
+        int batchSize = 100;
 
-        // Auto-sync: create CrmInfoSettings for any new custom_field keys
-        syncCrmInfoSettings(importEntity.getClient(), validUsers);
-
-        // PARIDAD RAILS: Deshabilitar auditoría durante imports (without_auditing block)
         try {
             AuditEntityListener.disableAuditing();
 
-            for (TempImportUser tempUser : validUsers) {
-                try {
-                    createOrUpdateUser(importEntity, tempUser);
-                    tempUser.setProcessed(true);
-                    tempImportUserRepository.save(tempUser);
-                    successCount++;
-                } catch (Exception e) {
-                    tempUser.addError("Creation failed: " + e.getMessage());
-                    tempImportUserRepository.save(tempUser);
+            for (int i = 0; i < validUsers.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, validUsers.size());
+                List<TempImportUser> batch = validUsers.subList(i, end);
+                List<Map<String, Object>> batchErrors = new ArrayList<>();
 
-                    Map<String, Object> errorDetail = new HashMap<>();
-                    // PARIDAD RAILS: Usar phoneOrder como indicador de fila
-                    errorDetail.put("row", tempUser.getPhoneOrder());
-                    errorDetail.put("phone", tempUser.getPhone());
-                    errorDetail.put("error", e.getMessage());
-                    errors.add(errorDetail);
-                }
+                int batchSuccess = transactionTemplate.execute(status -> {
+                    int localSuccess = 0;
+                    for (TempImportUser tempUser : batch) {
+                        try {
+                            createOrUpdateUserBulk(importEntity, tempUser, phoneMap, managerMap);
+                            tempUser.setProcessed(true);
+                            tempImportUserRepository.save(tempUser);
+                            localSuccess++;
+                        } catch (Exception e) {
+                            tempUser.addError("Creation failed: " + e.getMessage());
+                            tempImportUserRepository.save(tempUser);
 
-                importEntity.setProgress(importEntity.getProgress() + 1);
+                            Map<String, Object> errorDetail = new HashMap<>();
+                            errorDetail.put("row", tempUser.getPhoneOrder());
+                            errorDetail.put("phone", tempUser.getPhone());
+                            errorDetail.put("error", e.getMessage());
+                            batchErrors.add(errorDetail);
+                        }
+                    }
+                    return localSuccess;
+                });
 
-                if (importEntity.getProgress() % 50 == 0) {
-                    importRepository.save(importEntity);
-                }
+                successCount += batchSuccess;
+                allErrors.addAll(batchErrors);
+
+                // Update progress (visible to polling)
+                final int progress = end;
+                transactionTemplate.execute(status -> {
+                    Import imp = importRepository.findById(importId).orElse(null);
+                    if (imp != null) {
+                        imp.setProgress(progress);
+                        importRepository.save(imp);
+                    }
+                    return null;
+                });
             }
         } finally {
             AuditEntityListener.enableAuditing();
         }
 
-        importEntity.setStatus(ImportStatus.STATUS_COMPLETED);
-        importEntity.setErrorsText(serializeErrors(errors));
-        importRepository.save(importEntity);
+        // Phase 6: Mark as completed
+        final int finalSuccessCount = successCount;
+        final List<Map<String, Object>> finalErrors = allErrors;
+        transactionTemplate.execute(status -> {
+            Import imp = importRepository.findById(importId).orElse(null);
+            if (imp != null) {
+                imp.setStatus(ImportStatus.STATUS_COMPLETED);
+                imp.setProgress(validUsers.size());
+                imp.setErrorsText(serializeErrors(finalErrors));
+                importRepository.save(imp);
+            }
+            return null;
+        });
 
         log.info("Import {} completed: {} success, {} errors",
-                importId, successCount, errors.size());
+                importId, finalSuccessCount, allErrors.size());
+    }
+
+    /**
+     * Create or update user from TempImportUser using pre-fetched maps.
+     * Eliminates per-row DB queries for phone/manager lookups.
+     */
+    private void createOrUpdateUserBulk(Import importEntity, TempImportUser tempUser,
+                                         Map<String, User> phoneMap, Map<String, User> managerMap) {
+        String normalizedPhone = tempUser.getNormalizedPhone();
+
+        // Find existing user from pre-fetched map
+        User user = findUserByPhoneInMap(tempUser, phoneMap);
+        boolean isNewUser = (user == null);
+
+        if (isNewUser) {
+            user = new User();
+            user.setClient(importEntity.getClient());
+            user.setPhone(normalizedPhone);
+            user.setFirstName(tempUser.getFirstName());
+            user.setLastName(tempUser.getLastName());
+            user.setEmail(tempUser.getEmail());
+
+            String randomPassword = UUID.randomUUID().toString().substring(0, 12);
+            user.setEncryptedPassword(passwordEncoder.encode(randomPassword));
+            user.setUuidToken(UUID.randomUUID().toString());
+        } else {
+            if (tempUser.getFirstName() != null) user.setFirstName(tempUser.getFirstName());
+            if (tempUser.getLastName() != null) user.setLastName(tempUser.getLastName());
+            if (tempUser.getEmail() != null) user.setEmail(tempUser.getEmail());
+        }
+
+        // PARIDAD RAILS: Apply role
+        if (tempUser.getRole() != null && !tempUser.getRole().isBlank()) {
+            user.setRole(UserRole.fromString(tempUser.getRole()));
+        } else if (isNewUser) {
+            user.setRole(UserRole.STANDARD);
+        }
+
+        // PARIDAD RAILS: Apply codigo
+        if (tempUser.getCodigo() != null && !tempUser.getCodigo().isBlank()) {
+            user.setCodigo(tempUser.getCodigo());
+        }
+
+        // PARIDAD RAILS: Apply importId
+        user.setImportId(importEntity.getId());
+
+        // Set manager from pre-fetched map (no DB query)
+        if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isEmpty()) {
+            User manager = managerMap.get(tempUser.getManagerEmail().trim().toLowerCase());
+            if (manager != null) {
+                user.setManager(manager);
+            }
+        }
+
+        // Unified storage: ALL extra fields → user.custom_fields (JSONB)
+        Map<String, Object> cf = new HashMap<>();
+        if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) {
+            cf.putAll(tempUser.getCrmFields());
+        }
+        if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) {
+            cf.putAll(tempUser.getCustomFields());
+        }
+        user.setCustomFields(cf);
+
+        User savedUser = userRepository.save(user);
+
+        // Update phoneMap so subsequent users with same phone reference this user
+        if (isNewUser && savedUser.getPhone() != null) {
+            phoneMap.put(savedUser.getPhone(), savedUser);
+        }
     }
 
     /**
@@ -2416,10 +2548,12 @@ public class ImportService {
     }
 
     /**
-     * Confirm and process validated import
+     * Prepare import for processing — sync step before async processing.
+     * Validates status, checks for valid records, and sets STATUS_PROCESSING.
+     * Committed immediately to prevent double-click race conditions.
      */
     @Transactional
-    public void confirmImport(Long importId) {
+    public void prepareForProcessing(Long importId) {
         Import importEntity = findById(importId);
 
         if (importEntity.getStatus() != ImportStatus.STATUS_VALID) {
@@ -2431,8 +2565,9 @@ public class ImportService {
             throw new BusinessException("No valid records to import");
         }
 
-        // Trigger async processing
-        processImportAsync(importId);
+        importEntity.setStatus(ImportStatus.STATUS_PROCESSING);
+        importEntity.setProgress(0);
+        importRepository.save(importEntity);
     }
 
     // ========== CRM Info Settings Auto-Sync ==========
