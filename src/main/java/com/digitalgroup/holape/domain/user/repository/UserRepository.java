@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -224,9 +225,15 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query("SELECT u FROM User u WHERE LOWER(u.importString) = LOWER(:importString) AND u.client.id = :clientId")
     Optional<User> findByImportStringAndClientId(@Param("importString") String importString, @Param("clientId") Long clientId);
 
-    // Bulk lookup for import validation — loads all users with at least one lookup field
-    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND (u.email IS NOT NULL OR u.phone IS NOT NULL OR u.importString IS NOT NULL)")
-    List<User> findForImportLookup(@Param("clientId") Long clientId);
+    // Targeted bulk lookups for import validation — only fetch matching users, not ALL
+    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND u.phone IN :phones")
+    List<User> findByClientIdAndPhoneIn(@Param("clientId") Long clientId, @Param("phones") Collection<String> phones);
+
+    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND LOWER(u.email) IN :emails")
+    List<User> findByClientIdAndEmailIn(@Param("clientId") Long clientId, @Param("emails") Collection<String> emails);
+
+    @Query("SELECT u FROM User u WHERE u.client.id = :clientId AND (LOWER(u.email) IN :keys OR LOWER(u.importString) IN :keys)")
+    List<User> findByClientIdAndEmailOrImportStringIn(@Param("clientId") Long clientId, @Param("keys") Collection<String> keys);
 
     // ==================== RAILS SCOPE EQUIVALENTS ====================
 

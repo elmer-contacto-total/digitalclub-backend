@@ -1984,9 +1984,12 @@ public class ImportService {
     }
 
     /**
-     * Optimized bulk validation: pre-fetches client users, validates in memory,
-     * saves in batches with incremental progress visible to polling.
-     * Replaces the old per-row-query approach (~50,000 queries → ~10 queries).
+     * Optimized bulk validation: two-phase approach.
+     * Phase 1: Create TempImportUsers in memory, collect unique phones/emails/managers.
+     * Phase 2: Run targeted queries only for values found in the CSV (not ALL client users).
+     * Phase 3: Validate using in-memory lookup maps.
+     * Phase 4: Batch save with incremental progress visible to polling.
+     * Replaces the old per-row-query approach (~50,000 queries → ~5 queries).
      */
     public void validateImportWithMappingBulk(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {
         // Parse CSV (no transaction needed)
@@ -2010,90 +2013,131 @@ public class ImportService {
             importRepository.save(imp);
         });
 
-        // === PRE-FETCH: Load all client users for in-memory lookups (1 query) ===
-        log.info("Import {}: pre-fetching client users for clientId={}", importId, clientId);
-        List<User> clientUsers = userRepository.findForImportLookup(clientId);
-
-        Map<String, User> emailMap = new HashMap<>();    // lowercase email → User
-        Map<String, User> phoneMap = new HashMap<>();    // phone → User
-        Map<String, User> importStringMap = new HashMap<>(); // lowercase importString → User
-
-        for (User u : clientUsers) {
-            if (u.getEmail() != null && !u.getEmail().isEmpty()) {
-                emailMap.put(u.getEmail().toLowerCase(), u);
-            }
-            if (u.getPhone() != null && !u.getPhone().isEmpty()) {
-                phoneMap.put(u.getPhone(), u);
-            }
-            if (u.getImportString() != null && !u.getImportString().isEmpty()) {
-                importStringMap.put(u.getImportString().toLowerCase(), u);
-            }
-        }
-        log.info("Import {}: pre-fetched {} users ({} emails, {} phones, {} importStrings)",
-                importId, clientUsers.size(), emailMap.size(), phoneMap.size(), importStringMap.size());
-
-        // === PROCESS ROWS: Create TempImportUsers with in-memory validation ===
-        Map<String, Integer> phoneSeen = new HashMap<>();  // phone → first row number
-        Map<String, Integer> emailSeen = new HashMap<>();  // email → first row number
-        List<TempImportUser> batch = new ArrayList<>();
-        List<Map<String, Object>> allErrors = new ArrayList<>();
-        int validCount = 0;
-        int invalidCount = 0;
-        int batchSize = 500;
+        // === PHASE 1: Create TempImportUsers in memory, collect unique values ===
+        log.info("Import {}: phase 1 — creating temp users in memory ({} rows)", importId, totalRecords);
+        List<TempImportUser> allTempUsers = new ArrayList<>(totalRecords);
+        Set<String> allPhones = new HashSet<>();     // all phone variants for lookup
+        Set<String> allEmails = new HashSet<>();     // all lowercase emails
+        Set<String> allManagerKeys = new HashSet<>(); // all manager email/importString keys
 
         for (int i = 1; i < rows.size(); i++) {
             String[] values = rows.get(i);
             int rowNumber = i + 1;
-
             try {
                 TempImportUser tempUser = createTempImportUser(
                         importEntity, columnMapping, headers, values, rowNumber);
+                allTempUsers.add(tempUser);
 
-                List<String> validationErrors = validateTempUserBulk(
-                        tempUser, emailMap, phoneMap, importStringMap, phoneSeen, emailSeen);
-
-                if (validationErrors.isEmpty()) {
-                    validCount++;
-                } else {
-                    tempUser.setErrorMessage(String.join("; ", validationErrors));
-                    invalidCount++;
-                    Map<String, Object> errorDetail = new HashMap<>();
-                    errorDetail.put("row", rowNumber);
-                    errorDetail.put("errors", validationErrors);
-                    errorDetail.put("phone", tempUser.getPhone());
-                    allErrors.add(errorDetail);
-                }
-
-                // Track for duplicate detection
+                // Collect phone variants for lookup
                 if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty()) {
-                    phoneSeen.putIfAbsent(tempUser.getPhone(), rowNumber);
+                    allPhones.add(tempUser.getPhone());
+                    String normalized = tempUser.getNormalizedPhone();
+                    if (normalized != null) allPhones.add(normalized);
+                    String raw = normalizePhone(tempUser.getPhone());
+                    if (raw != null) allPhones.add(raw);
                 }
+                // Collect emails
                 if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
-                    emailSeen.putIfAbsent(tempUser.getEmail().toLowerCase(), rowNumber);
+                    allEmails.add(tempUser.getEmail().toLowerCase());
                 }
-
-                batch.add(tempUser);
-
+                // Collect manager keys
+                if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isBlank()) {
+                    allManagerKeys.add(tempUser.getManagerEmail().trim().toLowerCase());
+                }
             } catch (Exception e) {
+                // Create placeholder for errored rows
+                TempImportUser errorUser = new TempImportUser();
+                errorUser.setUserImport(importEntity);
+                errorUser.setPhoneOrder(rowNumber);
+                errorUser.setProcessed(false);
+                errorUser.setErrorMessage(e.getMessage() != null ? e.getMessage() : "Error parseando fila");
+                allTempUsers.add(errorUser);
+            }
+        }
+
+        // === PHASE 2: Targeted queries — only fetch users matching CSV data ===
+        log.info("Import {}: phase 2 — targeted lookups (phones={}, emails={}, managers={})",
+                importId, allPhones.size(), allEmails.size(), allManagerKeys.size());
+
+        Map<String, User> phoneMap = new HashMap<>();
+        Map<String, User> emailMap = new HashMap<>();
+        Map<String, User> managerMap = new HashMap<>(); // by email or importString
+
+        if (!allPhones.isEmpty()) {
+            chunkedQuery(allPhones, chunk ->
+                    userRepository.findByClientIdAndPhoneIn(clientId, chunk)
+            ).forEach(u -> phoneMap.put(u.getPhone(), u));
+        }
+        if (!allEmails.isEmpty()) {
+            chunkedQuery(allEmails, chunk ->
+                    userRepository.findByClientIdAndEmailIn(clientId, chunk)
+            ).forEach(u -> {
+                if (u.getEmail() != null) emailMap.put(u.getEmail().toLowerCase(), u);
+            });
+        }
+        if (!allManagerKeys.isEmpty()) {
+            chunkedQuery(allManagerKeys, chunk ->
+                    userRepository.findByClientIdAndEmailOrImportStringIn(clientId, chunk)
+            ).forEach(u -> {
+                if (u.getEmail() != null) managerMap.put(u.getEmail().toLowerCase(), u);
+                if (u.getImportString() != null) managerMap.put(u.getImportString().toLowerCase(), u);
+            });
+        }
+
+        log.info("Import {}: lookup results — phoneMap={}, emailMap={}, managerMap={}",
+                importId, phoneMap.size(), emailMap.size(), managerMap.size());
+
+        // === PHASE 3: Validate using in-memory maps ===
+        Map<String, Integer> phoneSeen = new HashMap<>();
+        Map<String, Integer> emailSeen = new HashMap<>();
+        List<Map<String, Object>> allErrors = new ArrayList<>();
+        int validCount = 0;
+        int invalidCount = 0;
+
+        for (TempImportUser tempUser : allTempUsers) {
+            // Skip already-errored rows from phase 1
+            if (tempUser.getErrorMessage() != null) {
+                invalidCount++;
+                continue;
+            }
+
+            List<String> validationErrors = validateTempUserBulk(
+                    tempUser, emailMap, phoneMap, managerMap, phoneSeen, emailSeen);
+
+            if (validationErrors.isEmpty()) {
+                validCount++;
+            } else {
+                tempUser.setErrorMessage(String.join("; ", validationErrors));
                 invalidCount++;
                 Map<String, Object> errorDetail = new HashMap<>();
-                errorDetail.put("row", rowNumber);
-                errorDetail.put("errors", List.of(e.getMessage() != null ? e.getMessage() : "Unknown error"));
+                errorDetail.put("row", tempUser.getPhoneOrder());
+                errorDetail.put("errors", validationErrors);
+                errorDetail.put("phone", tempUser.getPhone());
                 allErrors.add(errorDetail);
             }
 
-            // Save batch and update progress (separate transaction so polling sees it)
-            if (batch.size() >= batchSize || i == rows.size() - 1) {
-                final List<TempImportUser> toSave = new ArrayList<>(batch);
-                final int progress = i;
-                transactionTemplate.executeWithoutResult(status -> {
-                    tempImportUserRepository.saveAll(toSave);
-                    Import imp = importRepository.getReferenceById(importId);
-                    imp.setProgress(progress);
-                    importRepository.save(imp);
-                });
-                batch.clear();
+            // Track for duplicate detection within import
+            if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty()) {
+                phoneSeen.putIfAbsent(tempUser.getPhone(), tempUser.getPhoneOrder());
             }
+            if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
+                emailSeen.putIfAbsent(tempUser.getEmail().toLowerCase(), tempUser.getPhoneOrder());
+            }
+        }
+
+        // === PHASE 4: Batch save with incremental progress ===
+        log.info("Import {}: phase 4 — saving {} temp users in batches", importId, allTempUsers.size());
+        int batchSize = 500;
+        for (int i = 0; i < allTempUsers.size(); i += batchSize) {
+            final int start = i;
+            final int end = Math.min(i + batchSize, allTempUsers.size());
+            final int progress = end;
+            transactionTemplate.executeWithoutResult(status -> {
+                tempImportUserRepository.saveAll(allTempUsers.subList(start, end));
+                Import imp = importRepository.getReferenceById(importId);
+                imp.setProgress(progress);
+                importRepository.save(imp);
+            });
         }
 
         // === FINALIZE: Mark cross-duplicates and set status ===
@@ -2110,6 +2154,21 @@ public class ImportService {
 
         log.info("Import {} validated (bulk): {} valid, {} invalid, {} total rows",
                 importId, fValid, fInvalid, totalRecords);
+    }
+
+    /**
+     * Execute a query in chunks to avoid exceeding DB parameter limits.
+     * Splits the input set into chunks of 2000 and concatenates results.
+     */
+    private <T> List<T> chunkedQuery(Set<String> keys, java.util.function.Function<List<String>, List<T>> queryFn) {
+        List<T> results = new ArrayList<>();
+        List<String> keyList = new ArrayList<>(keys);
+        int chunkSize = 2000;
+        for (int i = 0; i < keyList.size(); i += chunkSize) {
+            int end = Math.min(i + chunkSize, keyList.size());
+            results.addAll(queryFn.apply(keyList.subList(i, end)));
+        }
+        return results;
     }
 
     /**
