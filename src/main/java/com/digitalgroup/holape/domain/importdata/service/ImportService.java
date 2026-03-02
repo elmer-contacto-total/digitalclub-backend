@@ -1581,7 +1581,9 @@ public class ImportService {
         progress.put("errors", importEntity.getErrorsText() != null ? importEntity.getErrorsText() : "");
 
         // Calculate valid/invalid counts from TempImportUser
-        if (importEntity.getStatus() == ImportStatus.STATUS_VALID) {
+        if (importEntity.getStatus() == ImportStatus.STATUS_VALID
+                || importEntity.getStatus() == ImportStatus.STATUS_PROCESSING
+                || importEntity.getStatus() == ImportStatus.STATUS_COMPLETED) {
             progress.put("validCount", tempImportUserRepository.countValidByImport(importId));
             progress.put("invalidCount", tempImportUserRepository.countInvalidByImport(importId));
         }
