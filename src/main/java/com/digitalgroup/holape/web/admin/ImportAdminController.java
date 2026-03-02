@@ -640,6 +640,7 @@ public class ImportAdminController {
         m.put("lastName", t.getLastName());
         m.put("phone", t.getPhone());
         m.put("phoneCode", t.getPhoneCode());
+        m.put("phoneOrder", t.getPhoneOrder());
         m.put("email", t.getEmail());
         m.put("managerEmail", t.getManagerEmail());
         m.put("crmFields", t.getCrmFields());
