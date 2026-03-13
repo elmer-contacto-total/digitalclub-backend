@@ -1485,8 +1485,7 @@ public class ImportService {
      */
     private boolean isValidPhone(String phone) {
         if (phone == null || phone.isEmpty()) return false;
-        String normalized = phone.replaceAll("[^0-9]", "");
-        return normalized.length() >= 7 && normalized.length() <= 15;
+        return phone.replaceAll("[^0-9]", "").length() > 0;
     }
 
     /**
