@@ -587,6 +587,44 @@ public class ImportAdminController {
     }
 
     /**
+     * Update an existing mapping template
+     * Body: { "name": "...", "isFoh": false, "columnMapping": {...}, "headers": [...] }
+     */
+    @SuppressWarnings("unchecked")
+    @PutMapping("/mapping_templates/{templateId}")
+    public ResponseEntity<Map<String, Object>> updateMappingTemplate(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long templateId,
+            @RequestBody Map<String, Object> body) {
+
+        String name = (String) body.get("name");
+        boolean isFoh = Boolean.TRUE.equals(body.get("isFoh"));
+        Map<String, String> columnMapping = (Map<String, String>) body.get("columnMapping");
+        List<String> headers = (List<String>) body.get("headers");
+
+        if (name == null || name.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "name is required"));
+        }
+        if (columnMapping == null || columnMapping.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "columnMapping is required"));
+        }
+        if (headers == null || headers.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", "headers is required"));
+        }
+
+        try {
+            ImportMappingTemplate template = importService.updateMappingTemplate(
+                    currentUser.getClientId(), templateId, name, isFoh, columnMapping, headers);
+            Map<String, Object> response = new HashMap<>();
+            response.put("result", "success");
+            response.put("template", mapTemplateToResponse(template));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("result", "error", "message", e.getMessage()));
+        }
+    }
+
+    /**
      * Find matching templates for given headers.
      * Returns all matching templates sorted by specificity (most headers first).
      * Body: { "headers": [...], "isFoh": false }

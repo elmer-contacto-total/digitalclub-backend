@@ -2682,6 +2682,37 @@ public class ImportService {
     }
 
     /**
+     * Update an existing mapping template
+     */
+    @Transactional
+    public ImportMappingTemplate updateMappingTemplate(Long clientId, Long templateId, String name,
+                                                       boolean isFoh, Map<String, String> columnMapping,
+                                                       List<String> headers) {
+        ImportMappingTemplate template = mappingTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new ResourceNotFoundException("ImportMappingTemplate", templateId));
+
+        if (!template.getClient().getId().equals(clientId)) {
+            throw new BusinessException("Template no pertenece al cliente actual");
+        }
+
+        if (!template.getName().equals(name)) {
+            mappingTemplateRepository.findByClientIdAndName(clientId, name)
+                    .ifPresent(existing -> {
+                        throw new BusinessException("Ya existe un template con el nombre '" + name + "'");
+                    });
+        }
+
+        template.setName(name);
+        template.setIsFoh(isFoh);
+        template.setColumnMapping(columnMapping);
+        template.setHeaders(headers);
+
+        template = mappingTemplateRepository.save(template);
+        log.info("Updated mapping template '{}' (id={}) for client {}", name, templateId, clientId);
+        return template;
+    }
+
+    /**
      * Delete a mapping template
      */
     @Transactional
