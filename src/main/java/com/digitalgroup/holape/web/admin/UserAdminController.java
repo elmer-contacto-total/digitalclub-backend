@@ -116,8 +116,8 @@ public class UserAdminController {
             } else {
                 usersPage = userRepository.findStandardUsersByClientId(clientId, pageable);
             }
-        } else if (currentUser.isManager()) {
-            // manager_level_1,2,3: Only their subordinates
+        } else if (currentUser.isManager() || currentUser.isAgent()) {
+            // manager_level_1,2,3 and agent: Only their subordinates
             if (search != null && !search.isBlank()) {
                 usersPage = userRepository.searchSubordinates(currentUser.getId(), search, pageable);
             } else {
@@ -1462,6 +1462,7 @@ public class UserAdminController {
         map.put("lastName", user.getLastName());
         map.put("fullName", user.getFullName());
         map.put("phone", user.getPhone());
+        map.put("codigo", user.getCodigo());
         map.put("importString", user.getImportString());
         map.put("role", user.getRole() != null ? user.getRole().getValue() : 0);
         map.put("status", user.getStatus() != null ? user.getStatus().getValue() : 0);
