@@ -45,7 +45,8 @@ public class AuthController {
     private String universalPassword;
 
     // In-memory store for OTP sessions (in production, use Redis)
-    private final ConcurrentHashMap<String, Long> otpSessions = new ConcurrentHashMap<>();
+    private record OtpSession(Long userId, String channel) {}
+    private final ConcurrentHashMap<String, OtpSession> otpSessions = new ConcurrentHashMap<>();
 
     // ==================== WEB LOGIN ENDPOINTS ====================
 
@@ -82,16 +83,20 @@ public class AuthController {
 
         // Generate OTP session ID
         String otpSessionId = UUID.randomUUID().toString();
-        otpSessions.put(otpSessionId, user.getId());
+        String channel = (request.otpChannel() != null && !request.otpChannel().isBlank())
+                ? request.otpChannel() : "sms";
+        otpSessions.put(otpSessionId, new OtpSession(user.getId(), channel));
 
-        // Send OTP via SMS
-        otpService.generateAndSendOtp(user);
+        // Send OTP via selected channel
+        otpService.generateAndSendOtp(user, channel);
 
-        log.info("OTP sent for user: {}", request.email());
+        log.info("OTP sent for user: {} via {}", request.email(), channel);
 
         return ResponseEntity.ok(Map.of(
             "requires_otp", true,
             "otp_session_id", otpSessionId,
+            "otp_channel", channel,
+            "otp_destination", maskDestination(user, channel),
             "message", "Código de seguridad enviado"
         ));
     }
@@ -113,16 +118,16 @@ public class AuthController {
                     .body(Map.of("error", "Código de seguridad requerido"));
         }
 
-        // Get user ID from session
-        Long userId = otpSessions.get(request.otpSessionId());
-        if (userId == null) {
+        // Get session
+        OtpSession session = otpSessions.get(request.otpSessionId());
+        if (session == null) {
             log.warn("Invalid OTP session: {}", request.otpSessionId());
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Sesión inválida o expirada"));
         }
 
         // Find user
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userRepository.findById(session.userId()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Usuario no encontrado"));
@@ -179,27 +184,32 @@ public class AuthController {
                     .body(Map.of("error", "Sesión inválida"));
         }
 
-        // Get user ID from session
-        Long userId = otpSessions.get(request.otpSessionId());
-        if (userId == null) {
+        // Get session
+        OtpSession session = otpSessions.get(request.otpSessionId());
+        if (session == null) {
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Sesión inválida o expirada"));
         }
 
         // Find user
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userRepository.findById(session.userId()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Usuario no encontrado"));
         }
 
-        // Resend OTP
-        otpService.generateAndSendOtp(user);
+        // Use provided channel or fallback to stored channel
+        String channel = (request.otpChannel() != null && !request.otpChannel().isBlank())
+                ? request.otpChannel() : session.channel();
+        otpSessions.put(request.otpSessionId(), new OtpSession(session.userId(), channel));
+        otpService.generateAndSendOtp(user, channel);
 
-        log.info("OTP resent for user: {}", user.getEmail());
+        log.info("OTP resent for user: {} via {}", user.getEmail(), channel);
 
         return ResponseEntity.ok(Map.of(
             "success", true,
+            "otp_channel", channel,
+            "otp_destination", maskDestination(user, channel),
             "message", "Código de seguridad reenviado"
         ));
     }
@@ -400,10 +410,24 @@ public class AuthController {
         return null;
     }
 
+    // ==================== PRIVATE HELPERS ====================
+
+    private String maskDestination(User user, String channel) {
+        if ("email".equals(channel)) {
+            String email = user.getEmail();
+            int at = email.indexOf('@');
+            String local = at > 2 ? email.substring(0, 2) + "***" : "***";
+            return local + email.substring(at);
+        } else {
+            String phone = user.getPhone() != null ? user.getPhone() : "";
+            return phone.length() > 4 ? "***" + phone.substring(phone.length() - 4) : "***";
+        }
+    }
+
     // ==================== REQUEST RECORDS ====================
 
-    public record WebLoginRequest(String email, String password) {}
+    public record WebLoginRequest(String email, String password, String otpChannel) {}
     public record VerifyOtpRequest(String otpSessionId, String candidateOtp) {}
-    public record ResendOtpRequest(String otpSessionId) {}
+    public record ResendOtpRequest(String otpSessionId, String otpChannel) {}
     public record AppLoginRequest(String email, String password, String phone) {}
 }

@@ -32,27 +32,40 @@ public class OtpService {
     private static final int OTP_MAX = 999999;
 
     /**
-     * Generates and sends OTP to user's phone
+     * Generates and sends OTP via the specified channel: "sms", "email", or "both"
      */
     @Transactional
-    public String generateAndSendOtp(User user) {
+    public String generateAndSendOtp(User user, String channel) {
         String otp = generateOtp();
-
-        // Save OTP to user
         user.setOtp(otp);
         userRepository.save(user);
 
-        // Send OTP via SMS (skip in dev mode)
         if (!"dev".equals(activeProfile)) {
             String message = String.format("%s es su código de seguridad de MWS", otp);
-            smsService.sendSms(user.getPhone(), message);
-            emailService.sendOtpCode(user, otp);
-            log.info("OTP sent via SMS and email to user: {}", user.getEmail());
+            if ("email".equals(channel)) {
+                emailService.sendOtpCode(user, otp);
+                log.info("OTP sent via email to user: {}", user.getEmail());
+            } else if ("sms".equals(channel)) {
+                smsService.sendSms(user.getPhone(), message);
+                log.info("OTP sent via SMS to user: {}", user.getEmail());
+            } else {
+                smsService.sendSms(user.getPhone(), message);
+                emailService.sendOtpCode(user, otp);
+                log.info("OTP sent via SMS and email to user: {}", user.getEmail());
+            }
         } else {
             log.info("DEV MODE - OTP for user {}: {}", user.getEmail(), otp);
         }
 
         return otp;
+    }
+
+    /**
+     * Backward-compatible overload — sends via SMS by default
+     */
+    @Transactional
+    public String generateAndSendOtp(User user) {
+        return generateAndSendOtp(user, "sms");
     }
 
     /**
