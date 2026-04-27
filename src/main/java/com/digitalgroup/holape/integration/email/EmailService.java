@@ -98,12 +98,13 @@ public class EmailService {
             Context context = new Context();
             context.setVariable("user", user);
             context.setVariable("otpCode", otpCode);
+            context.setVariable("appName", fromName);
 
             String htmlContent = templateEngine.process("email/otp-code", context);
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Tu código de verificación - MWS Desktop",
+                    "Tu código de verificación - " + fromName,
                     htmlContent
             );
 
