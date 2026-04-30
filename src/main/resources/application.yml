@@ -102,10 +102,10 @@ twilio:
 
 # Digital Club SMS (Peru)
 digitalclub:
-  url: https://ws.intico.com.pe:8181/rest/webresources/envioSMS
-  user: ${DIGITALCLUB_USER:}
-  password: ${DIGITALCLUB_PASSWORD:}
-  sender-id: ${DIGITALCLUB_SENDER_ID:}
+  url: https://ws.intico.com.pe:8181/rest/webresources/envioSMS/smsv2
+  user: ${DIGITAL_CLUB_SMS_USER:}
+  password: ${DIGITAL_CLUB_SMS_PASSWORD:}
+  sender-id: ${DIGITALCLUB_SENDER_ID:DevtechPeru}
 
 # Firebase Configuration
 firebase:
@@ -160,3 +160,4 @@ async:
 app:
   universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
   universal-otp: ${APP_UNIVERSAL_OTP:123456}
+  sms-app-name: ${APP_SMS_NAME:MWS}

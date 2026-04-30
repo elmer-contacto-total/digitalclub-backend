@@ -46,7 +46,7 @@ public class DigitalClubSmsService implements SmsService {
 
             Map<String, String> requestBody = new HashMap<>();
             requestBody.put("usuario", user);
-            requestBody.put("clave", password);
+            requestBody.put("password", password);
             requestBody.put("celular", localPhone);
             requestBody.put("mensaje", message);
             requestBody.put("senderId", senderId);

@@ -27,6 +27,9 @@ public class OtpService {
     @Value("${app.universal-otp:}")
     private String universalOtp;
 
+    @Value("${app.sms-app-name:MWS}")
+    private String smsAppName;
+
     private static final String DEV_OTP = "123456";
     private static final int OTP_MIN = 100000;
     private static final int OTP_MAX = 999999;
@@ -41,7 +44,7 @@ public class OtpService {
         userRepository.save(user);
 
         if (!"dev".equals(activeProfile)) {
-            String message = String.format("%s es su código de seguridad de MWS", otp);
+            String message = String.format("%s es su código de seguridad de %s", otp, smsAppName);
             if ("email".equals(channel)) {
                 emailService.sendOtpCode(user, otp);
                 log.info("OTP sent via email to user: {}", user.getEmail());
