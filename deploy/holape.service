@@ -1,0 +1,21 @@
+[Unit]
+Description=Holape backend (Spring Boot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=holape
+Group=holape
+WorkingDirectory=/opt/holape
+EnvironmentFile=/etc/holape/holape.env
+ExecStart=/usr/bin/java -Duser.timezone=America/Lima -jar /opt/holape/holape-1.0.0.jar --spring.profiles.active=prod
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/holape/app.log
+StandardError=append:/var/log/holape/app.log
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

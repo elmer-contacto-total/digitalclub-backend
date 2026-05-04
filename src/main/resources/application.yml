@@ -161,3 +161,6 @@ app:
   universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
   universal-otp: ${APP_UNIVERSAL_OTP:123456}
   sms-app-name: ${APP_SMS_NAME:MWS}
+  mail:
+    from: ${APP_MAIL_FROM:noreply@holape.com}
+    from-name: ${APP_MAIL_FROM_NAME:Holape}
