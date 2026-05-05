@@ -289,6 +289,39 @@ public class UserAdminController {
     }
 
     /**
+     * Set/change password for any user (admin operation).
+     * Extends Rails admin flow: en Rails original sólo existía self-service
+     * update_temp_password; este endpoint permite que un admin fije la
+     * contraseña de cualquier usuario del cliente.
+     */
+    @PutMapping("/{id}/password")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
+    public ResponseEntity<Map<String, Object>> updateUserPassword(
+            @PathVariable Long id,
+            @RequestBody UpdateTempPasswordRequest request) {
+
+        if (request.password() == null || request.password().length() < 8) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", "Password must be at least 8 characters"
+            ));
+        }
+        if (!request.password().equals(request.passwordConfirmation())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "error",
+                    "message", "Password confirmation does not match"
+            ));
+        }
+
+        userService.updatePasswordDirectly(id, request.password());
+
+        return ResponseEntity.ok(Map.of(
+                "result", "success",
+                "message", "Password updated successfully"
+        ));
+    }
+
+    /**
      * Delete (deactivate) user
      */
     @DeleteMapping("/{id}")
