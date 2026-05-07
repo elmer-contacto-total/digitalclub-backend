@@ -303,8 +303,26 @@ public class MessageService {
         User recipient = userRepository.findById(recipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", recipientId));
 
-        // Ensure sender user exists (reuses existing private method)
-        User sender = ensureSenderExists(senderPhone, clientId, recipient);
+        // SUPRIMIDO: ya NO se crean usuarios STANDARD automáticamente desde Electron.
+        // Si el número no está registrado en este cliente, se ignora el mensaje en backend
+        // (el agente lo sigue viendo en WhatsApp Web normalmente, pero no se crea ticket
+        // ni User auto-generado tipo "Nuevo Cliente <timestamp>"). Esta era una fuente
+        // de ruido en /app/clients y /app/agent_clients.
+        // El flujo de webhook (createIncomingMessage) SÍ sigue creando users — esa ruta
+        // viene de WhatsApp Cloud API oficial, no de Electron.
+        String normalizedPhone = normalizePhone(senderPhone);
+        Optional<User> senderOpt = userRepository.findByPhoneAndClientId(normalizedPhone, clientId);
+        if (senderOpt.isEmpty()) {
+            log.info("activateIncomingTicket: phone {} not registered for clientId {}, skipping (no auto-create)",
+                    senderPhone, clientId);
+            return Map.of(
+                    "result", "skipped",
+                    "reason", "sender_not_registered",
+                    "phone", normalizedPhone
+            );
+        }
+
+        User sender = senderOpt.get();
 
         // Only create tickets for standard users
         if (sender.getRole() != UserRole.STANDARD) {
