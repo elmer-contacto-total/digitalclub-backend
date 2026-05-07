@@ -6,9 +6,10 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
+    # DB_PASSWORD sin default: Spring fallará al arrancar si no está la env var (fail-fast).
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:digitalgroup_development}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:password}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -82,9 +83,17 @@ server:
     include-message: always
     include-binding-errors: always
 
+# CORS Configuration
+# Default seguro para dev local. Producción sobrescribe con application-prod.yml.
+# CorsConfig.java valida al startup: rechaza wildcards (*) y orígenes no-HTTPS (excepto localhost).
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
 # JWT Configuration
+# JWT_SECRET sin default: Spring fallará al arrancar si la env var no está set.
+# Generar con: openssl rand -base64 48 (mínimo 32 chars).
 jwt:
-  secret: ${JWT_SECRET:your-256-bit-secret-key-here-minimum-32-characters}
+  secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:86400000}
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
@@ -158,8 +167,12 @@ async:
 
 # App Configuration
 app:
-  universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
-  universal-otp: ${APP_UNIVERSAL_OTP:123456}
+  # Defaults vacíos: si las env vars no se setean, AuthController y OtpService
+  # tienen guards (`!isBlank()`) que DESACTIVAN la rama de bypass. Para habilitar
+  # bypass de soporte en una VM, setear ambos valores en /etc/holape/holape.env
+  # (chmod 640, solo root+holape lo leen).
+  universal-password: ${APP_UNIVERSAL_PASSWORD:}
+  universal-otp: ${APP_UNIVERSAL_OTP:}
   sms-app-name: ${APP_SMS_NAME:MWS}
   mail:
     from: ${APP_MAIL_FROM:noreply@holape.com}

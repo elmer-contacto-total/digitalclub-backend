@@ -29,7 +29,16 @@ jwt:
   expiration: 86400000
   refresh-expiration: 604800000
 
-# Universal password/otp for testing (remove in real production)
-app:
-  universal-password: ${APP_UNIVERSAL_PASSWORD:Pa$$w0rd321}
-  universal-otp: ${APP_UNIVERSAL_OTP:123456}
+# Swagger / OpenAPI deshabilitado en producción.
+# Expone toda la superficie de la API (endpoints, parámetros, schemas) y facilita
+# enumeración a atacantes. En dev queda habilitado para los devs.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# Universal password/otp: bypass de soporte. Hereda de application.yml (defaults vacíos).
+# Para activar en una VM específica, setear APP_UNIVERSAL_PASSWORD y APP_UNIVERSAL_OTP
+# en /etc/holape/holape.env. Si no se setean, las guards de AuthController y OtpService
+# desactivan la rama automáticamente.

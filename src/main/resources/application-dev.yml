@@ -1,4 +1,12 @@
 # Development Profile Configuration
+#
+# IMPORTANTE: este archivo NO debe contener secretos literales.
+# Los valores reales se inyectan vía variables de entorno al arrancar:
+#   export DB_HOST=... DB_USERNAME=... DB_PASSWORD=... JWT_SECRET=...
+# Si una env var falta, Spring Boot fallará al arrancar (fail-fast).
+#
+# Para desarrollo local apunta a tu Postgres en localhost.
+# Genera un JWT_SECRET aleatorio con: openssl rand -base64 48
 spring:
   jpa:
     show-sql: true
@@ -6,18 +14,11 @@ spring:
       hibernate:
         format_sql: true
 
-  datasource:
-    url: jdbc:postgresql://digital-club-test.clbzi5ldkemb.us-east-1.rds.amazonaws.com:5432/digital_club_staging
-    username: postgres
-    password: Digitalgroup1!
+  # Datasource hereda de application.yml (lee DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD)
 
   # Flyway migrations enabled for development
   flyway:
     enabled: true
-
-# Universal password para desarrollo (bypass password check)
-app:
-  universal-password: test123
 
 logging:
   level:
@@ -26,7 +27,4 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
     org.springframework.web: DEBUG
 
-# Development-specific JWT (shorter secret for dev)
-jwt:
-  secret: dev-secret-key-minimum-32-characters-long
-  expiration: 86400000
+# JWT en dev hereda de application.yml (lee JWT_SECRET del env, sin default).

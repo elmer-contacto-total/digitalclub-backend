@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.time.Duration;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -51,6 +52,36 @@ public class S3StorageService {
 
     private S3Client s3Client;
     private S3Presigner presigner;
+
+    /**
+     * Whitelist global de extensiones aceptadas. Cubre todos los tipos legítimos
+     * que la app maneja: imágenes/audio/video/docs/CSVs (uploads de usuario y
+     * media de WhatsApp) e instaladores Electron (.exe/.msi/.dmg/.deb/.rpm).
+     *
+     * Excluido a propósito: SVG (vector XSS clásico, contiene XML+JS ejecutable),
+     * HTML/JS/PHP/JSP (ejecutables en el navegador o servidor).
+     *
+     * Si un caller necesita una whitelist más estricta (ej: avatares solo imágenes),
+     * debe validar antes de invocar uploadFile (ver AppVersionAdminController para
+     * el patrón de installers).
+     */
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            // Imágenes
+            "jpg", "jpeg", "png", "gif", "webp", "bmp",
+            // Audio (incluye formatos WhatsApp)
+            "mp3", "ogg", "opus", "m4a", "aac", "wav", "amr",
+            // Video (incluye formatos WhatsApp)
+            "mp4", "webm", "mov", "3gp", "avi", "mkv",
+            // Documentos
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+            "txt", "rtf", "odt", "ods",
+            // Datos / importación
+            "csv", "tsv", "json", "xml",
+            // Comprimidos
+            "zip",
+            // Instaladores Electron
+            "exe", "msi", "dmg", "appimage", "deb", "rpm"
+    );
 
     @PostConstruct
     public void initialize() {
@@ -88,13 +119,13 @@ public class S3StorageService {
             throw new IllegalStateException("S3 Storage is not enabled");
         }
 
-        String originalFilename = file.getOriginalFilename();
-        String extension = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-        }
+        // Sanitización defensiva del filename y folder antes de construir la key.
+        // El nombre original NUNCA se incluye literal en la key — solo la extensión
+        // validada. Eso elimina path traversal, header injection y caracteres raros.
+        String safeExtension = validateAndExtractExtension(file.getOriginalFilename());
+        String safeFolder = sanitizeFolder(folder);
 
-        String key = folder + "/" + UUID.randomUUID().toString() + extension;
+        String key = safeFolder + "/" + UUID.randomUUID().toString() + "." + safeExtension;
 
         try {
             PutObjectRequest request = PutObjectRequest.builder()
@@ -115,6 +146,50 @@ public class S3StorageService {
     }
 
     /**
+     * Valida el filename: bloquea control chars, path traversal y extensiones
+     * fuera de la whitelist. Devuelve la extensión sanitizada (lowercase, sin punto).
+     */
+    private String validateAndExtractExtension(String filename) {
+        if (filename == null || filename.isBlank()) {
+            throw new IllegalArgumentException("Filename is required");
+        }
+        if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+            throw new IllegalArgumentException("Filename contains path separators");
+        }
+        // Caracteres de control (\r \n \t \0 ...): inyección de headers, ASCII art ataques
+        if (filename.matches(".*[\\x00-\\x1f].*")) {
+            throw new IllegalArgumentException("Filename contains control characters");
+        }
+        int dotIdx = filename.lastIndexOf('.');
+        if (dotIdx < 0 || dotIdx >= filename.length() - 1) {
+            throw new IllegalArgumentException("Filename must have an extension");
+        }
+        String ext = filename.substring(dotIdx + 1).toLowerCase();
+        if (!ALLOWED_EXTENSIONS.contains(ext)) {
+            throw new IllegalArgumentException("File extension not allowed: " + ext);
+        }
+        return ext;
+    }
+
+    /**
+     * Sanitiza el folder: solo letras/números/guiones/underscores/slashes.
+     * Bloquea path traversal y rutas absolutas.
+     */
+    private String sanitizeFolder(String folder) {
+        if (folder == null || folder.isBlank()) {
+            return "uploads";
+        }
+        if (folder.contains("..") || folder.startsWith("/") || folder.startsWith("\\")) {
+            throw new IllegalArgumentException("Folder path is invalid");
+        }
+        if (!folder.matches("[a-zA-Z0-9_/-]+")) {
+            throw new IllegalArgumentException(
+                    "Folder must contain only letters, numbers, underscores, hyphens and slashes");
+        }
+        return folder;
+    }
+
+    /**
      * Upload file from input stream
      */
     public String uploadFile(InputStream inputStream, String folder, String filename, String contentType, long contentLength) throws IOException {
@@ -122,7 +197,11 @@ public class S3StorageService {
             throw new IllegalStateException("S3 Storage is not enabled");
         }
 
-        String key = folder + "/" + UUID.randomUUID().toString() + "_" + filename;
+        // Mismas validaciones que el overload MultipartFile.
+        String safeExtension = validateAndExtractExtension(filename);
+        String safeFolder = sanitizeFolder(folder);
+
+        String key = safeFolder + "/" + UUID.randomUUID().toString() + "." + safeExtension;
 
         try {
             PutObjectRequest request = PutObjectRequest.builder()

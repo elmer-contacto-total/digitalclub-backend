@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -24,6 +25,7 @@ public class PasswordController {
 
     private final UserRepository userRepository;
     private final UserService userService;
+    private final PasswordEncoder passwordEncoder;
 
     /**
      * Request password reset email
@@ -100,12 +102,13 @@ public class PasswordController {
     }
 
     /**
-     * Change password for authenticated user (typically for temp password flow)
+     * Change password for authenticated user.
      * PUT /api/v1/password/change
-     * Equivalent to Rails: UsersController#update_temp_password
      *
-     * PARIDAD RAILS: Rails NO valida current_password en update_temp_password,
-     * solo requiere password y password_confirmation con mínimo 8 caracteres.
+     * SECURITY: requiere current_password obligatorio para prevenir que un atacante
+     * con un token JWT robado pueda cambiar la contraseña sin conocer la actual.
+     * Excepción: usuarios con temp_password (primer login) no necesitan current_password,
+     * porque su "actual" es la temp asignada por el admin.
      */
     @PutMapping("/change")
     public ResponseEntity<?> changePassword(
@@ -114,22 +117,24 @@ public class PasswordController {
 
         log.info("Password change requested");
 
-        // Get user ID from authenticated principal
         if (currentUser == null) {
             return ResponseEntity.status(401)
                     .body(Map.of("error", "No autenticado"));
         }
         Long userId = currentUser.getId();
 
-        // PARIDAD RAILS: current_password es opcional (Rails no lo valida en update_temp_password)
-        // Solo lo usamos si se proporciona para validación adicional
+        // Cargar usuario para validar current_password contra el hash almacenado
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("error", "Usuario no encontrado"));
+        }
 
         if (request.password() == null || request.password().isBlank()) {
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Nueva contraseña es requerida"));
         }
 
-        // PARIDAD RAILS: 8 caracteres mínimo (línea 188 de admin/users_controller.rb)
         if (request.password().length() < 8) {
             return ResponseEntity.status(422)
                     .body(Map.of("error", "La contraseña debe tener al menos 8 caracteres"));
@@ -140,9 +145,28 @@ public class PasswordController {
                     .body(Map.of("error", "Las contraseñas no coinciden"));
         }
 
+        // Validación de current_password.
+        // Excepción: si el usuario tiene temp_password activo (primer login forzado),
+        // no se exige current_password — la temp ya fue validada al login.
+        boolean hasTempPassword = user.getTempPassword() != null && !user.getTempPassword().isBlank();
+        if (!hasTempPassword) {
+            if (request.current_password() == null || request.current_password().isBlank()) {
+                return ResponseEntity.status(422)
+                        .body(Map.of("error", "La contraseña actual es requerida"));
+            }
+            if (!passwordEncoder.matches(request.current_password(), user.getEncryptedPassword())) {
+                log.warn("Password change failed: current_password mismatch for user {}", userId);
+                return ResponseEntity.status(422)
+                        .body(Map.of("error", "La contraseña actual es incorrecta"));
+            }
+            // Defensa adicional: la nueva debe ser distinta de la actual
+            if (request.current_password().equals(request.password())) {
+                return ResponseEntity.status(422)
+                        .body(Map.of("error", "La nueva contraseña debe ser diferente de la actual"));
+            }
+        }
+
         try {
-            // PARIDAD RAILS: Solo actualizar password directamente (como Rails hace)
-            // El servicio maneja temp_password=null e initial_password_changed=true
             userService.updatePasswordDirectly(userId, request.password());
 
             return ResponseEntity.ok(Map.of(

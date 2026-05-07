@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -112,8 +113,12 @@ public class TicketAdminController {
      * Get ticket by ID
      */
     @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> show(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> show(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long id) {
         Ticket ticket = ticketService.findById(id);
+        requireTicketOwnership(ticket, currentUser);
+
         Map<String, Object> response = mapTicketToResponse(ticket);
 
         // Include messages
@@ -132,7 +137,12 @@ public class TicketAdminController {
     @PostMapping("/close")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT')")
     public ResponseEntity<Map<String, Object>> closeTicket(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody CloseTicketRequest request) {
+
+        // Validar ownership ANTES de mutar (cargar ticket primero, no usar service.closeTicket directo)
+        Ticket existing = ticketService.findById(request.ticketId());
+        requireTicketOwnership(existing, currentUser);
 
         Ticket ticket = ticketService.closeTicket(request.ticketId(), request.closeType(), request.notes());
 
@@ -149,8 +159,12 @@ public class TicketAdminController {
     @PostMapping("/{id}/close")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT')")
     public ResponseEntity<Map<String, Object>> closeTicketById(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestBody CloseTicketByIdRequest request) {
+
+        Ticket existing = ticketService.findById(id);
+        requireTicketOwnership(existing, currentUser);
 
         String closeType = request.closeType() != null ? request.closeType() : "manual";
         Ticket ticket = ticketService.closeTicket(id, closeType, request.notes());
@@ -168,8 +182,12 @@ public class TicketAdminController {
     @PostMapping("/{id}/reassign")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<Map<String, Object>> reassignTicket(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestBody ReassignTicketRequest request) {
+
+        Ticket existing = ticketService.findById(id);
+        requireTicketOwnership(existing, currentUser);
 
         Ticket ticket = ticketService.reassignTicket(id, request.newAgentId());
 
@@ -179,6 +197,28 @@ public class TicketAdminController {
                 "result", "success",
                 "ticket", mapTicketToResponse(ticket)
         ));
+    }
+
+    /**
+     * Valida que el ticket pertenece al cliente del usuario autenticado.
+     * SUPER_ADMIN puede acceder a tickets de cualquier cliente.
+     * Para los demás roles, el clientId del ticket debe coincidir con el del usuario.
+     * Cierra el vector IDOR multi-tenant.
+     */
+    private void requireTicketOwnership(Ticket ticket, CustomUserDetails currentUser) {
+        if (currentUser == null) {
+            throw new AccessDeniedException("No autenticado");
+        }
+        if ("SUPER_ADMIN".equals(currentUser.getRole())) {
+            return;
+        }
+        Long ticketClientId = ticket.getClient() != null ? ticket.getClient().getId() : null;
+        Long userClientId = currentUser.getClientId();
+        if (ticketClientId == null || userClientId == null || !ticketClientId.equals(userClientId)) {
+            log.warn("IDOR attempt: user {} (clientId={}) tried to access ticket {} (clientId={})",
+                    currentUser.getId(), userClientId, ticket.getId(), ticketClientId);
+            throw new AccessDeniedException("No tiene acceso a este ticket");
+        }
     }
 
     public record ReassignTicketRequest(
