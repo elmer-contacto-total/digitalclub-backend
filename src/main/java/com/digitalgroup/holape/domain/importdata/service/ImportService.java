@@ -15,6 +15,7 @@ import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.BusinessException;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
+import com.digitalgroup.holape.util.CustomFieldsUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -800,11 +801,28 @@ public class ImportService {
                     customFields.remove(unmatchedKey);
                     changed = true;
                 }
-                // Also check with "unmatched_" prefix in case stored that way
-                if (customFields.containsKey("unmatched_" + colName)) {
-                    crmFields.put(colName, String.valueOf(customFields.get("unmatched_" + colName)));
-                    customFields.remove("unmatched_" + colName);
+                // Also check with "unmatched_" prefix in case stored that way.
+                // Norma lowercase: las keys nuevas se guardan así; tolerante via getCaseInsensitive
+                // por si quedó data legacy con prefijo+uppercase.
+                String prefixedKey = "unmatched_" + CustomFieldsUtil.normalizeKey(colName);
+                if (customFields.containsKey(prefixedKey)) {
+                    crmFields.put(colName, String.valueOf(customFields.get(prefixedKey)));
+                    customFields.remove(prefixedKey);
                     changed = true;
+                } else {
+                    // Fallback case-insensitive para data legacy con "unmatched_DIST_DOM"
+                    String legacyKey = null;
+                    for (String k : customFields.keySet()) {
+                        if (("unmatched_" + colName).equalsIgnoreCase(k)) {
+                            legacyKey = k;
+                            break;
+                        }
+                    }
+                    if (legacyKey != null) {
+                        crmFields.put(colName, String.valueOf(customFields.get(legacyKey)));
+                        customFields.remove(legacyKey);
+                        changed = true;
+                    }
                 }
             }
 
@@ -1012,8 +1030,8 @@ public class ImportService {
                 // Known standard field
                 mapping.put(i, mappedField);
             } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
-                // CRM field detected by label match → suggest as custom_field
-                mapping.put(i, "custom_field:" + headerOriginal);
+                // CRM field detected by label match → suggest as custom_field (lowercase por norma)
+                mapping.put(i, "custom_field:" + CustomFieldsUtil.normalizeKey(headerOriginal));
             } else if (!header.isEmpty()) {
                 // Unmatched column — not a known field and not an existing CRM setting
                 mapping.put(i, "unmatched_" + headerOriginal);
@@ -1069,8 +1087,8 @@ public class ImportService {
                 if (mappedField != null) {
                     mapping.put(i, mappedField);
                 } else if (crmLabels.contains(headerOriginal.toLowerCase().trim())) {
-                    // CRM field detected by label match → suggest as custom_field
-                    mapping.put(i, "custom_field:" + headerOriginal);
+                    // CRM field detected by label match → suggest as custom_field (lowercase por norma)
+                    mapping.put(i, "custom_field:" + CustomFieldsUtil.normalizeKey(headerOriginal));
                 } else if (!header.isEmpty()) {
                     mapping.put(i, "unmatched_" + headerOriginal);
                     Map<String, Object> col = new HashMap<>();
@@ -1159,20 +1177,21 @@ public class ImportService {
                 case "import_string" -> crmFields.put("__import_string", value.trim());
                 default -> {
                     if (field.startsWith("custom_field:")) {
-                        // Explicit custom field: use header name as key
-                        String key = field.substring("custom_field:".length());
+                        // Explicit custom field: use header name as key (lowercase por norma)
+                        String key = CustomFieldsUtil.normalizeKey(
+                                field.substring("custom_field:".length()));
                         customFields.put(key, value);
                     } else if (field.startsWith("crm_")) {
                         crmFields.put(field.substring(4), value);
                     } else {
-                        customFields.put(field, value);
+                        customFields.put(CustomFieldsUtil.normalizeKey(field), value);
                     }
                 }
             }
 
-            // Si tiene +cf, también guardar en custom_fields con el header CSV original como key
+            // Si tiene +cf, también guardar en custom_fields con el header CSV (lowercase)
             if (alsoCustomField && headers != null && i < headers.length) {
-                customFields.put(headers[i].trim(), value);
+                customFields.put(CustomFieldsUtil.normalizeKey(headers[i]), value);
             }
         }
 
@@ -2116,10 +2135,11 @@ public class ImportService {
         Import importEntity = transactionTemplate.execute(status -> findById(importId));
         byte[] fileContent = retrieveCsvContent(importEntity);
 
-        // Convert string keys to integer keys
+        // Convert string keys to integer keys; normalizar mapping value para que
+        // los custom_field:* lleguen lowercase al pipeline interno.
         Map<Integer, String> intMapping = new HashMap<>();
         for (Map.Entry<String, String> entry : columnMapping.entrySet()) {
-            String field = entry.getValue();
+            String field = CustomFieldsUtil.normalizeMappingValue(entry.getValue());
             if (field != null && !field.isBlank() && !"ignore".equals(field)) {
                 intMapping.put(Integer.parseInt(entry.getKey()), field);
             }
@@ -2673,12 +2693,25 @@ public class ImportService {
         template.setClient(client);
         template.setName(name);
         template.setIsFoh(isFoh);
-        template.setColumnMapping(columnMapping);
+        template.setColumnMapping(normalizeTemplateMapping(columnMapping));
         template.setHeaders(headers);
 
         template = mappingTemplateRepository.save(template);
         log.info("Saved mapping template '{}' for client {}", name, clientId);
         return template;
+    }
+
+    /**
+     * Normaliza los valores "custom_field:*" del column_mapping a lowercase
+     * para mantener consistencia con la norma del sistema (keys en custom_fields lowercase).
+     */
+    private Map<String, String> normalizeTemplateMapping(Map<String, String> columnMapping) {
+        if (columnMapping == null) return null;
+        Map<String, String> normalized = new HashMap<>();
+        for (Map.Entry<String, String> e : columnMapping.entrySet()) {
+            normalized.put(e.getKey(), CustomFieldsUtil.normalizeMappingValue(e.getValue()));
+        }
+        return normalized;
     }
 
     /**
@@ -2704,7 +2737,7 @@ public class ImportService {
 
         template.setName(name);
         template.setIsFoh(isFoh);
-        template.setColumnMapping(columnMapping);
+        template.setColumnMapping(normalizeTemplateMapping(columnMapping));
         template.setHeaders(headers);
 
         template = mappingTemplateRepository.save(template);

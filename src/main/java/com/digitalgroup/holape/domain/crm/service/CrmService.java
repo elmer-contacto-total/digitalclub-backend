@@ -10,6 +10,7 @@ import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import com.digitalgroup.holape.exception.BusinessException;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
+import com.digitalgroup.holape.util.CustomFieldsUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -172,8 +173,9 @@ public class CrmService {
 
         Map<String, String> result = new LinkedHashMap<>();
         for (CrmInfoSetting s : settings) {
-            if (cf.containsKey(s.getColumnLabel())) {
-                result.put(s.getColumnLabel(), String.valueOf(cf.get(s.getColumnLabel())));
+            Object val = CustomFieldsUtil.getCaseInsensitive(cf, s.getColumnLabel());
+            if (val != null) {
+                result.put(s.getColumnLabel(), String.valueOf(val));
             }
         }
         return result;
@@ -193,8 +195,10 @@ public class CrmService {
 
         Map<String, String> result = new LinkedHashMap<>();
         for (CrmInfoSetting s : settings) {
-            if (Boolean.TRUE.equals(s.getColumnVisible()) && cf.containsKey(s.getColumnLabel())) {
-                result.put(s.getColumnLabel(), String.valueOf(cf.get(s.getColumnLabel())));
+            if (!Boolean.TRUE.equals(s.getColumnVisible())) continue;
+            Object val = CustomFieldsUtil.getCaseInsensitive(cf, s.getColumnLabel());
+            if (val != null) {
+                result.put(s.getColumnLabel(), String.valueOf(val));
             }
         }
         return result;
@@ -228,10 +232,10 @@ public class CrmService {
             throw new BusinessException("Value does not match expected type: " + setting.getColumnType());
         }
 
-        // Also write to custom_fields (unified storage)
+        // Also write to custom_fields (unified storage). Norma: keys lowercase.
         Map<String, Object> cf = user.getCustomFields();
         if (cf == null) cf = new HashMap<>();
-        cf.put(setting.getColumnLabel(), value);
+        cf.put(CustomFieldsUtil.normalizeKey(setting.getColumnLabel()), value);
         user.setCustomFields(cf);
         userRepository.save(user);
 
@@ -308,7 +312,8 @@ public class CrmService {
                         Long settingId = Long.parseLong(fieldName.substring(4));
                         CrmInfoSetting setting = settingRepository.findById(settingId).orElse(null);
                         if (setting != null && user.getCustomFields() != null) {
-                            Object val = user.getCustomFields().get(setting.getColumnLabel());
+                            Object val = CustomFieldsUtil.getCaseInsensitive(
+                                    user.getCustomFields(), setting.getColumnLabel());
                             yield val != null ? String.valueOf(val) : "";
                         }
                         yield "";
