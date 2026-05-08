@@ -492,54 +492,43 @@ public class UserAdminController {
         Pageable sortedPageable = PageRequest.of(page, pageSize, Sort.by("lastMessageAt").descending().and(Sort.by("id")));
 
         Page<User> clientsPage;
+        boolean hasSearch = search != null && !search.isBlank();
 
-        // Apply filters based on Rails agent_clients implementation
+        // Search se aplica directamente en SQL (variantes WithSearch). Antes era in-memory
+        // sobre la página ya paginada → solo encontraba matches en la primera página y
+        // el total de resultados estaba mal.
         if (ticketStatus != null && !"all".equals(ticketStatus)) {
-            // Filter by ticket status (native queries - use unsorted)
             if ("open".equals(ticketStatus)) {
-                clientsPage = userRepository.findClientsWithOpenTicketsByManager(
-                        currentUser.getId(), unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsWithOpenTicketsByManagerWithSearch(currentUser.getId(), search, unsortedPageable)
+                        : userRepository.findClientsWithOpenTicketsByManager(currentUser.getId(), unsortedPageable);
             } else { // closed
-                clientsPage = userRepository.findClientsWithoutOpenTicketsByManager(
-                        currentUser.getId(), unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsWithoutOpenTicketsByManagerWithSearch(currentUser.getId(), search, unsortedPageable)
+                        : userRepository.findClientsWithoutOpenTicketsByManager(currentUser.getId(), unsortedPageable);
             }
         } else if (messageStatus != null && !"all".equals(messageStatus)) {
-            // Filter by message response status (native queries - use unsorted)
             if ("to_respond".equals(messageStatus)) {
-                clientsPage = userRepository.findClientsRequiringResponseByManager(
-                        currentUser.getId(), unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsRequiringResponseByManagerWithSearch(currentUser.getId(), search, unsortedPageable)
+                        : userRepository.findClientsRequiringResponseByManager(currentUser.getId(), unsortedPageable);
             } else { // responded
-                clientsPage = userRepository.findClientsRespondedByManager(
-                        currentUser.getId(), unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsRespondedByManagerWithSearch(currentUser.getId(), search, unsortedPageable)
+                        : userRepository.findClientsRespondedByManager(currentUser.getId(), unsortedPageable);
             }
         } else if (Boolean.TRUE.equals(activeOnly)) {
-            // Only clients with active conversations (native query - use unsorted)
-            clientsPage = userRepository.findClientsWithActiveConversationByManager(
-                    currentUser.getId(), unsortedPageable);
+            clientsPage = hasSearch
+                    ? userRepository.findClientsWithActiveConversationByManagerWithSearch(currentUser.getId(), search, unsortedPageable)
+                    : userRepository.findClientsWithActiveConversationByManager(currentUser.getId(), unsortedPageable);
         } else {
-            // Default: ALL assigned clients — PARIDAD RAILS: current_user.subordinates (no message filter)
-            clientsPage = userRepository.findClientsOfNative(
-                    currentUser.getId(), unsortedPageable);
+            // Default: ALL assigned clients — PARIDAD RAILS: current_user.subordinates
+            clientsPage = hasSearch
+                    ? userRepository.findClientsOfNativeWithSearch(currentUser.getId(), search, unsortedPageable)
+                    : userRepository.findClientsOfNative(currentUser.getId(), unsortedPageable);
         }
 
-        // Apply search filter if provided
-        // Note: For simplicity, search is applied in the query - for now we filter in memory
-        List<User> filteredClients = clientsPage.getContent();
-        if (search != null && !search.isBlank()) {
-            String searchLower = search.toLowerCase();
-            filteredClients = filteredClients.stream()
-                    .filter(u -> {
-                        String name = u.getFullName().toLowerCase();
-                        String phone = u.getPhone() != null ? u.getPhone() : "";
-                        String codigo = u.getCodigo() != null ? u.getCodigo().toLowerCase() : "";
-                        return name.contains(searchLower) ||
-                               phone.contains(search) ||
-                               codigo.contains(searchLower);
-                    })
-                    .collect(Collectors.toList());
-        }
-
-        List<Map<String, Object>> data = filteredClients.stream()
+        List<Map<String, Object>> data = clientsPage.getContent().stream()
                 .map(this::mapUserToAgentClientResponse)
                 .collect(Collectors.toList());
 
@@ -585,54 +574,59 @@ public class UserAdminController {
         Pageable sortedPageable = PageRequest.of(page, pageSize, Sort.by("lastMessageAt").descending().and(Sort.by("id")));
 
         Page<User> clientsPage;
+        boolean hasSearch = search != null && !search.isBlank();
 
-        // Apply filters — when activeOnly is true, use combined queries that intersect with active conversation
+        // Search via SQL (variantes WithSearch). Antes era in-memory para ramas con filtros.
         if (Boolean.TRUE.equals(activeOnly)) {
             if (messageStatus != null && "to_respond".equals(messageStatus)) {
-                clientsPage = userRepository.findActiveClientsRequiringResponseByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findActiveClientsRequiringResponseByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findActiveClientsRequiringResponseByManagerIds(managerIds, unsortedPageable);
             } else if (messageStatus != null && "responded".equals(messageStatus)) {
-                clientsPage = userRepository.findActiveClientsRespondedByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findActiveClientsRespondedByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findActiveClientsRespondedByManagerIds(managerIds, unsortedPageable);
             } else if (ticketStatus != null && "open".equals(ticketStatus)) {
-                clientsPage = userRepository.findActiveClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findActiveClientsWithOpenTicketsByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findActiveClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
             } else if (ticketStatus != null && "closed".equals(ticketStatus)) {
-                clientsPage = userRepository.findActiveClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findActiveClientsWithoutOpenTicketsByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findActiveClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
             } else {
-                clientsPage = userRepository.findClientsWithActiveConversationByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsWithActiveConversationByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findClientsWithActiveConversationByManagerIds(managerIds, unsortedPageable);
             }
         } else if (ticketStatus != null && !"all".equals(ticketStatus)) {
             if ("open".equals(ticketStatus)) {
-                clientsPage = userRepository.findClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsWithOpenTicketsByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findClientsWithOpenTicketsByManagerIds(managerIds, unsortedPageable);
             } else {
-                clientsPage = userRepository.findClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsWithoutOpenTicketsByManagerIdsWithSearch(managerIds, search, unsortedPageable)
+                        : userRepository.findClientsWithoutOpenTicketsByManagerIds(managerIds, unsortedPageable);
             }
         } else if (messageStatus != null && !"all".equals(messageStatus)) {
             if ("to_respond".equals(messageStatus)) {
-                clientsPage = userRepository.findClientsRequiringResponseByManagerIds(managerIds, sortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsRequiringResponseByManagerIdsWithSearch(managerIds, search, sortedPageable)
+                        : userRepository.findClientsRequiringResponseByManagerIds(managerIds, sortedPageable);
             } else {
-                clientsPage = userRepository.findClientsRespondedByManagerIds(managerIds, sortedPageable);
+                clientsPage = hasSearch
+                        ? userRepository.findClientsRespondedByManagerIdsWithSearch(managerIds, search, sortedPageable)
+                        : userRepository.findClientsRespondedByManagerIds(managerIds, sortedPageable);
             }
         } else {
             // All clients of subordinates
-            if (search != null && !search.isBlank()) {
-                clientsPage = userRepository.findClientsByManagerIdsWithSearch(managerIds, search, sortedPageable);
-            } else {
-                clientsPage = userRepository.findClientsByManagerIds(managerIds, sortedPageable);
-            }
+            clientsPage = hasSearch
+                    ? userRepository.findClientsByManagerIdsWithSearch(managerIds, search, sortedPageable)
+                    : userRepository.findClientsByManagerIds(managerIds, sortedPageable);
         }
 
-        // Apply search filter if provided (for filtered queries)
-        List<User> filteredClients = clientsPage.getContent();
-        if (search != null && !search.isBlank() && !(ticketStatus == null && messageStatus == null && !Boolean.TRUE.equals(activeOnly))) {
-            String searchLower = search.toLowerCase();
-            filteredClients = filteredClients.stream()
-                    .filter(u -> (u.getFirstName() != null && u.getFirstName().toLowerCase().contains(searchLower)) ||
-                            (u.getLastName() != null && u.getLastName().toLowerCase().contains(searchLower)) ||
-                            (u.getPhone() != null && u.getPhone().contains(search)) ||
-                            (u.getCodigo() != null && u.getCodigo().toLowerCase().contains(searchLower)))
-                    .collect(Collectors.toList());
-        }
-
-        List<Map<String, Object>> data = filteredClients.stream()
+        List<Map<String, Object>> data = clientsPage.getContent().stream()
                 .map(this::mapUserToAgentClientResponse)
                 .collect(Collectors.toList());
 
@@ -1412,8 +1406,11 @@ public class UserAdminController {
         Pageable pageable = PageRequest.of(page - 1, pageSize, Sort.by("lastMessageAt").descending());
         Page<User> clientsPage;
 
+        // Search filtrado SOLO por los clientes del agente específico (managerId).
+        // Antes usaba searchUsers(clientId) que devolvía TODOS los users del tenant,
+        // perdiendo el filtro por manager.
         if (search != null && !search.isBlank()) {
-            clientsPage = userRepository.searchUsers(agent.getClientId(), search, pageable);
+            clientsPage = userRepository.findClientsOfWithSearch(managerId, search, pageable);
         } else {
             clientsPage = userRepository.findClientsOf(managerId, pageable);
         }

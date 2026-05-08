@@ -1103,6 +1103,419 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             nativeQuery = true)
     Page<User> findActiveClientsWithoutOpenTicketsByManagerIds(@Param("managerIds") List<Long> managerIds, Pageable pageable);
 
+    // ==================== AGENT/SUPERVISOR CLIENTS — VARIANTES CON SEARCH ====================
+    // Mismo predicado de search en todas: matchea name/phone/codigo en SQL, no en memoria.
+    // Antes el search se hacía in-memory después de paginación → solo encontraba matches en
+    // la página actual y rompía el total de resultados.
+
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id = :managerId
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.lastMessageAt DESC NULLS LAST
+            """)
+    Page<User> findClientsOfWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId
+            AND u.role = 0
+            AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsOfNativeWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            INNER JOIN tickets t ON t.user_id = u.id
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0 AND t.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            INNER JOIN tickets t ON t.user_id = u.id
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0 AND t.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithOpenTicketsByManagerWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0
+            AND u.id NOT IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0
+            AND u.id NOT IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithoutOpenTicketsByManagerWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND u.require_response = true AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at ASC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND u.require_response = true AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsRequiringResponseByManagerWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND (u.require_response = false OR u.require_response IS NULL) AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(u.id) FROM users u
+            WHERE u.manager_id = :managerId AND u.role = 0
+            AND (u.require_response = false OR u.require_response IS NULL) AND u.status = 0
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsRespondedByManagerWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            INNER JOIN messages m ON (m.sender_id = u.id OR m.recipient_id = u.id)
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0
+            AND (m.sender_id = :managerId OR m.recipient_id = :managerId)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            INNER JOIN messages m ON (m.sender_id = u.id OR m.recipient_id = u.id)
+            WHERE u.manager_id = :managerId AND u.role = 0 AND u.status = 0
+            AND (m.sender_id = :managerId OR m.recipient_id = :managerId)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithActiveConversationByManagerWithSearch(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
+
+    // ---------- supervisor (managerIds list) variantes con search ----------
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithOpenTicketsByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id NOT IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithoutOpenTicketsByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND u.requireResponse = true
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.lastMessageAt ASC NULLS LAST
+            """)
+    Page<User> findClientsRequiringResponseByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.manager.id IN :managerIds
+            AND u.role = com.digitalgroup.holape.domain.common.enums.UserRole.STANDARD
+            AND (u.requireResponse = false OR u.requireResponse IS NULL)
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            AND (
+                LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.lastMessageAt DESC NULLS LAST
+            """)
+    Page<User> findClientsRespondedByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findClientsWithActiveConversationByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.require_response = true
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at ASC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.require_response = true
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsRequiringResponseByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND (u.require_response = false OR u.require_response IS NULL)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND (u.require_response = false OR u.require_response IS NULL)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsRespondedByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsWithOpenTicketsByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT u.* FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id NOT IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            ORDER BY u.last_message_at DESC NULLS LAST
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT u.id) FROM users u
+            WHERE u.manager_id IN :managerIds AND u.role = 0 AND u.status = 0
+            AND u.id NOT IN (SELECT DISTINCT t.user_id FROM tickets t WHERE t.status = 0)
+            AND u.id IN (
+                SELECT received_messages.recipient_id FROM messages received_messages
+                WHERE received_messages.sender_id IN :managerIds
+                UNION
+                SELECT sent_messages.sender_id FROM messages sent_messages
+                WHERE sent_messages.recipient_id IN :managerIds
+            )
+            AND (
+                LOWER(CONCAT(u.first_name, ' ', COALESCE(u.last_name, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
+                OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+            )
+            """,
+            nativeQuery = true)
+    Page<User> findActiveClientsWithoutOpenTicketsByManagerIdsWithSearch(@Param("managerIds") List<Long> managerIds, @Param("search") String search, Pageable pageable);
+
     // ==================== USERS INDEX QUERIES (Rails UsersController#index) ====================
 
     /**
