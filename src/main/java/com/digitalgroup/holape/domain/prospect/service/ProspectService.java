@@ -56,6 +56,11 @@ public class ProspectService {
         return prospectRepository.findByPhoneAndClientId(normalizedPhone, clientId);
     }
 
+    public Optional<Prospect> findByIdAndClientId(Long id, Long clientId) {
+        return prospectRepository.findById(id)
+                .filter(p -> clientId.equals(p.getClientId()));
+    }
+
     public List<Prospect> findByClientId(Long clientId) {
         return prospectRepository.findByClientId(clientId);
     }

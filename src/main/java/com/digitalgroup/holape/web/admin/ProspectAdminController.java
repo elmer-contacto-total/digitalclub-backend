@@ -231,33 +231,53 @@ public class ProspectAdminController {
 
         Long clientId = currentUser.getClientId();
         List<Map<String, Object>> files = new ArrayList<>();
+        List<Map<String, Object>> skipped = new ArrayList<>();
 
-        for (ConversionGroup group : request.groups()) {
-            // Resolve template
+        for (int gIdx = 0; gIdx < request.groups().size(); gIdx++) {
+            ConversionGroup group = request.groups().get(gIdx);
+
+            // Resolve template — only templateId == null uses hardcoded FOH.
+            // Custom templates (including isFoh=true variants) honor their own headers/mapping.
             ImportMappingTemplate template = null;
             if (group.templateId() != null) {
                 template = templateRepository.findById(group.templateId())
                         .filter(t -> t.getClient().getId().equals(clientId))
                         .orElse(null);
             }
-            boolean isFoh = template == null || Boolean.TRUE.equals(template.getIsFoh());
+            boolean useHardcodedFoh = template == null;
 
             StringBuilder csv = new StringBuilder();
-            // BOM + header
-            String headerLine = isFoh ? FOH_HEADER : String.join(",", template.getHeaders());
+            String headerLine = useHardcodedFoh ? FOH_HEADER : String.join(",", template.getHeaders());
             csv.append('﻿').append(headerLine).append("\r\n");
 
             for (AssociationItem assoc : group.associations()) {
-                Prospect prospect = prospectService.findById(assoc.prospectId());
-                if (prospect == null || !clientId.equals(prospect.getClientId())) continue;
+                Optional<Prospect> prospectOpt = prospectService.findByIdAndClientId(assoc.prospectId(), clientId);
+                if (prospectOpt.isEmpty()) {
+                    skipped.add(skipEntry(assoc, "prospect_not_found_or_wrong_client"));
+                    continue;
+                }
+                Prospect prospect = prospectOpt.get();
 
                 Optional<User> userOpt = userRepository.findById(assoc.userId());
-                if (userOpt.isEmpty()) continue;
+                if (userOpt.isEmpty()) {
+                    skipped.add(skipEntry(assoc, "user_not_found"));
+                    continue;
+                }
                 User user = userOpt.get();
-                if (user.getRole() != UserRole.STANDARD) continue;
-                if (!clientId.equals(user.getClient().getId())) continue;
+                if (user.getRole() != UserRole.STANDARD) {
+                    skipped.add(skipEntry(assoc, "user_not_standard"));
+                    continue;
+                }
+                if (!clientId.equals(user.getClient().getId())) {
+                    skipped.add(skipEntry(assoc, "user_wrong_client"));
+                    continue;
+                }
+                if (userRepository.findByPhoneAndClientId(prospect.getPhone(), clientId).isPresent()) {
+                    skipped.add(skipEntry(assoc, "phone_already_exists_as_user"));
+                    continue;
+                }
 
-                String row = isFoh
+                String row = useHardcodedFoh
                         ? buildFohCsvRow(user, prospect.getPhone())
                         : buildTemplateCsvRow(user, prospect.getPhone(), template);
                 csv.append(row).append("\r\n");
@@ -265,14 +285,25 @@ public class ProspectAdminController {
 
             String templateName = template != null ? template.getName() : "FOH";
             String filename = "conversion_" + templateName.replaceAll("[^a-zA-Z0-9_-]", "_")
-                    + "_" + LocalDate.now() + ".csv";
+                    + "_g" + (gIdx + 1) + "_" + LocalDate.now() + ".csv";
             String base64 = Base64.getEncoder().encodeToString(
                     csv.toString().getBytes(StandardCharsets.UTF_8));
 
             files.add(Map.of("filename", filename, "content", base64));
         }
 
-        return ResponseEntity.ok(Map.of("files", files));
+        Map<String, Object> response = new HashMap<>();
+        response.put("files", files);
+        response.put("skipped", skipped);
+        return ResponseEntity.ok(response);
+    }
+
+    private Map<String, Object> skipEntry(AssociationItem assoc, String reason) {
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("prospectId", assoc.prospectId());
+        entry.put("userId", assoc.userId());
+        entry.put("reason", reason);
+        return entry;
     }
 
     private static final String FOH_HEADER =
@@ -330,22 +361,51 @@ public class ProspectAdminController {
         return String.join(",", cols);
     }
 
+    /**
+     * Resolve a single field value for the conversion CSV.
+     * Vocabulary aligned with ImportService.createTempImportUser so any
+     * column_mapping the Import wizard could produce resolves correctly here.
+     *
+     * Notable choices:
+     *  - "phone" returns the PROSPECT's phone (the whole point of the conversion).
+     *  - "email" returns "" so the Import auto-generates `<phone>@<client-domain>`
+     *    from the new phone (avoids reusing the base user's email and breaking
+     *    unique constraints).
+     *  - The "+cf" suffix is stripped: it's an Import-side instruction to ALSO
+     *    store the value in custom_fields; for output we just emit the value.
+     */
     private String resolveField(User user, String prospectPhone, String field) {
+        if (field == null || field.isEmpty()) return "";
+
+        // Strip "+cf" suffix — it's an Import-side directive, irrelevant for output.
+        if (field.endsWith("+cf") && !field.startsWith("custom_field:")) {
+            field = field.substring(0, field.length() - 3);
+        }
+
         return switch (field) {
             case "phone"         -> nvl(prospectPhone);
+            case "phone_code"    -> "";
             case "codigo"        -> nvl(user.getCodigo());
             case "first_name"    -> splitTwo(user.getFirstName())[0];
             case "first_name_2"  -> splitTwo(user.getFirstName())[1];
             case "last_name"     -> splitTwo(user.getLastName())[0];
             case "last_name_2"   -> splitTwo(user.getLastName())[1];
-            case "email"         -> nvl(user.getEmail());
+            case "email"         -> "";
+            case "role"          -> user.getRole() != null ? user.getRole().name().toLowerCase() : "";
+            case "manager_email" -> user.getManager() != null ? nvl(user.getManager().getEmail()) : "";
             case "import_string" -> {
                 try { yield user.getManager() != null ? nvl(user.getManager().getImportString()) : ""; }
                 catch (Exception e) { yield ""; }
             }
-            default -> field.startsWith("custom_field:")
-                    ? cf(user, field.substring("custom_field:".length()))
-                    : "";
+            default -> {
+                if (field.startsWith("custom_field:")) {
+                    yield cf(user, field.substring("custom_field:".length()));
+                }
+                if (field.startsWith("crm_")) {
+                    yield "";
+                }
+                yield "";
+            }
         };
     }
 

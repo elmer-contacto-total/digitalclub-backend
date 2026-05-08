@@ -1129,6 +1129,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                 LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
             )
             """)
     Page<User> searchUsersByClient(@Param("clientId") Long clientId, @Param("search") String search, Pageable pageable);
@@ -1146,6 +1147,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                 LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
             )
             """)
     Page<User> searchStandardUsersByClient(@Param("clientId") Long clientId, @Param("search") String search, Pageable pageable);
@@ -1173,6 +1175,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                 LOWER(CONCAT(u.firstName, ' ', COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))
                 OR u.phone LIKE CONCAT('%', :search, '%')
+                OR LOWER(COALESCE(u.codigo, '')) LIKE LOWER(CONCAT('%', :search, '%'))
             )
             """)
     Page<User> searchSubordinates(@Param("managerId") Long managerId, @Param("search") String search, Pageable pageable);
