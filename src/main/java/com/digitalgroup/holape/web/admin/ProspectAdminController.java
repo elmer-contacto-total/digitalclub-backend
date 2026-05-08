@@ -413,8 +413,19 @@ public class ProspectAdminController {
     }
 
     private String cf(User user, String key) {
-        if (user.getCustomFields() == null) return "";
+        if (user.getCustomFields() == null || key == null) return "";
         Object val = user.getCustomFields().get(key);
+        if (val == null) {
+            // Fallback case-insensitive: data legada (Rails) usa keys lowercase, pero el wizard
+            // de Spring Boot auto-sugiere "custom_field:" + headerOriginal preservando el case
+            // del CSV (ej. DIST_DOM). Esto absorbe la inconsistencia sin tocar la data.
+            for (Map.Entry<String, Object> e : user.getCustomFields().entrySet()) {
+                if (key.equalsIgnoreCase(e.getKey())) {
+                    val = e.getValue();
+                    break;
+                }
+            }
+        }
         return val != null ? val.toString() : "";
     }
 
