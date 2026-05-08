@@ -404,7 +404,10 @@ public class ProspectAdminController {
                 if (field.startsWith("crm_")) {
                     yield "";
                 }
-                yield "";
+                // Mirror ImportService.createTempImportUser: a bare unknown field
+                // is treated as a custom_field key, so templates that map e.g.
+                // DIST_DOM -> "dist_dom" (no prefix) resolve via user.customFields.
+                yield cf(user, field);
             }
         };
     }
