@@ -107,6 +107,16 @@ public class ImportService {
     // Required fields for validation
     private static final Set<String> REQUIRED_FIELDS = Set.of("phone");
 
+    // Campos que mapean a columnas reales del usuario en BD (no a custom_fields).
+    // Para estos, una celda vacía en el CSV se ignora (no se sobreescribe la columna con null).
+    // Para el resto (custom_field:*, crm_*, unmatched_*), las celdas vacías se preservan
+    // como value=null en custom_fields para no perder la presencia de la columna en el JSONB.
+    private static final Set<String> SYSTEM_FIELDS = Set.of(
+            "phone", "phone_code", "first_name", "last_name", "last_name_2",
+            "first_name_2", "email", "codigo", "role", "manager_email", "import_string",
+            "phone_order"
+    );
+
     // BOM bytes for encoding detection
     private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
     private static final byte[] UTF16_LE_BOM = {(byte) 0xFF, (byte) 0xFE};
@@ -797,7 +807,7 @@ public class ImportService {
                 // in customFields during createTempImportUser
                 String unmatchedKey = normalizeColumnName(colName);
                 if (customFields.containsKey(unmatchedKey)) {
-                    crmFields.put(colName, String.valueOf(customFields.get(unmatchedKey)));
+                    crmFields.put(colName, nullSafeString(customFields.get(unmatchedKey)));
                     customFields.remove(unmatchedKey);
                     changed = true;
                 }
@@ -806,7 +816,7 @@ public class ImportService {
                 // por si quedó data legacy con prefijo+uppercase.
                 String prefixedKey = "unmatched_" + CustomFieldsUtil.normalizeKey(colName);
                 if (customFields.containsKey(prefixedKey)) {
-                    crmFields.put(colName, String.valueOf(customFields.get(prefixedKey)));
+                    crmFields.put(colName, nullSafeString(customFields.get(prefixedKey)));
                     customFields.remove(prefixedKey);
                     changed = true;
                 } else {
@@ -819,7 +829,7 @@ public class ImportService {
                         }
                     }
                     if (legacyKey != null) {
-                        crmFields.put(colName, String.valueOf(customFields.get(legacyKey)));
+                        crmFields.put(colName, nullSafeString(customFields.get(legacyKey)));
                         customFields.remove(legacyKey);
                         changed = true;
                     }
@@ -1140,13 +1150,25 @@ public class ImportService {
             String field = columnMapping.get(i);
             if (field == null) continue;
             String value = cleanValue(values[i]);
-
-            if (value == null || value.isEmpty()) continue;
+            boolean isEmpty = (value == null || value.isEmpty());
 
             // Detectar sufijo +cf: guardar también en custom_fields con el header CSV original
             boolean alsoCustomField = field.endsWith("+cf") && !field.startsWith("custom_field:");
             if (alsoCustomField) {
                 field = field.substring(0, field.length() - 3);
+            }
+
+            // System fields (phone, email, etc.) mapean a columnas reales del usuario.
+            // Una celda vacía debe IGNORARSE para no sobreescribir el dato existente con null.
+            // Custom/CRM/unmatched fields van a custom_fields/crm_fields (JSONB): el null se
+            // preserva para mantener visible que la columna del CSV existía aunque viniera vacía.
+            boolean isSystemField = SYSTEM_FIELDS.contains(field);
+            if (isSystemField && isEmpty) {
+                // +cf con valor vacío: persistir el header en customFields con null (simetría)
+                if (alsoCustomField && headers != null && i < headers.length) {
+                    customFields.put(CustomFieldsUtil.normalizeKey(headers[i]), null);
+                }
+                continue;
             }
 
             switch (field) {
@@ -1464,6 +1486,15 @@ public class ImportService {
             value = value.substring(1, value.length() - 1);
         }
         return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * Convierte Object a String preservando null (a diferencia de String.valueOf,
+     * que devolvería el literal "null"). Útil al mover valores entre Map<String,Object>
+     * (custom_fields) y Map<String,String> (crm_fields) sin contaminar con "null".
+     */
+    private static String nullSafeString(Object value) {
+        return value == null ? null : value.toString();
     }
 
     /**
