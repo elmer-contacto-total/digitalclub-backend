@@ -55,8 +55,20 @@ public class TicketService {
 
     @Transactional(readOnly = true)
     public Ticket findById(Long id) {
-        return ticketRepository.findById(id)
+        Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket", "id", id));
+        // open-in-view=false: forzamos init de agent/user para que el controller
+        // pueda llamar ticket.getClient() (IDOR check) y mapTicketToResponse
+        // (agent_name) sin LazyInitializationException tras detach.
+        if (ticket.getAgent() != null) {
+            ticket.getAgent().getId();
+            ticket.getAgent().getFullName();
+        }
+        if (ticket.getUser() != null) {
+            ticket.getUser().getId();
+            ticket.getUser().getFullName();
+        }
+        return ticket;
     }
 
     @Transactional(readOnly = true)
