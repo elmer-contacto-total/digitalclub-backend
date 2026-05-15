@@ -182,4 +182,4 @@ app:
   base-url: ${APP_BASE_URL:https://app.holape.com}
   mail:
     from: ${APP_MAIL_FROM:noreply@holape.com}
-    from-name: ${APP_MAIL_FROM_NAME:Holape}
+    from-name: ${APP_MAIL_FROM_NAME:MWS Desktop}

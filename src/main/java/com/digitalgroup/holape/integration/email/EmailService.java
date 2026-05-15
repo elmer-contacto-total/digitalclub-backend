@@ -31,7 +31,7 @@ public class EmailService {
     @Value("${app.mail.from:noreply@holape.com}")
     private String fromEmail;
 
-    @Value("${app.mail.from-name:Holape}")
+    @Value("${app.mail.from-name:MWS Desktop}")
     private String fromName;
 
     @Value("${app.base-url:https://app.holape.com}")
@@ -49,12 +49,13 @@ public class EmailService {
             context.setVariable("tempPassword", tempPassword);
             context.setVariable("loginUrl", baseUrl + "/auth/login");
             context.setVariable("clientName", user.getClient().getName());
+            context.setVariable("appName", fromName);
 
             String htmlContent = templateEngine.process("email/invitation", context);
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Bienvenido a " + user.getClient().getName() + " - Holape",
+                    "Bienvenido a " + user.getClient().getName() + " - " + fromName,
                     htmlContent
             );
 
@@ -76,12 +77,13 @@ public class EmailService {
             // El frontend Angular sirve el reset bajo /auth/reset-password y lee
             // el token del query param `reset_password_token` (ver reset-password.component).
             context.setVariable("resetUrl", baseUrl + "/auth/reset-password?reset_password_token=" + resetToken);
+            context.setVariable("appName", fromName);
 
             String htmlContent = templateEngine.process("email/password-reset", context);
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Restablecer contraseña - Holape",
+                    "Restablecer contraseña - " + fromName,
                     htmlContent
             );
 
@@ -127,12 +129,13 @@ public class EmailService {
             context.setVariable("totalRecords", totalRecords);
             context.setVariable("successCount", successCount);
             context.setVariable("errorCount", errorCount);
+            context.setVariable("appName", fromName);
 
             String htmlContent = templateEngine.process("email/import-complete", context);
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Importación completada - Holape",
+                    "Importación completada - " + fromName,
                     htmlContent
             );
 
@@ -150,6 +153,7 @@ public class EmailService {
         try {
             Context context = new Context();
             context.setVariable("message", message);
+            context.setVariable("appName", fromName);
 
             String htmlContent = templateEngine.process("email/notification", context);
 
