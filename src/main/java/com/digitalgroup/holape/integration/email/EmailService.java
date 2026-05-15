@@ -47,7 +47,7 @@ public class EmailService {
             Context context = new Context();
             context.setVariable("user", user);
             context.setVariable("tempPassword", tempPassword);
-            context.setVariable("loginUrl", baseUrl + "/login");
+            context.setVariable("loginUrl", baseUrl + "/auth/login");
             context.setVariable("clientName", user.getClient().getName());
 
             String htmlContent = templateEngine.process("email/invitation", context);
@@ -73,7 +73,9 @@ public class EmailService {
         try {
             Context context = new Context();
             context.setVariable("user", user);
-            context.setVariable("resetUrl", baseUrl + "/reset-password?token=" + resetToken);
+            // El frontend Angular sirve el reset bajo /auth/reset-password y lee
+            // el token del query param `reset_password_token` (ver reset-password.component).
+            context.setVariable("resetUrl", baseUrl + "/auth/reset-password?reset_password_token=" + resetToken);
 
             String htmlContent = templateEngine.process("email/password-reset", context);
 
