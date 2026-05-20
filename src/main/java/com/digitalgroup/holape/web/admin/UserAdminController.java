@@ -265,6 +265,9 @@ public class UserAdminController {
             @RequestBody UpdateUserRequest request) {
 
         User updates = new User();
+        if (request.email() != null && !request.email().isBlank()) {
+            updates.setEmail(request.email().toLowerCase().trim());
+        }
         updates.setFirstName(request.firstName());
         updates.setLastName(request.lastName());
         updates.setPhone(request.phone());
@@ -1639,6 +1642,7 @@ public class UserAdminController {
     ) {}
 
     public record UpdateUserRequest(
+            String email,
             String firstName,
             String lastName,
             String phone,
