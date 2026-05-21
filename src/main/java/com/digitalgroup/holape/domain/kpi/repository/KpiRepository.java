@@ -125,6 +125,13 @@ public interface KpiRepository extends JpaRepository<Kpi, Long> {
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    @Query("SELECT k FROM Kpi k WHERE k.client.id = :clientId AND k.createdAt BETWEEN :startDate AND :endDate ORDER BY k.createdAt DESC")
+    Page<Kpi> findByClientAndDateRangePaged(
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate,
+            Pageable pageable);
+
     // Get KPI summary grouped by type (for dashboard export)
     @Query("""
             SELECT k.kpiType, SUM(k.value)

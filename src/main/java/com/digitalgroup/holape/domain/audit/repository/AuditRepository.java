@@ -58,6 +58,13 @@ public interface AuditRepository extends JpaRepository<Audit, Long> {
                                          @Param("startDate") LocalDateTime startDate,
                                          @Param("endDate") LocalDateTime endDate);
 
+    @Query("SELECT a FROM Audit a LEFT JOIN FETCH a.user u LEFT JOIN FETCH u.client WHERE u.client.id = :clientId " +
+           "AND a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")
+    Page<Audit> findByClientAndDateRangePaged(@Param("clientId") Long clientId,
+                                              @Param("startDate") LocalDateTime startDate,
+                                              @Param("endDate") LocalDateTime endDate,
+                                              Pageable pageable);
+
     /**
      * Search audits with multiple optional filters.
      * PARIDAD RAILS: Rails uses DataTables client-side search; this provides server-side equivalent.

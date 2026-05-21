@@ -177,6 +177,18 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    @Query("""
+            SELECT t FROM Ticket t
+            WHERE t.agent.client.id = :clientId
+            AND t.createdAt BETWEEN :startDate AND :endDate
+            ORDER BY t.createdAt DESC
+            """)
+    Page<Ticket> findForExportPaged(
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate,
+            Pageable pageable);
+
     // Find tickets requiring response (for RequireResponseAlertJob)
     // PARIDAD RAILS: requireResponseAt no existe en schema, usar lastMessageAt
     @Query("""

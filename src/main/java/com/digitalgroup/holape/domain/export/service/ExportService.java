@@ -12,7 +12,9 @@ import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -22,7 +24,6 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -53,28 +54,33 @@ public class ExportService {
     public byte[] exportUsersCsv(Long clientId) {
         log.info("Exporting users CSV for client {}", clientId);
 
-        List<User> users = userRepository.findByClient_Id(clientId, PageRequest.of(0, 10000)).getContent();
-
         StringBuilder csv = new StringBuilder();
-        // Header
         csv.append("id,phone,email,first_name,last_name,role,status,manager_id,manager_email,created_at,last_message_at\n");
 
-        for (User user : users) {
-            csv.append(escapeCsv(user.getId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getPhone()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getEmail()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getFirstName()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getLastName()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getRole() != null ? user.getRole().name() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getStatus() != null ? user.getStatus().name() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getManager() != null ? user.getManager().getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user.getManager() != null ? user.getManager().getEmail() : ""))
-                    .append(CSV_SEPARATOR).append(formatDate(user.getCreatedAt()))
-                    .append(CSV_SEPARATOR).append(formatDate(user.getLastMessageAt()))
-                    .append("\n");
-        }
+        int page = 0;
+        int total = 0;
+        Page<User> batch;
+        do {
+            batch = userRepository.findByClient_Id(clientId, PageRequest.of(page, BATCH_SIZE, Sort.by("id").ascending()));
+            for (User user : batch.getContent()) {
+                csv.append(escapeCsv(user.getId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getPhone()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getEmail()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getFirstName()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getLastName()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getRole() != null ? user.getRole().name() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getStatus() != null ? user.getStatus().name() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getManager() != null ? user.getManager().getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user.getManager() != null ? user.getManager().getEmail() : ""))
+                        .append(CSV_SEPARATOR).append(formatDate(user.getCreatedAt()))
+                        .append(CSV_SEPARATOR).append(formatDate(user.getLastMessageAt()))
+                        .append("\n");
+            }
+            total += batch.getNumberOfElements();
+            page++;
+        } while (batch.hasNext());
 
-        log.info("Exported {} users for client {}", users.size(), clientId);
+        log.info("Exported {} users for client {}", total, clientId);
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
@@ -84,31 +90,35 @@ public class ExportService {
     public byte[] exportTicketsCsv(Long clientId, LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Exporting tickets CSV for client {} from {} to {}", clientId, startDate, endDate);
 
-        List<Ticket> tickets = ticketRepository.findForExport(clientId, startDate, endDate);
-
         StringBuilder csv = new StringBuilder();
-        // Header
         csv.append("id,user_id,user_phone,user_name,agent_id,agent_name,status,close_type,created_at,closed_at,message_count\n");
 
-        for (Ticket ticket : tickets) {
-            User user = ticket.getUser();
-            User agent = ticket.getAgent();
+        int page = 0;
+        int total = 0;
+        Page<Ticket> batch;
+        do {
+            batch = ticketRepository.findForExportPaged(clientId, startDate, endDate, PageRequest.of(page, BATCH_SIZE));
+            for (Ticket ticket : batch.getContent()) {
+                User user = ticket.getUser();
+                User agent = ticket.getAgent();
+                csv.append(escapeCsv(ticket.getId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getPhone() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(agent != null ? agent.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(agent != null ? agent.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(ticket.getStatus() != null ? ticket.getStatus().name() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(ticket.getCloseType()))
+                        .append(CSV_SEPARATOR).append(formatDate(ticket.getCreatedAt()))
+                        .append(CSV_SEPARATOR).append(formatDate(ticket.getClosedAt()))
+                        .append(CSV_SEPARATOR).append(ticket.getMessageCount() != null ? ticket.getMessageCount() : 0)
+                        .append("\n");
+            }
+            total += batch.getNumberOfElements();
+            page++;
+        } while (batch.hasNext());
 
-            csv.append(escapeCsv(ticket.getId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getPhone() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(agent != null ? agent.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(agent != null ? agent.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(ticket.getStatus() != null ? ticket.getStatus().name() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(ticket.getCloseType()))
-                    .append(CSV_SEPARATOR).append(formatDate(ticket.getCreatedAt()))
-                    .append(CSV_SEPARATOR).append(formatDate(ticket.getClosedAt()))
-                    .append(CSV_SEPARATOR).append(ticket.getMessageCount() != null ? ticket.getMessageCount() : 0)
-                    .append("\n");
-        }
-
-        log.info("Exported {} tickets for client {}", tickets.size(), clientId);
+        log.info("Exported {} tickets for client {}", total, clientId);
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
@@ -118,26 +128,30 @@ public class ExportService {
     public byte[] exportKpisCsv(Long clientId, LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Exporting KPIs CSV for client {} from {} to {}", clientId, startDate, endDate);
 
-        List<Kpi> kpis = kpiRepository.findByClientAndDateRange(clientId, startDate, endDate);
-
         StringBuilder csv = new StringBuilder();
-        // Header
         csv.append("id,kpi_type,value,user_id,user_name,ticket_id,created_at\n");
 
-        for (Kpi kpi : kpis) {
-            User user = kpi.getUser();
+        int page = 0;
+        int total = 0;
+        Page<Kpi> batch;
+        do {
+            batch = kpiRepository.findByClientAndDateRangePaged(clientId, startDate, endDate, PageRequest.of(page, BATCH_SIZE));
+            for (Kpi kpi : batch.getContent()) {
+                User user = kpi.getUser();
+                csv.append(escapeCsv(kpi.getId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(kpi.getKpiType() != null ? kpi.getKpiType().name() : ""))
+                        .append(CSV_SEPARATOR).append(kpi.getValue() != null ? kpi.getValue() : 0)
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(kpi.getTicket() != null ? kpi.getTicket().getId() : null))
+                        .append(CSV_SEPARATOR).append(formatDate(kpi.getCreatedAt()))
+                        .append("\n");
+            }
+            total += batch.getNumberOfElements();
+            page++;
+        } while (batch.hasNext());
 
-            csv.append(escapeCsv(kpi.getId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(kpi.getKpiType() != null ? kpi.getKpiType().name() : ""))
-                    .append(CSV_SEPARATOR).append(kpi.getValue() != null ? kpi.getValue() : 0)
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(kpi.getTicket() != null ? kpi.getTicket().getId() : null))
-                    .append(CSV_SEPARATOR).append(formatDate(kpi.getCreatedAt()))
-                    .append("\n");
-        }
-
-        log.info("Exported {} KPIs for client {}", kpis.size(), clientId);
+        log.info("Exported {} KPIs for client {}", total, clientId);
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
@@ -147,27 +161,31 @@ public class ExportService {
     public byte[] exportAuditsCsv(Long clientId, LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Exporting audits CSV for client {} from {} to {}", clientId, startDate, endDate);
 
-        List<Audit> audits = auditRepository.findByClientAndDateRange(clientId, startDate, endDate);
-
         StringBuilder csv = new StringBuilder();
-        // Header
         csv.append("id,action,auditable_type,auditable_id,user_id,user_name,changes,created_at\n");
 
-        for (Audit audit : audits) {
-            User user = audit.getUser();
+        int page = 0;
+        int total = 0;
+        Page<Audit> batch;
+        do {
+            batch = auditRepository.findByClientAndDateRangePaged(clientId, startDate, endDate, PageRequest.of(page, BATCH_SIZE));
+            for (Audit audit : batch.getContent()) {
+                User user = audit.getUser();
+                csv.append(escapeCsv(audit.getId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(audit.getAction()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditableType()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditableId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditedChanges() != null ? audit.getAuditedChanges().toString() : ""))
+                        .append(CSV_SEPARATOR).append(formatDate(audit.getCreatedAt()))
+                        .append("\n");
+            }
+            total += batch.getNumberOfElements();
+            page++;
+        } while (batch.hasNext());
 
-            csv.append(escapeCsv(audit.getId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(audit.getAction()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditableType()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditableId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(user != null ? user.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(audit.getAuditedChanges() != null ? audit.getAuditedChanges().toString() : ""))
-                    .append(CSV_SEPARATOR).append(formatDate(audit.getCreatedAt()))
-                    .append("\n");
-        }
-
-        log.info("Exported {} audits for client {}", audits.size(), clientId);
+        log.info("Exported {} audits for client {}", total, clientId);
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
@@ -177,31 +195,35 @@ public class ExportService {
     public byte[] exportMessagesCsv(Long clientId, LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Exporting messages CSV for client {} from {} to {}", clientId, startDate, endDate);
 
-        List<Message> messages = messageRepository.findByClientAndDateRange(clientId, startDate, endDate);
-
         StringBuilder csv = new StringBuilder();
-        // Header
         csv.append("id,ticket_id,sender_id,sender_name,recipient_id,recipient_name,direction,content,message_type,status,created_at\n");
 
-        for (Message message : messages) {
-            User sender = message.getSender();
-            User recipient = message.getRecipient();
+        int page = 0;
+        int total = 0;
+        Page<Message> batch;
+        do {
+            batch = messageRepository.findByClientAndDateRangePaged(clientId, startDate, endDate, PageRequest.of(page, BATCH_SIZE));
+            for (Message message : batch.getContent()) {
+                User sender = message.getSender();
+                User recipient = message.getRecipient();
+                csv.append(escapeCsv(message.getId()))
+                        .append(CSV_SEPARATOR).append(escapeCsv(message.getTicket() != null ? message.getTicket().getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(sender != null ? sender.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(sender != null ? sender.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(recipient != null ? recipient.getId() : null))
+                        .append(CSV_SEPARATOR).append(escapeCsv(recipient != null ? recipient.getFullName() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(message.getDirection() != null ? message.getDirection().name() : ""))
+                        .append(CSV_SEPARATOR).append(escapeCsv(truncateContent(message.getContent())))
+                        .append(CSV_SEPARATOR).append(escapeCsv("WHATSAPP"))
+                        .append(CSV_SEPARATOR).append(escapeCsv(message.getStatus() != null ? message.getStatus().name() : ""))
+                        .append(CSV_SEPARATOR).append(formatDate(message.getCreatedAt()))
+                        .append("\n");
+            }
+            total += batch.getNumberOfElements();
+            page++;
+        } while (batch.hasNext());
 
-            csv.append(escapeCsv(message.getId()))
-                    .append(CSV_SEPARATOR).append(escapeCsv(message.getTicket() != null ? message.getTicket().getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(sender != null ? sender.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(sender != null ? sender.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(recipient != null ? recipient.getId() : null))
-                    .append(CSV_SEPARATOR).append(escapeCsv(recipient != null ? recipient.getFullName() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(message.getDirection() != null ? message.getDirection().name() : ""))
-                    .append(CSV_SEPARATOR).append(escapeCsv(truncateContent(message.getContent())))
-                    .append(CSV_SEPARATOR).append(escapeCsv("WHATSAPP"))  // PARIDAD RAILS: messageType no existe, todos son WhatsApp
-                    .append(CSV_SEPARATOR).append(escapeCsv(message.getStatus() != null ? message.getStatus().name() : ""))
-                    .append(CSV_SEPARATOR).append(formatDate(message.getCreatedAt()))
-                    .append("\n");
-        }
-
-        log.info("Exported {} messages for client {}", messages.size(), clientId);
+        log.info("Exported {} messages for client {}", total, clientId);
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 

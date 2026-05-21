@@ -53,6 +53,13 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    @Query("SELECT m FROM Message m WHERE m.sender.client.id = :clientId AND m.createdAt BETWEEN :startDate AND :endDate ORDER BY m.createdAt ASC")
+    Page<Message> findByClientAndDateRangePaged(
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate,
+            Pageable pageable);
+
     Optional<Message> findFirstByTicketIdAndDirectionOrderByCreatedAtAsc(Long ticketId, MessageDirection direction);
 
     // Last N incoming messages for a ticket (for KPI export - Rails parity)
