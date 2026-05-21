@@ -1,11 +1,7 @@
 package com.digitalgroup.holape.job;
 
-import com.digitalgroup.holape.domain.alert.entity.Alert;
-import com.digitalgroup.holape.domain.alert.repository.AlertRepository;
-import com.digitalgroup.holape.domain.alert.service.AlertService;
 import com.digitalgroup.holape.domain.client.entity.Client;
 import com.digitalgroup.holape.domain.client.service.ClientService;
-import com.digitalgroup.holape.domain.common.enums.AlertType;
 import com.digitalgroup.holape.domain.common.enums.MessageDirection;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.message.repository.MessageRepository;
@@ -22,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Require Response Alert Job
@@ -41,12 +39,13 @@ public class RequireResponseAlertJob {
     private final TicketRepository ticketRepository;
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
-    private final AlertRepository alertRepository;
     private final ClientService clientService;
-    private final AlertService alertService;
     private final WebSocketService webSocketService;
 
     private static final int DEFAULT_ALERT_MINUTES = 15;
+
+    // ticketId → timestamp of last WS notification sent (deduplication since DB alerts are disabled)
+    private final Map<Long, LocalDateTime> notifiedAt = new ConcurrentHashMap<>();
 
     /**
      * Check for tickets requiring response
@@ -94,6 +93,7 @@ public class RequireResponseAlertJob {
                                 );
                             }
 
+                            markNotified(ticket);
                             alertsCreated++;
                         }
                     } catch (Exception e) {
@@ -112,13 +112,15 @@ public class RequireResponseAlertJob {
     }
 
     private boolean hasRecentAlert(Ticket ticket) {
-        // Check if there's an unacknowledged require_response alert for this ticket
-        // in the last hour to avoid duplicate alerts
-        // PARIDAD RAILS: usa AlertType enum, no String
+        // DB alert creation is disabled (delegated to Rails), so track in memory.
+        // Evict entries older than 1 hour to keep the map bounded.
         LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);
-        List<Alert> recentAlerts = alertRepository.findByTicketIdAndTypeAndCreatedAfter(
-                ticket.getId(), AlertType.REQUIRE_RESPONSE, oneHourAgo);
-        return !recentAlerts.isEmpty();
+        notifiedAt.entrySet().removeIf(e -> e.getValue().isBefore(oneHourAgo));
+        return notifiedAt.containsKey(ticket.getId());
+    }
+
+    private void markNotified(Ticket ticket) {
+        notifiedAt.put(ticket.getId(), LocalDateTime.now());
     }
 
     /**
