@@ -344,8 +344,20 @@ public class MessageAdminController {
                 .collect(Collectors.toList());
         response.put("closeTypes", closeTypesList);
 
+        // Check if WhatsApp Cloud API is configured (token present)
+        String whatsappAccessToken = clientSettingRepository.findByClientIdAndName(
+                currentUser.getClientId(), "whatsapp_access_token")
+                .map(ClientSetting::getStringValue).orElse(null);
+        if (whatsappAccessToken == null || whatsappAccessToken.isBlank()) {
+            whatsappAccessToken = clientSettingRepository.findByClientIdAndName(
+                    currentUser.getClientId(), "whatsapp_api_token")
+                    .map(ClientSetting::getStringValue).orElse(null);
+        }
+        boolean whatsappApiConfigured = whatsappAccessToken != null && !whatsappAccessToken.isBlank();
+
         // WhatsApp Business flags
         response.put("isWhatsappBusiness", isClientWhatsappBusiness);
+        response.put("whatsappApiConfigured", whatsappApiConfigured);
         response.put("canSendFreeform", canSendFreeform);
         response.put("lastIncomingMessageAt", lastIncomingMessageAt);
 
