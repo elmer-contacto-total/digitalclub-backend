@@ -545,17 +545,10 @@ public class UserService {
             throw new BusinessException("Assigned user must be a manager or agent");
         }
 
-        int count = 0;
-        for (Long userId : userIds) {
-            try {
-                User user = findById(userId);
-                user.setManager(manager);
-                userRepository.save(user);
-                count++;
-            } catch (Exception e) {
-                log.warn("Failed to assign manager to user {}: {}", userId, e.getMessage());
-            }
-        }
+        List<User> users = userRepository.findAllById(userIds);
+        users.forEach(u -> u.setManager(manager));
+        userRepository.saveAll(users);
+        int count = users.size();
 
         log.info("Bulk assigned {} users to manager {}", count, managerId);
         return count;

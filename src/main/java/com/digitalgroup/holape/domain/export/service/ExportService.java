@@ -227,7 +227,7 @@ public class ExportService {
         }
 
         // Add ticket stats
-        long openTickets = ticketRepository.findOpenTicketsByClient(clientId).size();
+        long openTickets = ticketRepository.countOpenByClient(clientId);
         csv.append("Open Tickets").append(CSV_SEPARATOR).append(openTickets).append("\n");
 
         log.info("Exported dashboard for client {}", clientId);

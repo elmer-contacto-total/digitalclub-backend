@@ -476,8 +476,8 @@ public class MessageService {
         }
 
         // PARIDAD RAILS: Crear nuevo usuario con todos los campos como en Rails
-        long timestamp = System.currentTimeMillis() / 1000; // Unix timestamp como en Rails Time.now.to_i
-        String autoEmail = "cliente_" + timestamp + "@no-domain.com";
+        String uid = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        String autoEmail = "cliente_" + uid + "@no-domain.com";
         String randomPassword = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16); // Equivalente a SecureRandom.hex(8)
 
         Client client = new Client();
@@ -487,7 +487,7 @@ public class MessageService {
         newUser.setPhone(normalizedPhone);
         newUser.setEmail(autoEmail);
         newUser.setFirstName("Nuevo Cliente"); // PARIDAD RAILS: Era "Usuario", ahora "Nuevo Cliente"
-        newUser.setLastName(String.valueOf(timestamp)); // PARIDAD RAILS: Era phone, ahora timestamp
+        newUser.setLastName(normalizedPhone); // identificador legible para el agente
         newUser.setRole(UserRole.STANDARD);
         newUser.setStatus(com.digitalgroup.holape.domain.common.enums.Status.ACTIVE);
         newUser.setClient(client);
