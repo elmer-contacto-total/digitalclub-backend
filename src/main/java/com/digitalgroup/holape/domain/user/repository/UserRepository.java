@@ -86,6 +86,14 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     // PARIDAD RAILS: Query para reconstruir flags de todos los usuarios por rol
     Page<User> findByRoleIn(List<UserRole> roles, Pageable pageable);
 
+    // Super admins activos — destinatarios de alertas operativas (ej. cambio de versión de WhatsApp Web)
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.role = com.digitalgroup.holape.domain.common.enums.UserRole.SUPER_ADMIN
+            AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE
+            """)
+    List<User> findActiveSuperAdmins();
+
     // Manager-scoped queries
     List<User> findByManager_Id(Long managerId);
 
