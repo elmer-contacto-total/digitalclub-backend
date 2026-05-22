@@ -46,7 +46,8 @@ public class WaHealthController {
     @GetMapping("/app/wa_health_reports")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<List<Map<String, Object>>> index(
-            @AuthenticationPrincipal CustomUserDetails currentUser) {
-        return ResponseEntity.ok(waHealthService.reportsForScope(currentUser.getClientId()));
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestParam(name = "coverage", defaultValue = "false") boolean coverage) {
+        return ResponseEntity.ok(waHealthService.reportsForScope(currentUser.getClientId(), coverage));
     }
 }

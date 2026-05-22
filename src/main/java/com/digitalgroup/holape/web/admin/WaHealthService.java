@@ -59,36 +59,35 @@ public class WaHealthService {
     }
 
     /**
-     * Devuelve el padrón de asesores esperados del cliente + su estado.
-     * Los asesores activos que no reportaron salen como `no_report` (app caída o
-     * nunca abierta), que es justamente lo que el panel debe delatar.
-     * Si clientId es null (super admin de plataforma sin organización activa),
-     * devuelve todos los reportes crudos sin padrón.
+     * Devuelve el estado de los asesores que efectivamente usan la app de escritorio,
+     * es decir, los que reportaron (haber reportado prueba que usan la app).
+     *
+     * Por defecto NO incluye al resto del padrón: la mayoría de los asesores activos
+     * en BD no corren la app, y marcarlos como "caídos" ahoga la señal real.
+     *
+     * Con includeCoverage=true se agregan los asesores activos del cliente que NUNCA
+     * reportaron, como entradas `no_report` — vista opcional de cobertura, no de error.
      */
-    public List<Map<String, Object>> reportsForScope(Long clientId) {
+    public List<Map<String, Object>> reportsForScope(Long clientId, boolean includeCoverage) {
         prune(System.currentTimeMillis());
 
-        if (clientId == null) {
-            List<Map<String, Object>> all = new ArrayList<>();
-            for (ReportEntry entry : reports.values()) {
-                all.add(entry.payload());
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ReportEntry entry : reports.values()) {
+            if (clientId == null || clientId.equals(entry.clientId())) {
+                result.add(entry.payload());
             }
-            return all;
         }
 
-        List<User> roster = userRepository.findAgentsByClientId(clientId);
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (User agent : roster) {
-            ReportEntry entry = reports.get(agent.getId());
-            if (entry != null && (entry.clientId() == null || entry.clientId().equals(clientId))) {
-                result.add(entry.payload());
-            } else {
-                Map<String, Object> synthetic = new HashMap<>();
-                synthetic.put("userId", agent.getId());
-                synthetic.put("userName", agent.getFirstName() + " " + agent.getLastName());
-                synthetic.put("userEmail", agent.getEmail());
-                synthetic.put("status", "no_report");
-                result.add(synthetic);
+        if (includeCoverage && clientId != null) {
+            for (User agent : userRepository.findAgentsByClientId(clientId)) {
+                if (!reports.containsKey(agent.getId())) {
+                    Map<String, Object> synthetic = new HashMap<>();
+                    synthetic.put("userId", agent.getId());
+                    synthetic.put("userName", agent.getFirstName() + " " + agent.getLastName());
+                    synthetic.put("userEmail", agent.getEmail());
+                    synthetic.put("status", "no_report");
+                    result.add(synthetic);
+                }
             }
         }
         return result;
