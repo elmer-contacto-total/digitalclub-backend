@@ -1751,6 +1751,7 @@ public class ImportService {
 
         // Calculate valid/invalid counts from TempImportUser
         if (importEntity.getStatus() == ImportStatus.STATUS_VALID
+                || importEntity.getStatus() == ImportStatus.STATUS_INVALID
                 || importEntity.getStatus() == ImportStatus.STATUS_PROCESSING
                 || importEntity.getStatus() == ImportStatus.STATUS_COMPLETED) {
             progress.put("validCount", tempImportUserRepository.countValidByImport(importId));
