@@ -101,9 +101,15 @@ public class AppVersionController {
         String s3Key = entity.getS3Key();
         if (s3Key != null && !s3Key.isBlank() && s3StorageService.isEnabled()) {
             try {
-                // Build friendly filename: MWS-Desktop-v1.2.0-setup.exe
-                String extension = s3Key.contains(".") ? s3Key.substring(s3Key.lastIndexOf(".")) : ".exe";
-                String friendlyName = "MWS-Desktop-v" + entity.getVersion() + "-setup" + extension;
+                // Usar el nombre original subido; si no está guardado, usar la extensión del s3Key
+                String friendlyName = entity.getOriginalFilename();
+                if (friendlyName == null || friendlyName.isBlank()) {
+                    String extension = s3Key.contains(".") ? s3Key.substring(s3Key.lastIndexOf(".")) : ".exe";
+                    friendlyName = s3Key.contains("/") ? s3Key.substring(s3Key.lastIndexOf("/") + 1) : s3Key;
+                    if (friendlyName.length() > 40) {
+                        friendlyName = "installer" + extension;
+                    }
+                }
 
                 String presignedUrl = s3StorageService.getPresignedUrl(s3Key, PRESIGNED_URL_DURATION, friendlyName).toString();
                 return AppVersionDto.from(entity, presignedUrl);

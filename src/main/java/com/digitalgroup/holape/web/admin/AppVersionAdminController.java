@@ -126,6 +126,7 @@ public class AppVersionAdminController {
                 .fileSize(request.fileSize())
                 .sha256Hash(request.sha256Hash())
                 .s3Key(request.s3Key())
+                .originalFilename(request.originalFilename())
                 .mandatory(request.mandatory() != null ? request.mandatory() : false)
                 .active(request.active() != null ? request.active() : true)
                 .publishedAt(request.publishedAt() != null ? request.publishedAt() : LocalDateTime.now())
@@ -171,6 +172,9 @@ public class AppVersionAdminController {
         }
         if (request.s3Key() != null) {
             version.setS3Key(request.s3Key());
+        }
+        if (request.originalFilename() != null) {
+            version.setOriginalFilename(request.originalFilename());
         }
         if (request.mandatory() != null) {
             version.setMandatory(request.mandatory());
@@ -282,6 +286,7 @@ public class AppVersionAdminController {
             response.put("s3Key", s3Key);
             response.put("fileSize", file.getSize());
             response.put("fileName", originalFilename);
+            response.put("originalFilename", originalFilename);
             response.put("downloadUrl", downloadUrl);
 
             log.info("Installer uploaded successfully: s3Key={}", s3Key);
@@ -307,6 +312,7 @@ public class AppVersionAdminController {
         map.put("fileSize", version.getFileSize());
         map.put("sha256Hash", version.getSha256Hash());
         map.put("s3Key", version.getS3Key());
+        map.put("originalFilename", version.getOriginalFilename());
         map.put("mandatory", version.getMandatory());
         map.put("active", version.getActive());
         map.put("publishedAt", version.getPublishedAt());
@@ -324,6 +330,7 @@ public class AppVersionAdminController {
             Long fileSize,
             String sha256Hash,
             String s3Key,
+            String originalFilename,
             Boolean mandatory,
             Boolean active,
             LocalDateTime publishedAt
@@ -337,6 +344,7 @@ public class AppVersionAdminController {
             Long fileSize,
             String sha256Hash,
             String s3Key,
+            String originalFilename,
             Boolean mandatory,
             Boolean active,
             LocalDateTime publishedAt

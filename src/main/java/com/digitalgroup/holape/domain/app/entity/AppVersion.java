@@ -49,6 +49,9 @@ public class AppVersion {
     @Column(name = "s3_key", length = 500)
     private String s3Key;
 
+    @Column(name = "original_filename", length = 255)
+    private String originalFilename;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean mandatory = false;
