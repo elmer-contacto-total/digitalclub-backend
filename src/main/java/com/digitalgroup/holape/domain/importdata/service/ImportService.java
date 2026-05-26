@@ -331,7 +331,7 @@ public class ImportService {
 
         // Store errors and unmatched columns as JSON
         importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
-        importEntity.setStatus(ImportStatus.STATUS_VALID);
+        importEntity.setStatus(validCount == 0 ? ImportStatus.STATUS_INVALID : ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
 
         log.info("Import {} validated: {} valid, {} invalid, {} unmatched columns",
@@ -411,7 +411,7 @@ public class ImportService {
 
         // Phase E: Store unmatched columns for interactive selection
         importEntity.setErrorsText(serializeValidationResult(errors, unmatchedColumns));
-        importEntity.setStatus(ImportStatus.STATUS_VALID);
+        importEntity.setStatus(validCount == 0 ? ImportStatus.STATUS_INVALID : ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
 
         log.info("FOH Import {} validated: {} valid, {} invalid, {} unmatched columns",
@@ -2476,7 +2476,7 @@ public class ImportService {
             markCrossDuplicates(importId);
             Import imp = findById(importId);
             imp.setErrorsText(serializeValidationResult(fErrors, List.of()));
-            imp.setStatus(ImportStatus.STATUS_VALID);
+            imp.setStatus(fValid == 0 ? ImportStatus.STATUS_INVALID : ImportStatus.STATUS_VALID);
             importRepository.save(imp);
         });
 
@@ -2664,7 +2664,7 @@ public class ImportService {
         markCrossDuplicates(importId);
 
         importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
-        importEntity.setStatus(ImportStatus.STATUS_VALID);
+        importEntity.setStatus(validCount == 0 ? ImportStatus.STATUS_INVALID : ImportStatus.STATUS_VALID);
         importRepository.save(importEntity);
 
         log.info("Import {} validated with user mapping: {} valid, {} invalid", importId, validCount, invalidCount);
@@ -2802,7 +2802,7 @@ public class ImportService {
             markCrossDuplicates(importId);
             Import imp = findById(importId);
             imp.setErrorsText(serializeValidationResult(fErrors, List.of()));
-            imp.setStatus(ImportStatus.STATUS_VALID);
+            imp.setStatus(fValid == 0 ? ImportStatus.STATUS_INVALID : ImportStatus.STATUS_VALID);
             importRepository.save(imp);
         });
 
