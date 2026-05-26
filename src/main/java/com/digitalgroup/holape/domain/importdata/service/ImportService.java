@@ -34,8 +34,13 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import com.digitalgroup.holape.domain.audit.listener.AuditEntityListener;
 import com.digitalgroup.holape.domain.crm.entity.CrmInfo;
@@ -72,6 +77,10 @@ public class ImportService {
     private final S3StorageService s3StorageService;
     private final PasswordEncoder passwordEncoder;
     private final TransactionTemplate transactionTemplate;
+
+    // Dedicated thread pool for parallel BCrypt hashing (CPU-bound, avoids blocking the common pool)
+    private static final ExecutorService BCRYPT_POOL =
+            Executors.newFixedThreadPool(Math.max(2, Runtime.getRuntime().availableProcessors()));
 
     // Standard column mappings
     private static final Map<String, String> COLUMN_ALIASES = Map.ofEntries(
@@ -477,6 +486,8 @@ public class ImportService {
         });
 
         // Phase 5: Process users in batches with per-batch commits
+        // BCrypt hashes are pre-computed in parallel BEFORE each batch transaction
+        // to avoid blocking the DB connection during hashing.
         List<Map<String, Object>> allErrors = new ArrayList<>();
         int successCount = 0;
         int batchSize = 100;
@@ -487,20 +498,48 @@ public class ImportService {
             for (int i = 0; i < validUsers.size(); i += batchSize) {
                 int end = Math.min(i + batchSize, validUsers.size());
                 List<TempImportUser> batch = validUsers.subList(i, end);
-                List<Map<String, Object>> batchErrors = new ArrayList<>();
+
+                // --- PRE-BATCH: parallel BCrypt for new users (outside transaction) ---
+                List<TempImportUser> newInBatch = batch.stream()
+                        .filter(t -> findUserByPhoneInMap(t, phoneMap) == null)
+                        .collect(Collectors.toList());
+
+                Map<String, String> preHashes = new ConcurrentHashMap<>();
+                if (!newInBatch.isEmpty()) {
+                    List<CompletableFuture<Void>> futures = newInBatch.stream()
+                            .map(t -> CompletableFuture.runAsync(() -> {
+                                String key = t.getNormalizedPhone() != null
+                                        ? t.getNormalizedPhone() : t.getPhone();
+                                if (key != null) {
+                                    preHashes.put(key,
+                                            passwordEncoder.encode(UUID.randomUUID().toString().substring(0, 12)));
+                                }
+                            }, BCRYPT_POOL))
+                            .collect(Collectors.toList());
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                    log.debug("Import {}: pre-hashed {} BCrypt passwords in parallel", importId, preHashes.size());
+                }
+
+                // --- BATCH TRANSACTION: build + saveAll (2 round-trips instead of 2N) ---
+                final Map<String, String> finalPreHashes = preHashes;
+                final List<Map<String, Object>> batchErrors = new ArrayList<>();
 
                 int batchSuccess = transactionTemplate.execute(status -> {
-                    int localSuccess = 0;
+                    List<User> usersToSave = new ArrayList<>();
+                    List<TempImportUser> successTemps = new ArrayList<>();
+                    List<TempImportUser> failedTemps = new ArrayList<>();
+
                     for (TempImportUser tempUser : batch) {
                         try {
-                            createOrUpdateUserBulk(importEntity, tempUser, phoneMap, managerMap);
-                            tempUser.setProcessed(true);
-                            tempImportUserRepository.save(tempUser);
-                            localSuccess++;
+                            String phoneKey = tempUser.getNormalizedPhone() != null
+                                    ? tempUser.getNormalizedPhone() : tempUser.getPhone();
+                            String preHash = finalPreHashes.get(phoneKey);
+                            User user = buildUserBulk(importEntity, tempUser, phoneMap, managerMap, preHash);
+                            usersToSave.add(user);
+                            successTemps.add(tempUser);
                         } catch (Exception e) {
                             tempUser.addError("Creation failed: " + e.getMessage());
-                            tempImportUserRepository.save(tempUser);
-
+                            failedTemps.add(tempUser);
                             Map<String, Object> errorDetail = new HashMap<>();
                             errorDetail.put("row", tempUser.getPhoneOrder());
                             errorDetail.put("phone", tempUser.getPhone());
@@ -508,7 +547,24 @@ public class ImportService {
                             batchErrors.add(errorDetail);
                         }
                     }
-                    return localSuccess;
+
+                    // Single batch INSERT/UPDATE for all users in the batch
+                    List<User> savedUsers = userRepository.saveAll(usersToSave);
+
+                    // Update phoneMap so later batches can resolve newly created users as managers
+                    for (User saved : savedUsers) {
+                        if (saved.getPhone() != null) {
+                            phoneMap.putIfAbsent(saved.getPhone(), saved);
+                        }
+                    }
+
+                    // Mark processed and batch save TempImportUsers
+                    successTemps.forEach(t -> t.setProcessed(true));
+                    List<TempImportUser> allTemps = new ArrayList<>(successTemps);
+                    allTemps.addAll(failedTemps);
+                    tempImportUserRepository.saveAll(allTemps);
+
+                    return successTemps.size();
                 });
 
                 successCount += batchSuccess;
@@ -548,9 +604,73 @@ public class ImportService {
     }
 
     /**
+     * Build a User entity from TempImportUser using pre-fetched maps and a pre-computed BCrypt hash.
+     * Does NOT call save() — caller is responsible for batching via saveAll().
+     *
+     * @param preHashedPassword BCrypt hash pre-computed in parallel; null falls back to on-the-spot hashing.
+     */
+    private User buildUserBulk(Import importEntity, TempImportUser tempUser,
+                                Map<String, User> phoneMap, Map<String, User> managerMap,
+                                String preHashedPassword) {
+        String normalizedPhone = tempUser.getNormalizedPhone();
+
+        User user = findUserByPhoneInMap(tempUser, phoneMap);
+        boolean isNewUser = (user == null);
+
+        if (isNewUser) {
+            user = new User();
+            user.setClient(importEntity.getClient());
+            user.setPhone(normalizedPhone);
+            user.setFirstName(tempUser.getFirstName());
+            user.setLastName(tempUser.getLastName());
+            user.setEmail(tempUser.getEmail());
+            // Use pre-computed hash (parallel BCrypt) or fallback if missing
+            String hash = preHashedPassword != null ? preHashedPassword
+                    : passwordEncoder.encode(UUID.randomUUID().toString().substring(0, 12));
+            user.setEncryptedPassword(hash);
+            user.setUuidToken(UUID.randomUUID().toString());
+        } else {
+            if (tempUser.getFirstName() != null) user.setFirstName(tempUser.getFirstName());
+            if (tempUser.getLastName() != null) user.setLastName(tempUser.getLastName());
+            if (tempUser.getEmail() != null) user.setEmail(tempUser.getEmail());
+        }
+
+        if (tempUser.getRole() != null && !tempUser.getRole().isBlank()) {
+            user.setRole(UserRole.fromString(tempUser.getRole()));
+        } else if (isNewUser) {
+            user.setRole(UserRole.STANDARD);
+        }
+
+        if (tempUser.getCodigo() != null && !tempUser.getCodigo().isBlank()) {
+            user.setCodigo(tempUser.getCodigo());
+        }
+
+        user.setImportId(importEntity.getId());
+
+        if (tempUser.getCrmFields() != null && tempUser.getCrmFields().containsKey("__import_string")) {
+            user.setImportString(tempUser.getCrmFields().get("__import_string"));
+        }
+
+        if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isEmpty()) {
+            User manager = managerMap.get(tempUser.getManagerEmail().trim().toLowerCase());
+            if (manager != null) user.setManager(manager);
+        }
+
+        Map<String, Object> cf = new HashMap<>();
+        if (tempUser.getCrmFields() != null && !tempUser.getCrmFields().isEmpty()) cf.putAll(tempUser.getCrmFields());
+        if (tempUser.getCustomFields() != null && !tempUser.getCustomFields().isEmpty()) cf.putAll(tempUser.getCustomFields());
+        cf.remove("__import_string");
+        user.setCustomFields(cf);
+
+        return user;
+    }
+
+    /**
      * Create or update user from TempImportUser using pre-fetched maps.
      * Eliminates per-row DB queries for phone/manager lookups.
+     * @deprecated Use buildUserBulk() + saveAll() for batch processing.
      */
+    @Deprecated
     private void createOrUpdateUserBulk(Import importEntity, TempImportUser tempUser,
                                          Map<String, User> phoneMap, Map<String, User> managerMap) {
         String normalizedPhone = tempUser.getNormalizedPhone();
@@ -1893,23 +2013,23 @@ public class ImportService {
      */
     private void markCrossDuplicates(Long importId) {
         List<TempImportUser> allUsers = tempImportUserRepository.findByUserImportId(importId);
+        Set<Long> dirtyIds = new HashSet<>();
 
-        // Group by phone
+        // Group by phone — mark all records in groups with more than 1 entry
         Map<String, List<TempImportUser>> byPhone = new HashMap<>();
         for (TempImportUser user : allUsers) {
             if (user.getPhone() != null && !user.getPhone().isEmpty()) {
                 byPhone.computeIfAbsent(user.getPhone(), k -> new ArrayList<>()).add(user);
             }
         }
-
         for (List<TempImportUser> group : byPhone.values()) {
             if (group.size() <= 1) continue;
             for (TempImportUser user : group) {
                 if (user.getErrorMessage() == null || !user.getErrorMessage().contains("Teléfono duplicado")) {
-                    String dupMsg = "Teléfono duplicado en importación";
                     String current = user.getErrorMessage();
-                    user.setErrorMessage(current != null ? current + "; " + dupMsg : dupMsg);
-                    tempImportUserRepository.save(user);
+                    user.setErrorMessage(current != null ? current + "; Teléfono duplicado en importación"
+                            : "Teléfono duplicado en importación");
+                    dirtyIds.add(user.getId());
                 }
             }
         }
@@ -1921,17 +2041,25 @@ public class ImportService {
                 byEmail.computeIfAbsent(user.getEmail().toLowerCase(), k -> new ArrayList<>()).add(user);
             }
         }
-
         for (List<TempImportUser> group : byEmail.values()) {
             if (group.size() <= 1) continue;
             for (TempImportUser user : group) {
                 if (user.getErrorMessage() == null || !user.getErrorMessage().contains("Email duplicado en importación")) {
-                    String dupMsg = "Email duplicado en importación: " + user.getEmail();
                     String current = user.getErrorMessage();
-                    user.setErrorMessage(current != null ? current + "; " + dupMsg : dupMsg);
-                    tempImportUserRepository.save(user);
+                    user.setErrorMessage(current != null
+                            ? current + "; Email duplicado en importación: " + user.getEmail()
+                            : "Email duplicado en importación: " + user.getEmail());
+                    dirtyIds.add(user.getId());
                 }
             }
+        }
+
+        // Single batch update for all records that need marking
+        if (!dirtyIds.isEmpty()) {
+            List<TempImportUser> toSave = allUsers.stream()
+                    .filter(u -> dirtyIds.contains(u.getId()))
+                    .collect(Collectors.toList());
+            tempImportUserRepository.saveAll(toSave);
         }
     }
 
@@ -2547,72 +2675,139 @@ public class ImportService {
      */
     @Transactional
     public void validateImportFohWithMapping(Long importId, byte[] fileContent, Map<Integer, String> columnMapping) {
-        Import importEntity = findById(importId);
-        importEntity.setStatus(ImportStatus.STATUS_VALIDATING);
-        importRepository.save(importEntity);
-
+        // Migrated to bulk pattern — same as validateImportWithMappingBulk but using FOH parser.
+        // Eliminates per-row DB queries: was O(N*4) queries, now O(3) + O(N/500) batch saves.
         String content = readAndEncodeFile(fileContent);
         List<String[]> rows = parseCsv(content);
-
-        if (rows.isEmpty()) {
-            throw new BusinessException("Empty file or invalid CSV format");
-        }
+        if (rows.isEmpty()) throw new BusinessException("Empty file or invalid CSV format");
 
         String[] headers = rows.get(0);
-        importEntity.setTotRecords(rows.size() - 1);
+        int totalRecords = rows.size() - 1;
 
-        List<Map<String, Object>> errors = new ArrayList<>();
-        int validCount = 0;
-        int invalidCount = 0;
+        Import importEntity = transactionTemplate.execute(status -> findById(importId));
+        Long clientId = importEntity.getClient().getId();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Import imp = findById(importId);
+            imp.setTotRecords(totalRecords);
+            importRepository.save(imp);
+        });
+
+        // === PHASE 1: Parse all FOH rows in memory, collect lookup keys ===
+        log.info("FOH Import {}: phase 1 — parsing {} rows", importId, totalRecords);
+        List<TempImportUser> allTempUsers = new ArrayList<>(totalRecords);
+        Set<String> allPhones = new HashSet<>();
+        Set<String> allEmails = new HashSet<>();
+        Set<String> allManagerKeys = new HashSet<>();
 
         for (int i = 1; i < rows.size(); i++) {
             String[] values = rows.get(i);
             int rowNumber = i + 1;
-
             try {
-                TempImportUser tempUser = createFohTempImportUser(
-                        importEntity, columnMapping, headers, values, rowNumber);
-
-                // Agent linking is now handled generically by validateTempUser
-
-                List<String> validationErrors = validateTempUser(tempUser, importEntity.getClient().getId());
-
-                if (validationErrors.isEmpty()) {
-                    validCount++;
-                } else {
-                    tempUser.setErrorMessage(String.join("; ", validationErrors));
-                    invalidCount++;
-
-                    Map<String, Object> errorDetail = new HashMap<>();
-                    errorDetail.put("row", rowNumber);
-                    errorDetail.put("errors", validationErrors);
-                    errors.add(errorDetail);
+                TempImportUser tempUser = createFohTempImportUser(importEntity, columnMapping, headers, values, rowNumber);
+                allTempUsers.add(tempUser);
+                if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty()) {
+                    allPhones.add(tempUser.getPhone());
+                    String normalized = tempUser.getNormalizedPhone();
+                    if (normalized != null) allPhones.add(normalized);
+                    String raw = normalizePhone(tempUser.getPhone());
+                    if (raw != null) allPhones.add(raw);
                 }
-
-                tempImportUserRepository.save(tempUser);
-                importEntity.setProgress(importEntity.getProgress() + 1);
-
+                if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty()) {
+                    allEmails.add(tempUser.getEmail().toLowerCase());
+                }
+                if (tempUser.getManagerEmail() != null && !tempUser.getManagerEmail().isBlank()) {
+                    allManagerKeys.add(tempUser.getManagerEmail().trim().toLowerCase());
+                }
             } catch (Exception e) {
-                invalidCount++;
-                Map<String, Object> errorDetail = new HashMap<>();
-                errorDetail.put("row", rowNumber);
-                errorDetail.put("errors", List.of(e.getMessage()));
-                errors.add(errorDetail);
-            }
-
-            if (i % 100 == 0) {
-                importRepository.save(importEntity);
+                TempImportUser errorUser = new TempImportUser();
+                errorUser.setUserImport(importEntity);
+                errorUser.setPhoneOrder(rowNumber);
+                errorUser.setProcessed(false);
+                errorUser.setErrorMessage(e.getMessage() != null ? e.getMessage() : "Error parseando fila");
+                allTempUsers.add(errorUser);
             }
         }
 
-        // Mark both records in duplicate phone/email pairs
-        markCrossDuplicates(importId);
+        // === PHASE 2: 3 targeted queries instead of N*4 per-row queries ===
+        log.info("FOH Import {}: phase 2 — targeted lookups (phones={}, emails={}, managers={})",
+                importId, allPhones.size(), allEmails.size(), allManagerKeys.size());
 
-        importEntity.setErrorsText(serializeValidationResult(errors, List.of()));
-        importEntity.setStatus(ImportStatus.STATUS_VALID);
-        importRepository.save(importEntity);
+        Map<String, User> phoneMap = new HashMap<>();
+        Map<String, User> emailMap = new HashMap<>();
+        Map<String, User> managerMap = new HashMap<>();
 
-        log.info("FOH Import {} validated with user mapping: {} valid, {} invalid", importId, validCount, invalidCount);
+        if (!allPhones.isEmpty()) {
+            chunkedQuery(allPhones, chunk -> userRepository.findByClientIdAndPhoneIn(clientId, chunk))
+                    .forEach(u -> phoneMap.put(u.getPhone(), u));
+        }
+        if (!allEmails.isEmpty()) {
+            chunkedQuery(allEmails, chunk -> userRepository.findByClientIdAndEmailIn(clientId, chunk))
+                    .forEach(u -> { if (u.getEmail() != null) emailMap.put(u.getEmail().toLowerCase(), u); });
+        }
+        if (!allManagerKeys.isEmpty()) {
+            chunkedQuery(allManagerKeys, chunk -> userRepository.findByClientIdAndEmailOrImportStringIn(clientId, chunk))
+                    .forEach(u -> {
+                        if (u.getEmail() != null) managerMap.put(u.getEmail().toLowerCase(), u);
+                        if (u.getImportString() != null) managerMap.put(u.getImportString().toLowerCase(), u);
+                    });
+        }
+
+        // === PHASE 3: In-memory validation (no DB queries per row) ===
+        Map<String, Integer> phoneSeen = new HashMap<>();
+        Map<String, Integer> emailSeen = new HashMap<>();
+        List<Map<String, Object>> allErrors = new ArrayList<>();
+        int validCount = 0;
+        int invalidCount = 0;
+
+        for (TempImportUser tempUser : allTempUsers) {
+            if (tempUser.getErrorMessage() != null) { invalidCount++; continue; }
+            List<String> validationErrors = validateTempUserBulk(tempUser, emailMap, phoneMap, managerMap, phoneSeen, emailSeen);
+            if (validationErrors.isEmpty()) {
+                validCount++;
+            } else {
+                tempUser.setErrorMessage(String.join("; ", validationErrors));
+                invalidCount++;
+                Map<String, Object> errorDetail = new HashMap<>();
+                errorDetail.put("row", tempUser.getPhoneOrder());
+                errorDetail.put("errors", validationErrors);
+                errorDetail.put("phone", tempUser.getPhone());
+                allErrors.add(errorDetail);
+            }
+            if (tempUser.getPhone() != null && !tempUser.getPhone().isEmpty())
+                phoneSeen.putIfAbsent(tempUser.getPhone(), tempUser.getPhoneOrder());
+            if (tempUser.getEmail() != null && !tempUser.getEmail().isEmpty())
+                emailSeen.putIfAbsent(tempUser.getEmail().toLowerCase(), tempUser.getPhoneOrder());
+        }
+
+        // === PHASE 4: Batch save with incremental progress ===
+        log.info("FOH Import {}: phase 4 — saving {} temp users in batches", importId, allTempUsers.size());
+        int batchSize = 500;
+        for (int i = 0; i < allTempUsers.size(); i += batchSize) {
+            final int start = i;
+            final int end = Math.min(i + batchSize, allTempUsers.size());
+            final int progress = end;
+            transactionTemplate.executeWithoutResult(status -> {
+                tempImportUserRepository.saveAll(allTempUsers.subList(start, end));
+                Import imp = importRepository.getReferenceById(importId);
+                imp.setProgress(progress);
+                importRepository.save(imp);
+            });
+        }
+
+        final int fValid = validCount;
+        final int fInvalid = invalidCount;
+        final List<Map<String, Object>> fErrors = allErrors;
+        transactionTemplate.executeWithoutResult(status -> {
+            markCrossDuplicates(importId);
+            Import imp = findById(importId);
+            imp.setErrorsText(serializeValidationResult(fErrors, List.of()));
+            imp.setStatus(ImportStatus.STATUS_VALID);
+            importRepository.save(imp);
+        });
+
+        log.info("FOH Import {} validated (bulk): {} valid, {} invalid, {} total rows",
+                importId, fValid, fInvalid, totalRecords);
     }
 
     /**
