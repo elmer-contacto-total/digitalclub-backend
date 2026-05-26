@@ -338,6 +338,7 @@ public class UserAdminController {
      * Get internal users (non-standard role)
      */
     @GetMapping("/internal")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'STAFF')")
     public ResponseEntity<PagedResponse<Map<String, Object>>> internalUsers(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestParam(required = false) String search,
