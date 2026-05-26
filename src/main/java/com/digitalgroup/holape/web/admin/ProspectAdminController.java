@@ -260,20 +260,20 @@ public class ProspectAdminController {
 
                 Optional<User> userOpt = userRepository.findById(assoc.userId());
                 if (userOpt.isEmpty()) {
-                    skipped.add(skipEntry(assoc, "user_not_found"));
+                    skipped.add(skipEntry(assoc, prospect, "user_not_found"));
                     continue;
                 }
                 User user = userOpt.get();
                 if (user.getRole() != UserRole.STANDARD) {
-                    skipped.add(skipEntry(assoc, "user_not_standard"));
+                    skipped.add(skipEntry(assoc, prospect, "user_not_standard"));
                     continue;
                 }
                 if (!clientId.equals(user.getClient().getId())) {
-                    skipped.add(skipEntry(assoc, "user_wrong_client"));
+                    skipped.add(skipEntry(assoc, prospect, "user_wrong_client"));
                     continue;
                 }
                 if (userRepository.findByPhoneAndClientId(prospect.getPhone(), clientId).isPresent()) {
-                    skipped.add(skipEntry(assoc, "phone_already_exists_as_user"));
+                    skipped.add(skipEntry(assoc, prospect, "phone_already_exists_as_user"));
                     continue;
                 }
 
@@ -303,6 +303,13 @@ public class ProspectAdminController {
         entry.put("prospectId", assoc.prospectId());
         entry.put("userId", assoc.userId());
         entry.put("reason", reason);
+        return entry;
+    }
+
+    private Map<String, Object> skipEntry(AssociationItem assoc, Prospect prospect, String reason) {
+        Map<String, Object> entry = skipEntry(assoc, reason);
+        entry.put("prospectName", prospect.getName());
+        entry.put("prospectPhone", prospect.getPhone());
         return entry;
     }
 
