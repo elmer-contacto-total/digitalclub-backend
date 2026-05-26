@@ -183,3 +183,4 @@ app:
   mail:
     from: ${APP_MAIL_FROM:noreply@holape.com}
     from-name: ${APP_MAIL_FROM_NAME:MWS Desktop}
+    theme-color: ${APP_MAIL_THEME_COLOR:#4CAF50}

@@ -37,6 +37,9 @@ public class EmailService {
     @Value("${app.base-url:https://app.holape.com}")
     private String baseUrl;
 
+    @Value("${app.mail.theme-color:#4CAF50}")
+    private String themeColor;
+
     /**
      * Send user invitation email
      * Equivalent to Rails: UserMailer.invitation
@@ -50,12 +53,13 @@ public class EmailService {
             context.setVariable("loginUrl", baseUrl + "/auth/login");
             context.setVariable("clientName", user.getClient().getName());
             context.setVariable("appName", fromName);
+            context.setVariable("themeColor", themeColor);
 
             String htmlContent = templateEngine.process("email/invitation", context);
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "Bienvenido a " + user.getClient().getName() + " - " + fromName,
+                    "Bienvenido a " + fromName,
                     htmlContent
             );
 
