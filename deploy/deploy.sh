@@ -25,6 +25,10 @@ mvn clean package -DskipTests
 echo "==> Instalando JAR en $INSTALL_DIR"
 sudo install -m 644 -o holape -g holape "target/$JAR_NAME" "$INSTALL_DIR/$JAR_NAME"
 
+echo "==> Actualizando unit de systemd"
+sudo cp deploy/holape.service /etc/systemd/system/holape.service
+sudo systemctl daemon-reload
+
 echo "==> Reiniciando servicio $SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
