@@ -159,25 +159,23 @@ public class UserAdminController {
             response.put("manager", managerInfo);
         }
 
-        // Include subordinates if user is a manager/agent
+        // Include subordinates COUNT if user is a manager/agent.
+        // Antes se cargaba la lista COMPLETA de subordinados (sin paginar) solo para
+        // saber si había alguno; para un agente con miles de clientes esto hacía muy
+        // lenta tanto la vista de detalle como el formulario de edición (ambos llaman
+        // a este endpoint). El frontend ya pagina los subordinados aparte, así que
+        // aquí basta con un COUNT.
         if (user.getRole() != null && (user.getRole() == UserRole.AGENT ||
             user.getRole() == UserRole.MANAGER_LEVEL_4 ||
             user.getRole() == UserRole.MANAGER_LEVEL_3 ||
             user.getRole() == UserRole.MANAGER_LEVEL_2 ||
             user.getRole() == UserRole.MANAGER_LEVEL_1)) {
-            List<User> subordinates = userRepository.findSubordinatesByManagerId(user.getId());
-            List<Map<String, Object>> subordinatesList = subordinates.stream()
-                    .map(sub -> {
-                        Map<String, Object> subMap = new HashMap<>();
-                        subMap.put("id", sub.getId());
-                        subMap.put("firstName", sub.getFirstName());
-                        subMap.put("lastName", sub.getLastName());
-                        subMap.put("email", sub.getEmail());
-                        subMap.put("role", sub.getRole() != null ? sub.getRole().getValue() : 0);
-                        return subMap;
-                    })
-                    .collect(Collectors.toList());
-            response.put("subordinates", subordinatesList);
+            long subordinatesCount = userRepository.countSubordinatesByManagerId(user.getId());
+            response.put("subordinatesCount", subordinatesCount);
+            response.put("hasSubordinates", subordinatesCount > 0);
+        } else {
+            response.put("subordinatesCount", 0L);
+            response.put("hasSubordinates", false);
         }
 
         return ResponseEntity.ok(response);

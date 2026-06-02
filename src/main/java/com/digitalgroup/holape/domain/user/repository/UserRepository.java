@@ -147,6 +147,11 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query("SELECT u FROM User u WHERE u.manager.id = :managerId AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE")
     List<User> findSubordinatesByManagerId(@Param("managerId") Long managerId);
 
+    // Count active subordinates without loading them all (used by show() to avoid
+    // cargar miles de clientes de un agente solo para saber si tiene subordinados).
+    @Query("SELECT COUNT(u) FROM User u WHERE u.manager.id = :managerId AND u.status = com.digitalgroup.holape.domain.common.enums.Status.ACTIVE")
+    long countSubordinatesByManagerId(@Param("managerId") Long managerId);
+
     // Find all subordinates recursively (for bulk messages)
     @Query(value = """
             WITH RECURSIVE subordinates AS (
