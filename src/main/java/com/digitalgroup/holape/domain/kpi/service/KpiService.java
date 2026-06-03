@@ -257,6 +257,16 @@ public class KpiService {
 
         Map<Long, Map<String, Object>> result = new HashMap<>();
 
+        // Resolver nombres de una sola vez (evita N+1). El frontend usa este "name"
+        // directamente, así no depende de que el id esté en dropdown_options (que para
+        // object=Cliente/Supervisor lista otra entidad y dejaba "Usuario <id>").
+        Map<Long, String> nameById = new HashMap<>();
+        if (agentIds != null && !agentIds.isEmpty()) {
+            for (User u : userRepository.findAllById(agentIds)) {
+                nameById.put(u.getId(), u.getFullName());
+            }
+        }
+
         if (agentIds == null || agentIds.isEmpty()) {
             return result;
         }
@@ -266,6 +276,9 @@ public class KpiService {
 
             try {
                 Map<String, Object> kpis = new HashMap<>();
+
+                // Nombre del agente para la tabla de KPIs detallados
+                kpis.put("name", nameById.getOrDefault(agentId, "Usuario " + agentId));
 
                 // New cases
                 long newCases = kpiRepository.countByUserKpiTypeAndDateRange(agentId, KpiType.NEW_TICKET, startDate, endDate);
