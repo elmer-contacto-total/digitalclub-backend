@@ -54,6 +54,7 @@ public class MessageAdminController {
     private final ClientRepository clientRepository;
     private final ClientSettingRepository clientSettingRepository;
     private final CapturedMediaRepository capturedMediaRepository;
+    private final com.digitalgroup.holape.domain.prospect.repository.ProspectRepository prospectRepository;
 
     /**
      * Get messages - three modes:
@@ -177,6 +178,14 @@ public class MessageAdminController {
             String chatViewType,
             int page,
             int pageSize) {
+
+        // PARIDAD Rails: chat_view_type='prospects' -> el client_id es el id de un
+        // PROSPECTO (tabla prospects), NO de un usuario. Resolver por prospecto y
+        // cargar mensajes por prospect_sender_id/prospect_recipient_id. Antes se hacía
+        // userRepository.findById(prospectId) y mostraba el chat de OTRO cliente.
+        if ("prospects".equals(chatViewType)) {
+            return getProspectConversationDetail(currentUser, clientId, page, pageSize);
+        }
 
         // Find the client
         Optional<User> clientOpt = userRepository.findById(clientId);
@@ -386,6 +395,85 @@ public class MessageAdminController {
                 })
                 .collect(Collectors.toList());
         response.put("capturedMedia", capturedMediaList);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Conversación de un PROSPECTO (chat_view_type='prospects').
+     * PARIDAD Rails MessagesController#index: mensajes por prospect_sender_id /
+     * prospect_recipient_id, y datos de contacto desde la tabla prospects.
+     */
+    private ResponseEntity<?> getProspectConversationDetail(
+            CustomUserDetails currentUser,
+            Long prospectId,
+            int page,
+            int pageSize) {
+
+        Optional<com.digitalgroup.holape.domain.prospect.entity.Prospect> prospectOpt =
+                prospectRepository.findById(prospectId);
+        if (prospectOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        com.digitalgroup.holape.domain.prospect.entity.Prospect prospect = prospectOpt.get();
+
+        int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
+
+        Page<Message> messagesPage = messageRepository.findByProspectIdOrderByCreatedAtDesc(
+                prospectId, PageRequest.of(page, messageLimit));
+        List<Message> messages = new ArrayList<>(messagesPage.getContent());
+        java.util.Collections.reverse(messages); // ASC para el frontend
+
+        Map<String, Object> response = new HashMap<>();
+
+        // Info de contacto (desde el prospecto). El nombre del prospecto es un solo
+        // campo; lo ponemos en firstName para que el header lo muestre completo.
+        Map<String, Object> clientMap = new HashMap<>();
+        clientMap.put("id", prospect.getId());
+        clientMap.put("firstName", prospect.getName() != null ? prospect.getName() : "");
+        clientMap.put("lastName", "");
+        clientMap.put("phone", prospect.getPhone());
+        clientMap.put("email", null);
+        clientMap.put("codigo", null);
+        clientMap.put("avatarData", null);
+        clientMap.put("requireResponse", false);
+        clientMap.put("customFields", Map.of());
+        clientMap.put("createdAt", prospect.getCreatedAt());
+        clientMap.put("lastMessageAt", prospect.getUpdatedAt());
+        clientMap.put("isProspect", true);
+        response.put("client", clientMap);
+
+        // Agente asignado al prospecto
+        try {
+            if (prospect.getManager() != null) {
+                User agent = prospect.getManager();
+                Map<String, Object> agentMap = new HashMap<>();
+                agentMap.put("id", agent.getId());
+                agentMap.put("firstName", agent.getFirstName());
+                agentMap.put("lastName", agent.getLastName());
+                agentMap.put("phone", agent.getPhone());
+                agentMap.put("email", agent.getEmail());
+                response.put("agent", agentMap);
+            }
+        } catch (Exception e) {
+            log.debug("Could not load manager for prospect {}: {}", prospectId, e.getMessage());
+        }
+
+        // Mensajes
+        response.put("messages", messages.stream().map(this::mapMessageToResponse).collect(Collectors.toList()));
+        response.put("messagesTotalCount", messagesPage.getTotalElements());
+        response.put("messagesPage", page);
+        response.put("messagesHasMore", messagesPage.getTotalPages() > (page + 1));
+
+        // Un prospecto no tiene CRM/tickets/media de usuario: defaults vacíos.
+        response.put("crmFields", new ArrayList<>());
+        response.put("customFields", Map.of());
+        response.put("closeTypes", new ArrayList<>());
+        response.put("isWhatsappBusiness", false);
+        response.put("whatsappApiConfigured", false);
+        response.put("canSendFreeform", true);
+        response.put("lastIncomingMessageAt", null);
+        response.put("capturedMedia", new ArrayList<>());
 
         return ResponseEntity.ok(response);
     }

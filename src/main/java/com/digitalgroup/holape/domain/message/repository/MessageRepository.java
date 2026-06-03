@@ -23,6 +23,13 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
 
     Page<Message> findBySenderIdOrRecipientIdOrderByCreatedAtDesc(Long senderId, Long recipientId, Pageable pageable);
 
+    /**
+     * Mensajes de un PROSPECTO (no usuario). PARIDAD Rails: chat_view_type='prospects'
+     * usa las columnas prospect_sender_id / prospect_recipient_id, NO sender_id/recipient_id.
+     */
+    @Query("SELECT m FROM Message m WHERE m.prospectSenderId = :prospectId OR m.prospectRecipientId = :prospectId ORDER BY m.createdAt DESC")
+    Page<Message> findByProspectIdOrderByCreatedAtDesc(@Param("prospectId") Long prospectId, Pageable pageable);
+
     @Query("SELECT m FROM Message m WHERE m.ticket.id = :ticketId ORDER BY m.createdAt DESC")
     List<Message> findLatestMessagesByTicket(@Param("ticketId") Long ticketId, Pageable pageable);
 
