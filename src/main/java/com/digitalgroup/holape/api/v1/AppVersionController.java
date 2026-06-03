@@ -101,14 +101,14 @@ public class AppVersionController {
         String s3Key = entity.getS3Key();
         if (s3Key != null && !s3Key.isBlank() && s3StorageService.isEnabled()) {
             try {
-                // Usar el nombre original subido; si no está guardado, usar la extensión del s3Key
+                // Usar el nombre original subido. Si no está guardado (versiones
+                // antiguas), construir un nombre limpio "installer<ext>" — NUNCA la
+                // clave UUID del s3Key (que es lo que provocaba descargas tipo
+                // "43788b58-....exe").
                 String friendlyName = entity.getOriginalFilename();
                 if (friendlyName == null || friendlyName.isBlank()) {
                     String extension = s3Key.contains(".") ? s3Key.substring(s3Key.lastIndexOf(".")) : ".exe";
-                    friendlyName = s3Key.contains("/") ? s3Key.substring(s3Key.lastIndexOf("/") + 1) : s3Key;
-                    if (friendlyName.length() > 40) {
-                        friendlyName = "installer" + extension;
-                    }
+                    friendlyName = "installer" + extension;
                 }
 
                 String presignedUrl = s3StorageService.getPresignedUrl(s3Key, PRESIGNED_URL_DURATION, friendlyName).toString();

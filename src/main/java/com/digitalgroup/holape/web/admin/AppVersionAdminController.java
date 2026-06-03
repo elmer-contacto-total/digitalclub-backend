@@ -280,7 +280,10 @@ public class AppVersionAdminController {
         try {
             String folder = "installers/" + platform.toLowerCase();
             String s3Key = s3StorageService.uploadFile(file, folder);
-            String downloadUrl = s3StorageService.getPresignedUrl(s3Key, Duration.ofHours(6)).toString();
+            // Incluir el nombre original en el Content-Disposition para que la
+            // descarga conserve "MWS-Desktop.exe" en vez de la clave UUID de S3.
+            String downloadUrl = s3StorageService
+                    .getPresignedUrl(s3Key, Duration.ofHours(6), originalFilename).toString();
 
             Map<String, Object> response = new HashMap<>();
             response.put("s3Key", s3Key);
