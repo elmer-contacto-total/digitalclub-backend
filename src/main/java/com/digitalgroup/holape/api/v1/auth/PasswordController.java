@@ -41,20 +41,27 @@ public class PasswordController {
                     .body(Map.of("error", "Email es requerido"));
         }
 
-        // Always return success to prevent email enumeration
+        // NOTA: por decisión de producto, se informa explícitamente si el correo
+        // estaba registrado (emailSent). Esto reduce la protección anti-enumeración,
+        // pero el frontend solo debe mostrar "Correo enviado" cuando realmente se envió.
+        boolean emailSent = false;
         try {
             User user = userRepository.findByEmail(request.email().toLowerCase()).orElse(null);
             if (user != null) {
                 userService.sendResetPasswordInstructions(user.getId());
+                emailSent = true;
             }
         } catch (Exception e) {
             log.warn("Error sending password reset: {}", e.getMessage());
-            // Don't expose error to user
+            // No se pudo enviar -> emailSent queda en false
         }
 
         return ResponseEntity.ok(Map.of(
             "success", true,
-            "message", "Si el correo existe, recibirá las instrucciones"
+            "emailSent", emailSent,
+            "message", emailSent
+                ? "Se han enviado las instrucciones a su correo"
+                : "El correo no está registrado"
         ));
     }
 
