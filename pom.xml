@@ -175,6 +175,14 @@
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
         </dependency>
+        <!-- POI 5.2.5 requiere commons-io >= 2.12 (usa UnsynchronizedByteArrayOutputStream.builder()).
+             Otra dependencia transitiva fijaba commons-io 2.7 -> NoSuchMethodError al generar el .xlsx.
+             Forzamos una versión compatible (backward-compatible para el resto). -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.16.1</version>
+        </dependency>
     </dependencies>
 
     <build>
