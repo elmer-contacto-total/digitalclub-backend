@@ -27,6 +27,16 @@ import org.springframework.web.bind.annotation.*;
 
 import com.digitalgroup.holape.util.DateTimeUtils;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -387,13 +397,34 @@ public class DashboardController {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yy");
         DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-        // Build CSV with BOM for Excel compatibility
-        StringBuilder csv = new StringBuilder();
-        csv.append('\ufeff'); // UTF-8 BOM
-        csv.append("Ticket Id,Fecha,Hora,Nombre Campaña,Nombre del Asesor,Nombre del Cliente,");
-        csv.append("Móvil del Cliente,Clientes Únicos (DNI),Caso Finalizado,Últimos Mensajes,");
-        csv.append("Tiempo de Respuesta (min),Tiempo de Respuesta (dd:hh:mm),TMO (min),TMO (dd:hh:mm)\n");
 
+        // Generar Excel (.xlsx) real con Apache POI: abre con columnas correctas en
+        // Excel-ES (el CSV con comas se jameaba en una sola columna) y las métricas
+        // numéricas van como números (sumables/ordenables).
+        String[] columns = {
+            "Ticket Id", "Fecha", "Hora", "Nombre Campaña", "Nombre del Asesor",
+            "Nombre del Cliente", "Móvil del Cliente", "Clientes Únicos (DNI)",
+            "Caso Finalizado", "Últimos Mensajes",
+            "Tiempo de Respuesta (min)", "Tiempo de Respuesta (dd:hh:mm)",
+            "TMO (min)", "TMO (dd:hh:mm)"
+        };
+
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("KPIs");
+
+        CellStyle headerStyle = workbook.createCellStyle();
+        Font headerFont = workbook.createFont();
+        headerFont.setBold(true);
+        headerStyle.setFont(headerFont);
+
+        Row headerRow = sheet.createRow(0);
+        for (int c = 0; c < columns.length; c++) {
+            Cell headerCell = headerRow.createCell(c);
+            headerCell.setCellValue(columns[c]);
+            headerCell.setCellStyle(headerStyle);
+        }
+
+        int rowIdx = 1;
         for (Ticket ticket : tickets) {
             // First incoming message (for date/time and response time calculation)
             Optional<Message> firstIncoming = messageRepository
@@ -427,7 +458,16 @@ public class DashboardController {
             User client = ticket.getUser();
             String clientName = client != null ? client.getFullName() : "";
             String clientPhone = client != null && client.getPhone() != null ? client.getPhone() : "";
-            String dni = client != null && client.getCodigo() != null ? client.getCodigo() : "";
+            // DNI: columna 'codigo'; si está vacía, fallback a custom_fields["codigo"]
+            // (PARIDAD RAILS: usa custom_fields["codigo"]). Cubre ambas ubicaciones de la data.
+            String dni = "";
+            if (client != null) {
+                if (client.getCodigo() != null && !client.getCodigo().isBlank()) {
+                    dni = client.getCodigo();
+                } else if (client.getCustomFields() != null && client.getCustomFields().get("codigo") != null) {
+                    dni = String.valueOf(client.getCustomFields().get("codigo"));
+                }
+            }
 
             // Caso Finalizado
             String casoFinalizado;
@@ -463,36 +503,57 @@ public class DashboardController {
                 tmoMin = Math.max(mins, 0L);
             }
 
-            // Write CSV row
-            csv.append(ticket.getId()).append(",");
-            csv.append(escapeCSV(fecha)).append(",");
-            csv.append(escapeCSV(hora)).append(",");
-            csv.append(escapeCSV(campaignName)).append(",");
-            csv.append(escapeCSV(agentName)).append(",");
-            csv.append(escapeCSV(clientName)).append(",");
-            csv.append(escapeCSV(clientPhone)).append(",");
-            csv.append(escapeCSV(dni)).append(",");
-            csv.append(escapeCSV(casoFinalizado)).append(",");
-            csv.append(escapeCSV(ultimosMensajes)).append(",");
-            csv.append(firstResponseMin != null ? firstResponseMin : "").append(",");
-            csv.append(firstResponseMin != null ? formatDdHhMm(firstResponseMin) : "").append(",");
-            csv.append(tmoMin != null ? tmoMin : "").append(",");
-            csv.append(tmoMin != null ? formatDdHhMm(tmoMin) : "");
-            csv.append("\n");
+            // Escribir fila en Excel: numéricos como números (sumables/ordenables),
+            // el resto como texto. Cada columna se escribe siempre (data en todas).
+            Row row = sheet.createRow(rowIdx++);
+            row.createCell(0).setCellValue(ticket.getId() != null ? ticket.getId().doubleValue() : 0);
+            row.createCell(1).setCellValue(fecha);
+            row.createCell(2).setCellValue(hora);
+            row.createCell(3).setCellValue(campaignName);
+            row.createCell(4).setCellValue(agentName);
+            row.createCell(5).setCellValue(clientName);
+            row.createCell(6).setCellValue(clientPhone);
+            row.createCell(7).setCellValue(dni);
+            row.createCell(8).setCellValue(casoFinalizado);
+            row.createCell(9).setCellValue(ultimosMensajes);
+            if (firstResponseMin != null) {
+                row.createCell(10).setCellValue(firstResponseMin.doubleValue());
+                row.createCell(11).setCellValue(formatDdHhMm(firstResponseMin));
+            }
+            if (tmoMin != null) {
+                row.createCell(12).setCellValue(tmoMin.doubleValue());
+                row.createCell(13).setCellValue(formatDdHhMm(tmoMin));
+            }
         }
 
-        byte[] csvBytes = csv.toString().getBytes(StandardCharsets.UTF_8);
+        // Anchos de columna razonables (autoSizeColumn es costoso con muchas filas)
+        int[] widths = { 2800, 2600, 2600, 3800, 5200, 5200, 3800, 4200, 3600, 14000, 4400, 5400, 2600, 3600 };
+        for (int c = 0; c < widths.length; c++) {
+            sheet.setColumnWidth(c, widths[c]);
+        }
+
+        byte[] xlsxBytes;
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            workbook.write(out);
+            xlsxBytes = out.toByteArray();
+        } catch (IOException e) {
+            log.error("Error generando Excel de KPIs", e);
+            return ResponseEntity.internalServerError().build();
+        } finally {
+            try { workbook.close(); } catch (IOException ignored) { }
+        }
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType("text/csv; charset=utf-8"));
+        headers.setContentType(MediaType.parseMediaType(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
         headers.setContentDispositionFormData("attachment",
-                "kpi_export_" + LocalDate.now() + ".csv");
+                "kpi_export_" + LocalDate.now() + ".xlsx");
 
-        log.info("Exported {} tickets to KPI CSV", tickets.size());
+        log.info("Exported {} tickets to KPI Excel", tickets.size());
 
         return ResponseEntity.ok()
                 .headers(headers)
-                .body(csvBytes);
+                .body(xlsxBytes);
     }
 
     private String formatDdHhMm(long totalMinutes) {
