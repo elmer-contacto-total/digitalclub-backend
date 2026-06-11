@@ -330,7 +330,8 @@ public class User {
             return "";
         }
         return switch (manager.getEmail()) {
-            case "jessica.bravo@somosoh.pe" -> "BIG TICKET";
+            // Jessica Bravo migró su email a @ifxp.pe (antes @somosoh.pe); ambos -> BIG TICKET
+            case "jessica.bravo@somosoh.pe", "jessica.bravo@ifxp.pe" -> "BIG TICKET";
             case "jesbrase08@gmail.com" -> "PREVENTIVA";
             default -> "";
         };
