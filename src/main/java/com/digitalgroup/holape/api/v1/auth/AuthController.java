@@ -155,13 +155,11 @@ public class AuthController {
         var refreshTokenEntity = refreshTokenService.createRefreshToken(user, "Web Browser", null);
         String refreshToken = refreshTokenEntity.getToken();
 
-        // Update UUID token
-        String uuidToken = UUID.randomUUID().toString();
-        user.setUuidToken(uuidToken);
-        userRepository.save(user);
-
-        // Build user response
-        Map<String, Object> userResponse = buildUserResponse(user, uuidToken);
+        // PARIDAD RAILS: el login web (Devise Users::SessionsController#create) NO modifica uuid_token.
+        // El uuid_token identifica al DISPOSITIVO MÓVIL del agente (se asigna solo en /app_login).
+        // Regenerarlo aquí invalidaba la sesión del app móvil del agente -> sus mensajes caían en
+        // "User not found in user table". Devolvemos el valor existente sin tocarlo (igual que /validate).
+        Map<String, Object> userResponse = buildUserResponse(user, user.getUuidToken());
 
         log.info("Successful web login for user: {}", user.getEmail());
 
