@@ -49,6 +49,7 @@ public class AuthController {
     // V03: la sesion lleva contador de intentos y vencimiento. Antes se podian
     // probar codigos ilimitadamente dentro de la vigencia del OTP (100 intentos
     // bastaron en la prueba para acertar y obtener un token valido).
+    // El 3er fallo corta: fallo1, fallo2, fallo3 -> \"demasiados intentos\".
     private static final int MAX_OTP_ATTEMPTS = 3;
     private static final Duration OTP_SESSION_TTL = Duration.ofMinutes(5);
     // V04: minimo entre solicitudes de OTP para una misma cuenta.
@@ -283,17 +284,6 @@ public class AuthController {
                     .body(Map.of("error", "Sesión inválida o expirada"));
         }
 
-        // V03: limitar intentos por sesion. Al superar el umbral se invalida la
-        // sesion Y el OTP, obligando a solicitar uno nuevo.
-        if (session.attempts().incrementAndGet() > MAX_OTP_ATTEMPTS) {
-            otpSessions.remove(request.otpSessionId());
-            userRepository.findById(session.userId()).ifPresent(otpService::clearOtp);
-            log.warn("SECURITY: limite de intentos de OTP superado para la sesion {} (usuario {})",
-                    request.otpSessionId(), session.userId());
-            return ResponseEntity.status(429)
-                    .body(Map.of("error", "Demasiados intentos fallidos. Solicite un nuevo código."));
-        }
-
         // Find user
         User user = userRepository.findById(session.userId()).orElse(null);
         if (user == null) {
@@ -303,7 +293,19 @@ public class AuthController {
 
         // Validate OTP
         if (!otpService.validateOtp(user, request.candidateOtp())) {
-            log.warn("Invalid OTP for user: {}", user.getEmail());
+            // V03: se cuenta el intento fallido. En el 3er fallo (umbral) se invalida
+            // la sesion Y el OTP, obligando a solicitar uno nuevo. Un codigo correcto
+            // en el 3er intento SI se acepta (la validacion ocurre antes de este corte).
+            int failedAttempts = session.attempts().incrementAndGet();
+            if (failedAttempts >= MAX_OTP_ATTEMPTS) {
+                otpSessions.remove(request.otpSessionId());
+                otpService.clearOtp(user);
+                log.warn("SECURITY: limite de intentos de OTP alcanzado para la sesion {} (usuario {})",
+                        request.otpSessionId(), session.userId());
+                return ResponseEntity.status(429)
+                        .body(Map.of("error", "Demasiados intentos fallidos. Solicite un nuevo código."));
+            }
+            log.warn("Invalid OTP for user: {} (intento {})", user.getEmail(), failedAttempts);
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Código de Seguridad Inválido. Intente de nuevo"));
         }
