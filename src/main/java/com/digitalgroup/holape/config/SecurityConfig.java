@@ -53,11 +53,14 @@ public class SecurityConfig {
                         .referrerPolicy(ref -> ref.policy(
                                 org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
                                         .ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
-                        .permissionsPolicyHeader(pp -> pp.policy(
+                        // Permissions-Policy y Cross-Origin-Opener-Policy: en Spring
+                        // Security 6.2 no existen como DSL (llegaron en 6.3). Se emiten
+                        // con StaticHeadersWriter, estable en cualquier version.
+                        .addHeaderWriter(new org.springframework.security.web.header.writers.StaticHeadersWriter(
+                                "Permissions-Policy",
                                 "geolocation=(), microphone=(), camera=(), payment=(), usb=()"))
-                        .crossOriginOpenerPolicy(coop -> coop.policy(
-                                org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter
-                                        .CrossOriginOpenerPolicy.SAME_ORIGIN_ALLOW_POPUPS))
+                        .addHeaderWriter(new org.springframework.security.web.header.writers.StaticHeadersWriter(
+                                "Cross-Origin-Opener-Policy", "same-origin-allow-popups"))
                         // CSP: 'self' + imagenes de S3 y conexiones al backend/websocket.
                         // WhatsApp Web corre en una BrowserView aparte (otro origen), no
                         // se ve afectada. Validar en staging antes del rollout a infinance.
