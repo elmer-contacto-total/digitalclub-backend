@@ -239,8 +239,8 @@ public class UserAdminController {
 
         User newUser = User.builder()
                 .email(request.email())
-                .firstName(request.firstName())
-                .lastName(request.lastName())
+                .firstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()))
+                .lastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()))
                 .phone(request.phone())
                 .role(UserRole.valueOf(request.role().toUpperCase()))
                 .build();
@@ -282,8 +282,8 @@ public class UserAdminController {
         if (request.email() != null && !request.email().isBlank()) {
             updates.setEmail(request.email().toLowerCase().trim());
         }
-        updates.setFirstName(request.firstName());
-        updates.setLastName(request.lastName());
+        updates.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()));
+        updates.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()));
         updates.setPhone(request.phone());
         if (request.role() != null) {
             UserRole newRole = UserRole.valueOf(request.role().toUpperCase());
@@ -1751,10 +1751,10 @@ public class UserAdminController {
 
         // Update allowed fields
         if (request.firstName() != null) {
-            user.setFirstName(request.firstName());
+            user.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()));
         }
         if (request.lastName() != null) {
-            user.setLastName(request.lastName());
+            user.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()));
         }
         if (request.phone() != null) {
             user.setPhone(request.phone());
@@ -1823,6 +1823,13 @@ public class UserAdminController {
                     "error", "El archivo excede el tamaño máximo de 5MB"));
         }
 
+        // V08: el Content-Type lo controla el cliente; se pudieron subir .exe/.pdf
+        // declarando image/jpeg. Verificar la firma real del archivo (magic bytes).
+        if (!isRealImage(file)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "El archivo no es una imagen válida (JPG, PNG, GIF o WebP)"));
+        }
+
         try {
             // Upload to S3
             String s3Key = s3StorageService.uploadFile(file, "avatars");
@@ -1850,6 +1857,39 @@ public class UserAdminController {
             log.error("Error uploading avatar for user {}", id, e);
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", "Error al subir la imagen: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * V08: valida que el contenido real del archivo sea una imagen soportada,
+     * inspeccionando la firma (magic bytes) en lugar del Content-Type declarado.
+     * Soporta JPG, PNG, GIF y WebP.
+     */
+    private boolean isRealImage(MultipartFile file) {
+        try {
+            byte[] h = new byte[12];
+            int read;
+            try (var in = file.getInputStream()) {
+                read = in.read(h, 0, 12);
+            }
+            if (read < 12) return false;
+
+            // JPEG: FF D8 FF
+            if ((h[0] & 0xFF) == 0xFF && (h[1] & 0xFF) == 0xD8 && (h[2] & 0xFF) == 0xFF) return true;
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            if ((h[0] & 0xFF) == 0x89 && h[1] == 'P' && h[2] == 'N' && h[3] == 'G'
+                    && (h[4] & 0xFF) == 0x0D && (h[5] & 0xFF) == 0x0A
+                    && (h[6] & 0xFF) == 0x1A && (h[7] & 0xFF) == 0x0A) return true;
+            // GIF: 47 49 46 38 (GIF8)
+            if (h[0] == 'G' && h[1] == 'I' && h[2] == 'F' && h[3] == '8') return true;
+            // WebP: RIFF....WEBP
+            if (h[0] == 'R' && h[1] == 'I' && h[2] == 'F' && h[3] == 'F'
+                    && h[8] == 'W' && h[9] == 'E' && h[10] == 'B' && h[11] == 'P') return true;
+
+            return false;
+        } catch (Exception e) {
+            log.warn("No se pudo leer la firma del archivo de avatar: {}", e.getMessage());
+            return false;
         }
     }
 

@@ -23,6 +23,7 @@ import java.util.Map;
 public class WebSocketAuthInterceptor implements HandshakeInterceptor {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final com.digitalgroup.holape.security.jwt.TokenBlacklistService tokenBlacklistService;
 
     @Override
     public boolean beforeHandshake(
@@ -43,7 +44,9 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
                 }
             }
 
-            if (token != null && jwtTokenProvider.validateToken(token)) {
+            // V06: rechazar tambien tokens revocados en logout.
+            if (token != null && jwtTokenProvider.validateToken(token)
+                    && !tokenBlacklistService.isRevoked(token)) {
                 Long userId = jwtTokenProvider.getUserIdFromToken(token);
                 Long clientId = jwtTokenProvider.getClientIdFromToken(token);
 

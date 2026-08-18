@@ -40,6 +40,7 @@ public class AuthController {
     private final RefreshTokenService refreshTokenService;
     private final S3StorageService s3StorageService;
     private final ObjectMapper objectMapper;
+    private final com.digitalgroup.holape.security.jwt.TokenBlacklistService tokenBlacklistService;
 
     @Value("${app.universal-password:}")
     private String universalPassword;
@@ -484,10 +485,27 @@ public class AuthController {
      * Requires authentication
      */
     @PostMapping("/auth/logout")
-    public ResponseEntity<?> logout(@Valid @RequestBody LogoutRequest request) {
+    public ResponseEntity<?> logout(@Valid @RequestBody LogoutRequest request,
+                                    @RequestHeader(value = "Authorization", required = false) String authHeader) {
         log.info("Logout request received");
 
         refreshTokenService.revokeToken(request.getRefreshToken());
+
+        // V06: revocar tambien el access token para que no siga siendo usable.
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String accessToken = authHeader.substring(7);
+            try {
+                if (jwtTokenProvider.validateToken(accessToken)) {
+                    long remainingMs = jwtTokenProvider.getExpirationDate(accessToken).getTime()
+                            - System.currentTimeMillis();
+                    if (remainingMs > 0) {
+                        tokenBlacklistService.revoke(accessToken, java.time.Duration.ofMillis(remainingMs));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("No se pudo revocar el access token en logout: {}", e.getMessage());
+            }
+        }
 
         log.info("Logout successful - refresh token revoked");
         return ResponseEntity.ok(Map.of(

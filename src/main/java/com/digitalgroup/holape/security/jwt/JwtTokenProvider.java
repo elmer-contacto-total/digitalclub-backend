@@ -176,6 +176,16 @@ public class JwtTokenProvider {
         return false;
     }
 
+    /** Fecha de expiracion del token (para calcular el TTL de revocacion). */
+    public Date getExpirationDate(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims.getExpiration();
+    }
+
     public boolean isTokenExpired(String token) {
         try {
             Claims claims = Jwts.parser()

@@ -25,6 +25,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -33,7 +34,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+            // V06: un token revocado en logout deja de ser valido aunque no haya expirado.
+            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)
+                    && !tokenBlacklistService.isRevoked(jwt)) {
                 String username = tokenProvider.getUsernameFromToken(jwt);
                 Long clientId = tokenProvider.getClientIdFromToken(jwt);
 

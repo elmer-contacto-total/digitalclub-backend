@@ -37,6 +37,41 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
+                // V07: cabeceras de seguridad. Se definen en la app (no solo en Nginx)
+                // para que apliquen en todos los despliegues desde un unico lugar.
+                // X-Content-Type-Options y X-Frame-Options: Nginx ya los agrega en el
+                // borde; aqui se fija frameOptions=sameOrigin para no entrar en conflicto
+                // con el DENY por defecto de Spring Security.
+                .headers(headers -> headers
+                        .frameOptions(frame -> frame.sameOrigin())
+                        // Sin includeSubDomains: infinance corre bajo innovag.com.pe
+                        // (dominio de un tercero); extender HSTS a *.innovag.com.pe podria
+                        // romper otros subdominios que no sirvan HTTPS. Se limita al host.
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(false)
+                                .maxAgeInSeconds(31536000))
+                        .referrerPolicy(ref -> ref.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
+                                        .ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicyHeader(pp -> pp.policy(
+                                "geolocation=(), microphone=(), camera=(), payment=(), usb=()"))
+                        .crossOriginOpenerPolicy(coop -> coop.policy(
+                                org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter
+                                        .CrossOriginOpenerPolicy.SAME_ORIGIN_ALLOW_POPUPS))
+                        // CSP: 'self' + imagenes de S3 y conexiones al backend/websocket.
+                        // WhatsApp Web corre en una BrowserView aparte (otro origen), no
+                        // se ve afectada. Validar en staging antes del rollout a infinance.
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; "
+                                + "script-src 'self'; "
+                                + "style-src 'self' 'unsafe-inline'; "
+                                + "img-src 'self' data: blob: https://*.amazonaws.com; "
+                                + "font-src 'self' data:; "
+                                + "connect-src 'self' https: wss:; "
+                                + "frame-ancestors 'self'; "
+                                + "base-uri 'self'; "
+                                + "form-action 'self'; "
+                                + "object-src 'none'")))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(unauthorizedHandler))
                 .sessionManagement(session -> session

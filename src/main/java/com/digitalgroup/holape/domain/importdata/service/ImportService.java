@@ -1331,22 +1331,26 @@ public class ImportService {
             switch (field) {
                 case "phone" -> tempUser.setPhone(normalizePhone(value));
                 case "phone_code" -> tempUser.setPhoneCode(value);
-                case "first_name" -> tempUser.setFirstName(value);
-                case "last_name" -> tempUser.setLastName(value);
+                // V05: sanitizar nombre/apellido tambien en la importacion CSV
+                // (mismo vector de XSS almacenado que el perfil, otra via de entrada).
+                case "first_name" -> tempUser.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(value));
+                case "last_name" -> tempUser.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(value));
                 case "last_name_2" -> {
                     // PARIDAD RAILS: "#{APELLIDO_P} #{APELLIDO_M}"
+                    String v2 = com.digitalgroup.holape.util.InputSanitizer.sanitizeName(value);
                     if (tempUser.getLastName() != null && !tempUser.getLastName().isEmpty()) {
-                        tempUser.setLastName(tempUser.getLastName() + " " + value);
+                        tempUser.setLastName(tempUser.getLastName() + " " + v2);
                     } else {
-                        tempUser.setLastName(value);
+                        tempUser.setLastName(v2);
                     }
                 }
                 case "first_name_2" -> {
                     // Segundo nombre: "#{NOMBRE1} #{NOMBRE2}"
+                    String vn2 = com.digitalgroup.holape.util.InputSanitizer.sanitizeName(value);
                     if (tempUser.getFirstName() != null && !tempUser.getFirstName().isEmpty()) {
-                        tempUser.setFirstName(tempUser.getFirstName() + " " + value);
+                        tempUser.setFirstName(tempUser.getFirstName() + " " + vn2);
                     } else {
-                        tempUser.setFirstName(value);
+                        tempUser.setFirstName(vn2);
                     }
                 }
                 case "email" -> tempUser.setEmail(value.toLowerCase());
