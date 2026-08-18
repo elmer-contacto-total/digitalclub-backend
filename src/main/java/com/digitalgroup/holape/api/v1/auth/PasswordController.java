@@ -41,27 +41,28 @@ public class PasswordController {
                     .body(Map.of("error", "Email es requerido"));
         }
 
-        // NOTA: por decisión de producto, se informa explícitamente si el correo
-        // estaba registrado (emailSent). Esto reduce la protección anti-enumeración,
-        // pero el frontend solo debe mostrar "Correo enviado" cuando realmente se envió.
-        boolean emailSent = false;
+        // V04 (pentest 18-08-2026, CVSS 4.0 = 5.3): la respuesta NO debe revelar
+        // si el correo existe. Antes se devolvia emailSent y dos mensajes
+        // distintos, lo que permitia enumerar cuentas validas llamando al
+        // endpoint directamente — la UI no protege nada, el atacante usa curl.
+        //
+        // Se responde siempre igual, exista o no el usuario. El envio del correo
+        // sigue ocurriendo solo cuando corresponde.
         try {
             User user = userRepository.findByEmail(request.email().toLowerCase()).orElse(null);
             if (user != null) {
                 userService.sendResetPasswordInstructions(user.getId());
-                emailSent = true;
             }
         } catch (Exception e) {
+            // Tampoco se distingue el fallo de envio: informarlo delataria que
+            // el correo existe.
             log.warn("Error sending password reset: {}", e.getMessage());
-            // No se pudo enviar -> emailSent queda en false
         }
 
         return ResponseEntity.ok(Map.of(
             "success", true,
-            "emailSent", emailSent,
-            "message", emailSent
-                ? "Se han enviado las instrucciones a su correo"
-                : "El correo no está registrado"
+            "message", "Si el correo se encuentra registrado, recibirá instrucciones "
+                     + "para restablecer su contraseña"
         ));
     }
 
