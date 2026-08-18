@@ -49,7 +49,7 @@ public class AuthController {
     // V03: la sesion lleva contador de intentos y vencimiento. Antes se podian
     // probar codigos ilimitadamente dentro de la vigencia del OTP (100 intentos
     // bastaron en la prueba para acertar y obtener un token valido).
-    private static final int MAX_OTP_ATTEMPTS = 5;
+    private static final int MAX_OTP_ATTEMPTS = 3;
     private static final Duration OTP_SESSION_TTL = Duration.ofMinutes(5);
     // V04: minimo entre solicitudes de OTP para una misma cuenta.
     private static final Duration OTP_RESEND_COOLDOWN = Duration.ofSeconds(60);

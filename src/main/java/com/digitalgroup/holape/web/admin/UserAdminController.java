@@ -239,8 +239,8 @@ public class UserAdminController {
 
         User newUser = User.builder()
                 .email(request.email())
-                .firstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()))
-                .lastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()))
+                .firstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.firstName()))
+                .lastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.lastName()))
                 .phone(request.phone())
                 .role(UserRole.valueOf(request.role().toUpperCase()))
                 .build();
@@ -282,8 +282,8 @@ public class UserAdminController {
         if (request.email() != null && !request.email().isBlank()) {
             updates.setEmail(request.email().toLowerCase().trim());
         }
-        updates.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()));
-        updates.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()));
+        updates.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.firstName()));
+        updates.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.lastName()));
         updates.setPhone(request.phone());
         if (request.role() != null) {
             UserRole newRole = UserRole.valueOf(request.role().toUpperCase());
@@ -1751,10 +1751,10 @@ public class UserAdminController {
 
         // Update allowed fields
         if (request.firstName() != null) {
-            user.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.firstName()));
+            user.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.firstName()));
         }
         if (request.lastName() != null) {
-            user.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(request.lastName()));
+            user.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeStrictName(request.lastName()));
         }
         if (request.phone() != null) {
             user.setPhone(request.phone());

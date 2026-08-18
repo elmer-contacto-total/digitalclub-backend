@@ -16,6 +16,21 @@ public final class InputSanitizer {
 
     private InputSanitizer() {}
 
+    /**
+     * Lista blanca estricta para nombres ingresados por el usuario (perfil, alta y
+     * edicion). Conserva solo letras (con tildes/ñ), espacios, guiones, apostrofes
+     * y puntos; elimina cualquier otro caracter. Es la contraparte servidor de la
+     * validacion del formulario (defensa en profundidad: aunque se evada el cliente,
+     * lo almacenado queda limpio).
+     */
+    public static String sanitizeStrictName(String value) {
+        if (value == null) return null;
+        String cleaned = sanitizeName(value)
+                .replaceAll("[^\\p{L}\\p{M} .'\\-]", "")
+                .trim();
+        return cleaned;
+    }
+
     /** Elimina etiquetas <...>, caracteres de angulo sueltos y caracteres de control. */
     public static String sanitizeName(String value) {
         if (value == null) return null;
