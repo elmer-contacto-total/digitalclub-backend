@@ -220,14 +220,13 @@ public class AuthController {
                     .body(Map.of("error", "Credenciales Inválidas"));
         }
 
-        // V04 (OTP Flooding): limitar la frecuencia de emision por cuenta. Antes se
-        // podian disparar OTPs sin restriccion, saturando el canal y encareciendo el envio.
-        if (isOtpThrottled(user.getId())) {
-            log.warn("OTP throttled for user: {}", request.email());
-            return ResponseEntity.status(429)
-                    .body(Map.of("error", "Ya se envio un codigo recientemente. Espere un momento antes de solicitar otro."));
-        }
-
+        // V04 (OTP Flooding): prelogin NO aplica cooldown por cuenta a proposito.
+        // Cada prelogin exige credenciales validas antes de emitir el OTP, y el
+        // rate-limit por IP (arriba) ya frena la automatizacion. Aplicar aqui el
+        // cooldown bloqueaba el re-login legitimo tras agotar los intentos de OTP
+        // (V03 invalida la sesion -> el usuario re-loguea -> quedaba trabado 60s).
+        // El cooldown se mantiene en /resend_otp, que es el vector real de flooding
+        // (solo requiere un otpSessionId, sin re-validar credenciales).
         purgeExpiredOtpSessions();
 
         // Generate OTP session ID
