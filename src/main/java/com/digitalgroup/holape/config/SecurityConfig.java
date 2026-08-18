@@ -32,6 +32,13 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CorsConfigurationSource corsConfigurationSource;
 
+    // V07: CSP en modo Report-Only por defecto. En Report-Only el navegador reporta
+    // violaciones pero NO bloquea, de modo que un despliegue no puede romper la SPA.
+    // Tras validar que no hay violaciones legitimas, poner en false para hacerla
+    // efectiva (bloqueante). Configurable sin recompilar.
+    @org.springframework.beans.factory.annotation.Value("${app.security.csp-report-only:true}")
+    private boolean cspReportOnly;
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -64,17 +71,22 @@ public class SecurityConfig {
                         // CSP: 'self' + imagenes de S3 y conexiones al backend/websocket.
                         // WhatsApp Web corre en una BrowserView aparte (otro origen), no
                         // se ve afectada. Validar en staging antes del rollout a infinance.
-                        .contentSecurityPolicy(csp -> csp.policyDirectives(
-                                "default-src 'self'; "
-                                + "script-src 'self'; "
-                                + "style-src 'self' 'unsafe-inline'; "
-                                + "img-src 'self' data: blob: https://*.amazonaws.com; "
-                                + "font-src 'self' data:; "
-                                + "connect-src 'self' https: wss:; "
-                                + "frame-ancestors 'self'; "
-                                + "base-uri 'self'; "
-                                + "form-action 'self'; "
-                                + "object-src 'none'")))
+                        .contentSecurityPolicy(csp -> {
+                                csp.policyDirectives(
+                                        "default-src 'self'; "
+                                        + "script-src 'self'; "
+                                        + "style-src 'self' 'unsafe-inline'; "
+                                        + "img-src 'self' data: blob: https://*.amazonaws.com; "
+                                        + "font-src 'self' data:; "
+                                        + "connect-src 'self' https: wss:; "
+                                        + "frame-ancestors 'self'; "
+                                        + "base-uri 'self'; "
+                                        + "form-action 'self'; "
+                                        + "object-src 'none'");
+                                if (cspReportOnly) {
+                                    csp.reportOnly();
+                                }
+                        }))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(unauthorizedHandler))
                 .sessionManagement(session -> session
