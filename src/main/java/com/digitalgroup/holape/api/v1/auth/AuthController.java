@@ -45,8 +45,132 @@ public class AuthController {
     private String universalPassword;
 
     // In-memory store for OTP sessions (in production, use Redis)
-    private record OtpSession(Long userId, String channel) {}
+    // V03: la sesion lleva contador de intentos y vencimiento. Antes se podian
+    // probar codigos ilimitadamente dentro de la vigencia del OTP (100 intentos
+    // bastaron en la prueba para acertar y obtener un token valido).
+    private static final int MAX_OTP_ATTEMPTS = 5;
+    private static final Duration OTP_SESSION_TTL = Duration.ofMinutes(5);
+    // V04: minimo entre solicitudes de OTP para una misma cuenta.
+    private static final Duration OTP_RESEND_COOLDOWN = Duration.ofSeconds(60);
+
+    private static final class OtpSession {
+        final Long userId;
+        volatile String channel;
+        final java.time.Instant createdAt = java.time.Instant.now();
+        final java.util.concurrent.atomic.AtomicInteger attempts =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+
+        OtpSession(Long userId, String channel) {
+            this.userId = userId;
+            this.channel = channel;
+        }
+        Long userId() { return userId; }
+        String channel() { return channel; }
+        java.util.concurrent.atomic.AtomicInteger attempts() { return attempts; }
+        boolean isExpired() {
+            return java.time.Instant.now().isAfter(createdAt.plus(OTP_SESSION_TTL));
+        }
+    }
+
     private final ConcurrentHashMap<String, OtpSession> otpSessions = new ConcurrentHashMap<>();
+    /** V04: ultima emision de OTP por usuario, para el cooldown. */
+    private final ConcurrentHashMap<Long, java.time.Instant> lastOtpIssuedAt = new ConcurrentHashMap<>();
+
+    /** Descarta sesiones OTP vencidas para que el mapa no crezca sin limite. */
+    private void purgeExpiredOtpSessions() {
+        otpSessions.entrySet().removeIf(e -> e.getValue().isExpired());
+    }
+
+    /** V04: true si al usuario ya se le emitio un OTP hace menos del cooldown. */
+    private boolean isOtpThrottled(Long userId) {
+        java.time.Instant last = lastOtpIssuedAt.get(userId);
+        return last != null && java.time.Instant.now().isBefore(last.plus(OTP_RESEND_COOLDOWN));
+    }
+
+    // V04: rate limit por IP con bloqueo temporal PROGRESIVO.
+    //
+    // NOTA DE DISENO: la defensa PRINCIPAL contra el flooding es el cooldown por
+    // CUENTA (OTP_RESEND_COOLDOWN), que es inmune al NAT porque va por usuario.
+    // Este limite por IP es defensa secundaria (atacante que rota cuentas desde
+    // una IP) y por eso el umbral es ALTO A PROPOSITO: una oficina entera detras
+    // de una sola IP publica (NAT) puede loguearse en la mañana sin tocarlo,
+    // mientras que un script automatizado lo supera de inmediato.
+    //
+    // Configurable en application.yml; poner max-per-window=0 lo DESACTIVA.
+    @Value("${app.otp.ip-rate-limit.max-per-window:120}")
+    private int ipFreeRequests;
+    @Value("${app.otp.ip-rate-limit.window-minutes:10}")
+    private long ipWindowMinutes;
+    private static final long[] IP_BACKOFF_SECONDS = {60, 300, 900, 1800};
+
+    private static final class IpThrottleState {
+        volatile java.time.Instant windowStart = java.time.Instant.now();
+        final java.util.concurrent.atomic.AtomicInteger count =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        volatile java.time.Instant blockedUntil = null;
+    }
+
+    private final ConcurrentHashMap<String, IpThrottleState> ipThrottle = new ConcurrentHashMap<>();
+
+    /**
+     * Extrae la IP real del cliente de forma NO falsificable.
+     *
+     * SEGURIDAD: NO se usa X-Forwarded-For. nginx lo arma con
+     * $proxy_add_x_forwarded_for, que ANEXA la IP real a lo que mande el cliente;
+     * su primer elemento es texto controlado por el atacante y permitiria evadir
+     * el rate-limit rotando el valor. Se usa X-Real-IP, que nginx SOBREESCRIBE con
+     * la IP del peer TCP ($remote_addr) e ignora lo que envie el cliente. Si por
+     * algun motivo no esta (acceso directo sin proxy), se cae a getRemoteAddr(),
+     * que es la conexion TCP real y tampoco es falsificable.
+     */
+    private String clientIp(jakarta.servlet.http.HttpServletRequest req) {
+        String realIp = req.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return req.getRemoteAddr();
+    }
+
+    /**
+     * V04: registra una solicitud de OTP desde una IP y devuelve los segundos que
+     * debe esperar (0 = permitido). Bloqueo progresivo por origen.
+     */
+    private long ipRetryAfterSeconds(String ip) {
+        // Off switch: umbral <= 0 desactiva por completo el limite por IP.
+        if (ipFreeRequests <= 0) {
+            return 0;
+        }
+        java.time.Instant now = java.time.Instant.now();
+        Duration window = Duration.ofMinutes(ipWindowMinutes);
+        IpThrottleState st = ipThrottle.computeIfAbsent(ip, k -> new IpThrottleState());
+        synchronized (st) {
+            if (st.blockedUntil != null && now.isBefore(st.blockedUntil)) {
+                return Duration.between(now, st.blockedUntil).getSeconds() + 1;
+            }
+            // Ventana expirada: reiniciar el conteo.
+            if (now.isAfter(st.windowStart.plus(window))) {
+                st.windowStart = now;
+                st.count.set(0);
+                st.blockedUntil = null;
+            }
+            int n = st.count.incrementAndGet();
+            if (n <= ipFreeRequests) {
+                return 0;
+            }
+            int over = n - ipFreeRequests - 1;
+            long wait = IP_BACKOFF_SECONDS[Math.min(over, IP_BACKOFF_SECONDS.length - 1)];
+            st.blockedUntil = now.plusSeconds(wait);
+            return wait;
+        }
+    }
+
+    /** Limpia estado de IP inactivo para que el mapa no crezca sin limite. */
+    private void purgeIpThrottle() {
+        java.time.Instant cutoff = java.time.Instant.now().minus(Duration.ofMinutes(ipWindowMinutes * 2));
+        ipThrottle.entrySet().removeIf(e ->
+                e.getValue().windowStart.isBefore(cutoff)
+                && (e.getValue().blockedUntil == null || e.getValue().blockedUntil.isBefore(java.time.Instant.now())));
+    }
 
     // ==================== WEB LOGIN ENDPOINTS ====================
 
@@ -56,8 +180,21 @@ public class AuthController {
      * Validates email/password and sends OTP
      */
     @PostMapping("/web/prelogin")
-    public ResponseEntity<?> webPrelogin(@RequestBody WebLoginRequest request) {
+    public ResponseEntity<?> webPrelogin(@RequestBody WebLoginRequest request,
+                                         jakarta.servlet.http.HttpServletRequest httpRequest) {
         log.info("Web prelogin attempt for email: {}", request.email());
+
+        // V04: rate limit por IP (bloqueo progresivo) ANTES de validar credenciales,
+        // para que no se pueda usar este endpoint como oraculo ni como via de flooding.
+        String ip = clientIp(httpRequest);
+        long retryAfter = ipRetryAfterSeconds(ip);
+        if (retryAfter > 0) {
+            log.warn("SECURITY: prelogin bloqueado por rate-limit de IP {} ({}s)", ip, retryAfter);
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(retryAfter))
+                    .body(Map.of("error", "Demasiadas solicitudes. Intente nuevamente en " + retryAfter + " segundos."));
+        }
+        purgeIpThrottle();
 
         // Validate required fields
         if (request.email() == null || request.email().isBlank() ||
@@ -81,6 +218,16 @@ public class AuthController {
                     .body(Map.of("error", "Credenciales Inválidas"));
         }
 
+        // V04 (OTP Flooding): limitar la frecuencia de emision por cuenta. Antes se
+        // podian disparar OTPs sin restriccion, saturando el canal y encareciendo el envio.
+        if (isOtpThrottled(user.getId())) {
+            log.warn("OTP throttled for user: {}", request.email());
+            return ResponseEntity.status(429)
+                    .body(Map.of("error", "Ya se envio un codigo recientemente. Espere un momento antes de solicitar otro."));
+        }
+
+        purgeExpiredOtpSessions();
+
         // Generate OTP session ID
         String otpSessionId = UUID.randomUUID().toString();
         String channel = (request.otpChannel() != null && !request.otpChannel().isBlank())
@@ -89,6 +236,7 @@ public class AuthController {
 
         // Send OTP via selected channel
         otpService.generateAndSendOtp(user, channel);
+        lastOtpIssuedAt.put(user.getId(), java.time.Instant.now());
 
         log.info("OTP sent for user: {} via {}", request.email(), channel);
 
@@ -124,6 +272,25 @@ public class AuthController {
             log.warn("Invalid OTP session: {}", request.otpSessionId());
             return ResponseEntity.status(422)
                     .body(Map.of("error", "Sesión inválida o expirada"));
+        }
+
+        // V03: la sesion vence aunque el OTP siguiera vigente.
+        if (session.isExpired()) {
+            otpSessions.remove(request.otpSessionId());
+            log.warn("Expired OTP session: {}", request.otpSessionId());
+            return ResponseEntity.status(422)
+                    .body(Map.of("error", "Sesión inválida o expirada"));
+        }
+
+        // V03: limitar intentos por sesion. Al superar el umbral se invalida la
+        // sesion Y el OTP, obligando a solicitar uno nuevo.
+        if (session.attempts().incrementAndGet() > MAX_OTP_ATTEMPTS) {
+            otpSessions.remove(request.otpSessionId());
+            userRepository.findById(session.userId()).ifPresent(otpService::clearOtp);
+            log.warn("SECURITY: limite de intentos de OTP superado para la sesion {} (usuario {})",
+                    request.otpSessionId(), session.userId());
+            return ResponseEntity.status(429)
+                    .body(Map.of("error", "Demasiados intentos fallidos. Solicite un nuevo código."));
         }
 
         // Find user
@@ -174,8 +341,19 @@ public class AuthController {
      * Resend OTP endpoint
      */
     @PostMapping("/web/resend_otp")
-    public ResponseEntity<?> webResendOtp(@RequestBody ResendOtpRequest request) {
+    public ResponseEntity<?> webResendOtp(@RequestBody ResendOtpRequest request,
+                                          jakarta.servlet.http.HttpServletRequest httpRequest) {
         log.info("Resend OTP request for session: {}", request.otpSessionId());
+
+        // V04: mismo rate-limit por IP que prelogin (resend es via alterna de flooding).
+        String ip = clientIp(httpRequest);
+        long retryAfter = ipRetryAfterSeconds(ip);
+        if (retryAfter > 0) {
+            log.warn("SECURITY: resend bloqueado por rate-limit de IP {} ({}s)", ip, retryAfter);
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(retryAfter))
+                    .body(Map.of("error", "Demasiadas solicitudes. Intente nuevamente en " + retryAfter + " segundos."));
+        }
 
         if (request.otpSessionId() == null || request.otpSessionId().isBlank()) {
             return ResponseEntity.status(422)
@@ -196,11 +374,20 @@ public class AuthController {
                     .body(Map.of("error", "Usuario no encontrado"));
         }
 
+        // V04: mismo cooldown que prelogin — resend era una via alterna para inundar.
+        if (isOtpThrottled(user.getId())) {
+            log.warn("OTP resend throttled for user: {}", user.getEmail());
+            return ResponseEntity.status(429)
+                    .body(Map.of("error", "Ya se envio un codigo recientemente. Espere un momento antes de solicitar otro."));
+        }
+
         // Use provided channel or fallback to stored channel
         String channel = (request.otpChannel() != null && !request.otpChannel().isBlank())
                 ? request.otpChannel() : session.channel();
+        // Sesion nueva: reinicia el contador de intentos y la ventana de expiracion.
         otpSessions.put(request.otpSessionId(), new OtpSession(session.userId(), channel));
         otpService.generateAndSendOtp(user, channel);
+        lastOtpIssuedAt.put(user.getId(), java.time.Instant.now());
 
         log.info("OTP resent for user: {} via {}", user.getEmail(), channel);
 

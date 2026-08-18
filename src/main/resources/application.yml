@@ -174,6 +174,13 @@ app:
   universal-password: ${APP_UNIVERSAL_PASSWORD:}
   universal-otp: ${APP_UNIVERSAL_OTP:}
   sms-app-name: ${APP_SMS_NAME:MWS}
+  # V04 (OTP Flooding) — rate-limit por IP. Defensa SECUNDARIA: la principal es el
+  # cooldown de 60s por cuenta (inmune a NAT). Umbral alto a proposito para no
+  # afectar oficinas detras de una sola IP publica. max-per-window=0 lo desactiva.
+  otp:
+    ip-rate-limit:
+      max-per-window: ${APP_OTP_IP_MAX:120}
+      window-minutes: ${APP_OTP_IP_WINDOW_MIN:10}
   # URL base del frontend para los links de los correos (reset de contraseña,
   # invitación). CADA deploy debe setear APP_BASE_URL a su dominio en
   # /etc/holape/holape.env (infinance: https://infinance.innovag.com.pe,

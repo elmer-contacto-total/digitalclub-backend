@@ -484,7 +484,11 @@ public class ImportAdminController {
      * PARIDAD RAILS: Admin::ImportsController#destroy
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4', 'AGENT', 'STAFF')")
     public ResponseEntity<Void> destroy(@PathVariable Long id) {
+        // V02: la pertenencia la impone ImportOwnershipInterceptor.
+        // Este @PreAuthorize agrega el filtro de rol, que antes no existia:
+        // cualquier autenticado (incluido un cliente final STANDARD) podia borrar.
         importService.deleteImport(id);
         return ResponseEntity.noContent().build();
     }
@@ -581,8 +585,11 @@ public class ImportAdminController {
      * Delete a mapping template
      */
     @DeleteMapping("/mapping_templates/{templateId}")
-    public ResponseEntity<Map<String, Object>> deleteMappingTemplate(@PathVariable Long templateId) {
-        importService.deleteMappingTemplate(templateId);
+    public ResponseEntity<Map<String, Object>> deleteMappingTemplate(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long templateId) {
+        // V02: pasar el clientId del actor para que el service valide pertenencia.
+        importService.deleteMappingTemplate(currentUser.getClientId(), templateId);
         return ResponseEntity.ok(Map.of("result", "success", "message", "Template deleted"));
     }
 

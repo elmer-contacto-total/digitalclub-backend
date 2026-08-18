@@ -55,6 +55,7 @@ public class MessageAdminController {
     private final ClientSettingRepository clientSettingRepository;
     private final CapturedMediaRepository capturedMediaRepository;
     private final com.digitalgroup.holape.domain.prospect.repository.ProspectRepository prospectRepository;
+    private final com.digitalgroup.holape.domain.user.service.UserService userService;
 
     /**
      * Get messages - three modes:
@@ -168,6 +169,38 @@ public class MessageAdminController {
     }
 
     /**
+     * V02: valida que el actor pueda ver las conversaciones de este cliente.
+     *
+     * Regla (la misma que ya usaban agent_clients / supervisor_clients):
+     *   - siempre debe coincidir el tenant
+     *   - admin/super_admin/staff: cualquier cliente de su tenant
+     *   - agente/manager: solo clientes dentro de su arbol de subordinados
+     *
+     * Mensaje generico para no revelar que ids existen.
+     */
+    private void assertCanViewClient(CustomUserDetails actor, User client) {
+        Long clientTenant = client.getClientId();
+        if (!actor.isSuperAdmin()
+                && (clientTenant == null || !clientTenant.equals(actor.getClientId()))) {
+            log.warn("AUTHZ: usuario {} (cliente {}) intento ver conversaciones del usuario {} (cliente {})",
+                    actor.getId(), actor.getClientId(), client.getId(), clientTenant);
+            throw new org.springframework.security.access.AccessDeniedException("Conversación no encontrada");
+        }
+
+        if (actor.isAdmin() || actor.isStaff()) return;
+
+        if (actor.getId().equals(client.getId())) return;
+
+        boolean isSubordinate = userService.findAllSubordinates(actor.getId()).stream()
+                .anyMatch(u -> u.getId().equals(client.getId()));
+        if (!isSubordinate) {
+            log.warn("AUTHZ: usuario {} intento ver conversaciones del cliente {} que no tiene asignado",
+                    actor.getId(), client.getId());
+            throw new org.springframework.security.access.AccessDeniedException("Conversación no encontrada");
+        }
+    }
+
+    /**
      * Get full conversation detail for a client
      * PARIDAD: Rails MessagesController#index when client_id is present
      * Paginated: returns last N messages (default 100) ordered ASC for frontend display
@@ -193,6 +226,10 @@ public class MessageAdminController {
             return ResponseEntity.notFound().build();
         }
         User client = clientOpt.get();
+
+        // V02: sin este control un agente leia el historial completo de conversaciones
+        // de CUALQUIER cliente (incluso de otro tenant) cambiando client_id en la URL.
+        assertCanViewClient(currentUser, client);
 
         // Use a reasonable limit for messages (default 100 for conversation detail)
         int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
@@ -416,6 +453,15 @@ public class MessageAdminController {
             return ResponseEntity.notFound().build();
         }
         com.digitalgroup.holape.domain.prospect.entity.Prospect prospect = prospectOpt.get();
+
+        // V02: mismo control para prospectos.
+        Long prospectClientId = prospect.getClientId();
+        if (!currentUser.isSuperAdmin()
+                && (prospectClientId == null || !prospectClientId.equals(currentUser.getClientId()))) {
+            log.warn("AUTHZ: usuario {} (cliente {}) intento ver el prospecto {} (cliente {})",
+                    currentUser.getId(), currentUser.getClientId(), prospectId, prospectClientId);
+            throw new org.springframework.security.access.AccessDeniedException("Conversación no encontrada");
+        }
 
         int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
 

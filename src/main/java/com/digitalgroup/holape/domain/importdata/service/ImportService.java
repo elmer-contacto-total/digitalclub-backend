@@ -140,6 +140,43 @@ public class ImportService {
     }
 
     /**
+     * Busca una importacion validando que pertenezca al ambito del usuario.
+     *
+     * MOTIVO (hallazgo V02 - Referencia directa insegura a objetos, CVSS 8.6):
+     * show/download/destroy y las rutas auxiliares hacian findById(id) pelado, asi
+     * que bastaba cambiar el numero de la URL para leer, DESCARGAR o ELIMINAR
+     * importaciones de otros usuarios e incluso de otros clientes. El listado
+     * (index) ya aplicaba la regla correcta; esto la replica donde faltaba.
+     *
+     * Regla (identica a ImportAdminController#index):
+     *   - siempre debe coincidir el cliente
+     *   - admin/super_admin: cualquier importacion de su cliente
+     *   - el resto: solo las propias
+     *
+     * Lanza AccessDeniedException con mensaje generico para no revelar que ids existen.
+     */
+    public Import findByIdForUser(Long id, com.digitalgroup.holape.security.CustomUserDetails actor) {
+        Import imp = findById(id);
+
+        Long ownerClientId = imp.getClient() != null ? imp.getClient().getId() : null;
+        if (ownerClientId == null || !ownerClientId.equals(actor.getClientId())) {
+            log.warn("AUTHZ: usuario {} (cliente {}) intento acceder a la importacion {} (cliente {})",
+                    actor.getId(), actor.getClientId(), id, ownerClientId);
+            throw new org.springframework.security.access.AccessDeniedException("Importación no encontrada");
+        }
+
+        if (!actor.isAdmin()) {
+            Long ownerUserId = imp.getUser() != null ? imp.getUser().getId() : null;
+            if (ownerUserId == null || !ownerUserId.equals(actor.getId())) {
+                log.warn("AUTHZ: usuario {} intento acceder a la importacion {} del usuario {}",
+                        actor.getId(), id, ownerUserId);
+                throw new org.springframework.security.access.AccessDeniedException("Importación no encontrada");
+            }
+        }
+        return imp;
+    }
+
+    /**
      * Find imports by client with pagination
      */
     public Page<Import> findByClient(Long clientId, Pageable pageable) {
@@ -2976,9 +3013,17 @@ public class ImportService {
      * Delete a mapping template
      */
     @Transactional
-    public void deleteMappingTemplate(Long templateId) {
+    public void deleteMappingTemplate(Long clientId, Long templateId) {
         ImportMappingTemplate template = mappingTemplateRepository.findById(templateId)
                 .orElseThrow(() -> new ResourceNotFoundException("ImportMappingTemplate", templateId));
+
+        // V02: sin esta comprobacion cualquier usuario borraba plantillas de otro
+        // cliente enumerando el id (misma clase que el IDOR de importaciones, pero
+        // esta ruta no la cubre ImportOwnershipInterceptor por no ser /{id} numerico).
+        if (template.getClient() == null || !template.getClient().getId().equals(clientId)) {
+            throw new org.springframework.security.access.AccessDeniedException("Template no encontrado");
+        }
+
         mappingTemplateRepository.delete(template);
         log.info("Deleted mapping template '{}' (id={})", template.getName(), templateId);
     }

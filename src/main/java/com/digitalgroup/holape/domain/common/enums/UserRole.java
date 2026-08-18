@@ -69,6 +69,35 @@ public enum UserRole {
         return this != STANDARD && this != WHATSAPP_BUSINESS;
     }
 
+    /**
+     * Rango de privilegio para decisiones de autorizacion. Mayor = mas privilegio.
+     *
+     * IMPORTANTE: NO usar getValue() para esto — ese es el codigo persistido en BD
+     * (STANDARD=0, SUPER_ADMIN=1, ...) y su orden NO representa jerarquia.
+     *
+     * El orden sale de la jerarquia que ya declara UserAdminController#availableManagers:
+     * standard -> agent -> manager_level_4 -> ... -> manager_level_1 -> admin -> super_admin
+     */
+    public int rank() {
+        return switch (this) {
+            case SUPER_ADMIN       -> 100;
+            case ADMIN             -> 90;
+            case MANAGER_LEVEL_1   -> 80;
+            case MANAGER_LEVEL_2   -> 70;
+            case MANAGER_LEVEL_3   -> 60;
+            case MANAGER_LEVEL_4   -> 50;
+            case STAFF             -> 40;
+            case AGENT             -> 30;
+            case WHATSAPP_BUSINESS -> 10;
+            case STANDARD          -> 0;
+        };
+    }
+
+    /** true si este rol tiene privilegio ESTRICTAMENTE mayor que el otro. */
+    public boolean outranks(UserRole other) {
+        return other != null && this.rank() > other.rank();
+    }
+
     public boolean canManageUsers() {
         return this == SUPER_ADMIN || this == ADMIN || this == STAFF || isManager();
     }

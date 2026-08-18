@@ -73,6 +73,7 @@ public class UserAdminController {
     private final AuditRepository auditRepository;
     private final ClientSettingRepository clientSettingRepository;
     private final S3StorageService s3StorageService;
+    private final com.digitalgroup.holape.security.UserAccessPolicy userAccessPolicy;
 
     private static final List<String> ALLOWED_IMAGE_TYPES = List.of(
             "image/jpeg", "image/png", "image/gif", "image/webp"
@@ -141,8 +142,12 @@ public class UserAdminController {
      */
     @GetMapping("/{id}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> show(@PathVariable Long id) {
-        User user = userService.findById(id);
+    public ResponseEntity<Map<String, Object>> show(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long id) {
+        // V01: sin este control cualquier autenticado leia la ficha completa de
+        // cualquier usuario del sistema, incluso de otro cliente, enumerando el id.
+        User user = userAccessPolicy.assertCanView(currentUser, id);
 
         Map<String, Object> response = new HashMap<>();
         response.put("user", mapUserToResponse(user));
@@ -227,6 +232,11 @@ public class UserAdminController {
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @RequestBody CreateUserRequest request) {
 
+        // V01: no se puede crear un usuario con rol igual o superior al propio.
+        UserRole requestedRole = UserRole.valueOf(request.role().toUpperCase());
+        userAccessPolicy.assertCanAssignRole(currentUser, requestedRole);
+        userAccessPolicy.assertValidManager(currentUser, request.managerId());
+
         User newUser = User.builder()
                 .email(request.email())
                 .firstName(request.firstName())
@@ -259,8 +269,14 @@ public class UserAdminController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<Map<String, Object>> update(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestBody UpdateUserRequest request) {
+
+        // V01: el endpoint validaba solo el rol del actor, nunca el destino ni el
+        // rol asignado. Un MANAGER_LEVEL_4 se ponia role=ADMIN sobre su propia cuenta.
+        userAccessPolicy.assertCanManage(currentUser, id);
+        userAccessPolicy.assertValidManager(currentUser, request.managerId());
 
         User updates = new User();
         if (request.email() != null && !request.email().isBlank()) {
@@ -270,7 +286,9 @@ public class UserAdminController {
         updates.setLastName(request.lastName());
         updates.setPhone(request.phone());
         if (request.role() != null) {
-            updates.setRole(UserRole.valueOf(request.role().toUpperCase()));
+            UserRole newRole = UserRole.valueOf(request.role().toUpperCase());
+            userAccessPolicy.assertCanAssignRole(currentUser, newRole);
+            updates.setRole(newRole);
         }
         if (request.status() != null) {
             updates.setStatus(Status.valueOf(request.status().toUpperCase()));
@@ -298,8 +316,13 @@ public class UserAdminController {
     @PutMapping("/{id}/password")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<Map<String, Object>> updateUserPassword(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestBody UpdateTempPasswordRequest request) {
+
+        // V01: sin esto un Manager fijaba la password de un ADMIN y entraba como el,
+        // sin modificar ningun rol. Un fix que solo mirara "role" dejaba esto abierto.
+        userAccessPolicy.assertCanManage(currentUser, id);
 
         if (request.password() == null || request.password().length() < 8) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -327,7 +350,10 @@ public class UserAdminController {
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
-    public ResponseEntity<Map<String, String>> delete(@PathVariable Long id) {
+    public ResponseEntity<Map<String, String>> delete(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long id) {
+        userAccessPolicy.assertCanManage(currentUser, id);
         userService.deactivate(id);
         return ResponseEntity.ok(Map.of("message", "User deactivated successfully"));
     }
@@ -1770,8 +1796,14 @@ public class UserAdminController {
     @PostMapping("/{id}/avatar")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'STAFF', 'MANAGER_LEVEL_4', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_1')")
     public ResponseEntity<Map<String, Object>> uploadAvatar(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file) {
+
+        // V01: el avatar propio siempre se permite; sobre terceros aplica la jerarquia.
+        if (!currentUser.getId().equals(id)) {
+            userAccessPolicy.assertCanManage(currentUser, id);
+        }
 
         // Validate file is not empty
         if (file.isEmpty()) {
