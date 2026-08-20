@@ -362,6 +362,15 @@ public class UserService {
     }
 
     /**
+     * V02: verifica de forma eficiente si targetId pertenece al arbol de
+     * subordinados de actorId (sin cargar todos los subordinados).
+     */
+    public boolean isSubordinate(Long actorId, Long targetId) {
+        if (actorId == null || targetId == null) return false;
+        return userRepository.existsSubordinate(actorId, targetId);
+    }
+
+    /**
      * Get users with active conversations (messaged recently)
      * Equivalent to Rails: User.with_active_conversations
      */

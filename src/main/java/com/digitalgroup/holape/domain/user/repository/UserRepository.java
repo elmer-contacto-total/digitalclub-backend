@@ -156,16 +156,31 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query(value = """
             WITH RECURSIVE subordinates AS (
                 SELECT id, manager_id, first_name, last_name, email, phone, role, status, client_id
-                FROM users WHERE manager_id = :managerId AND status = 'active'
+                FROM users WHERE manager_id = :managerId AND status = 0
                 UNION ALL
                 SELECT u.id, u.manager_id, u.first_name, u.last_name, u.email, u.phone, u.role, u.status, u.client_id
                 FROM users u
                 INNER JOIN subordinates s ON u.manager_id = s.id
-                WHERE u.status = 'active'
+                WHERE u.status = 0
             )
             SELECT * FROM subordinates
             """, nativeQuery = true)
     List<User> findAllSubordinatesRecursive(@Param("managerId") Long managerId);
+
+    // V02: verifica de forma EFICIENTE si targetId esta en el arbol de subordinados
+    // de actorId, sin cargar todos los subordinados. status = 0 (ACTIVE). Nota: el
+    // status es un entero (ACTIVE=0), NO el texto 'active'.
+    @Query(value = """
+            WITH RECURSIVE subordinates AS (
+                SELECT id FROM users WHERE manager_id = :actorId AND status = 0
+                UNION ALL
+                SELECT u.id FROM users u
+                INNER JOIN subordinates s ON u.manager_id = s.id
+                WHERE u.status = 0
+            )
+            SELECT EXISTS(SELECT 1 FROM subordinates WHERE id = :targetId)
+            """, nativeQuery = true)
+    boolean existsSubordinate(@Param("actorId") Long actorId, @Param("targetId") Long targetId);
 
     // Supervisor: find clients under a supervisor's agents
     @Query("""

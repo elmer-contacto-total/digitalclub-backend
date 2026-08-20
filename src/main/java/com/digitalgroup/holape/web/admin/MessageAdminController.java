@@ -191,8 +191,7 @@ public class MessageAdminController {
 
         if (actor.getId().equals(client.getId())) return;
 
-        boolean isSubordinate = userService.findAllSubordinates(actor.getId()).stream()
-                .anyMatch(u -> u.getId().equals(client.getId()));
+        boolean isSubordinate = userService.isSubordinate(actor.getId(), client.getId());
         if (!isSubordinate) {
             log.warn("AUTHZ: usuario {} intento ver conversaciones del cliente {} que no tiene asignado",
                     actor.getId(), client.getId());
