@@ -36,7 +36,7 @@ public class SecurityConfig {
     // violaciones pero NO bloquea, de modo que un despliegue no puede romper la SPA.
     // Tras validar que no hay violaciones legitimas, poner en false para hacerla
     // efectiva (bloqueante). Configurable sin recompilar.
-    @org.springframework.beans.factory.annotation.Value("${app.security.csp-report-only:true}")
+    @org.springframework.beans.factory.annotation.Value("${app.security.csp-report-only:false}")
     private boolean cspReportOnly;
 
     @Bean
@@ -50,7 +50,13 @@ public class SecurityConfig {
                 // borde; aqui se fija frameOptions=sameOrigin para no entrar en conflicto
                 // con el DENY por defecto de Spring Security.
                 .headers(headers -> headers
-                        .frameOptions(frame -> frame.sameOrigin())
+                        // V07: X-Frame-Options, X-Content-Type-Options y X-XSS-Protection
+                        // los agrega Nginx en el borde. Se DESACTIVAN aqui para no duplicar
+                        // (Spring los emitia tambien -> cabeceras repetidas, y ademas
+                        // X-XSS-Protection quedaba en conflicto: Spring=0 vs Nginx=1).
+                        .frameOptions(frame -> frame.disable())
+                        .contentTypeOptions(cto -> cto.disable())
+                        .xssProtection(xss -> xss.disable())
                         // Sin includeSubDomains: infinance corre bajo innovag.com.pe
                         // (dominio de un tercero); extender HSTS a *.innovag.com.pe podria
                         // romper otros subdominios que no sirvan HTTPS. Se limita al host.

@@ -82,7 +82,7 @@ public class ProspectService {
         Prospect prospect = new Prospect();
         prospect.setClientId(clientId);
         prospect.setPhone(normalizedPhone);
-        prospect.setName(name);
+        prospect.setName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(name));
         prospect.setStatus(Status.ACTIVE);
         prospect.setUpgradedToUser(false);
 
@@ -93,7 +93,7 @@ public class ProspectService {
     public Prospect updateProspect(Long id, String name, Status status) {
         Prospect prospect = findById(id);
 
-        if (name != null) prospect.setName(name);
+        if (name != null) prospect.setName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(name));
         if (status != null) prospect.setStatus(status);
 
         return prospectRepository.save(prospect);
@@ -153,8 +153,9 @@ public class ProspectService {
         User user = new User();
         user.setClient(client);
         user.setPhone(prospect.getPhone());
-        user.setFirstName(firstName);
-        user.setLastName(lastName);
+        // V05: sanitizar nombre proveniente del prospecto (input de usuario).
+        user.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(firstName));
+        user.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(lastName));
         user.setEmail(prospect.getPhone() + "@temp.holape.com"); // Temporary email
 
         if (assignToManagerId != null) {

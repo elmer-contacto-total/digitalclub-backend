@@ -191,7 +191,7 @@ public class ClientService {
     public Client updateClient(Long id, String name, Status status) {
         Client client = findById(id);
 
-        if (name != null) client.setName(name);
+        if (name != null) client.setName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(name));
         if (status != null) client.setStatus(status);
 
         return clientRepository.save(client);

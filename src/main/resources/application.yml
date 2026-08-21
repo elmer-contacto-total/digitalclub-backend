@@ -79,6 +79,10 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /
+  # V08: detras de Nginx el backend recibe HTTP; sin esto Spring no considera la
+  # peticion "segura" y OMITE la cabecera HSTS. 'framework' hace que Spring confie
+  # en X-Forwarded-Proto (Nginx lo envia) y detecte HTTPS -> emite Strict-Transport-Security.
+  forward-headers-strategy: framework
   error:
     include-message: always
     include-binding-errors: always

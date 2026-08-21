@@ -1917,8 +1917,9 @@ public class ImportService {
         TempImportUser tempUser = tempImportUserRepository.findById(tempUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("TempImportUser", tempUserId));
 
-        if (fields.containsKey("firstName")) tempUser.setFirstName(fields.get("firstName"));
-        if (fields.containsKey("lastName")) tempUser.setLastName(fields.get("lastName"));
+        // V05: sanitizar nombre/apellido tambien en la edicion manual de temp users.
+        if (fields.containsKey("firstName")) tempUser.setFirstName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(fields.get("firstName")));
+        if (fields.containsKey("lastName")) tempUser.setLastName(com.digitalgroup.holape.util.InputSanitizer.sanitizeName(fields.get("lastName")));
         if (fields.containsKey("phone")) tempUser.setPhone(fields.get("phone"));
         if (fields.containsKey("phoneCode")) tempUser.setPhoneCode(fields.get("phoneCode"));
         if (fields.containsKey("email")) tempUser.setEmail(fields.get("email"));

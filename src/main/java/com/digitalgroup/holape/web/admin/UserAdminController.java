@@ -36,6 +36,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.digitalgroup.holape.web.dto.PagedResponse;
@@ -74,6 +76,11 @@ public class UserAdminController {
     private final ClientSettingRepository clientSettingRepository;
     private final S3StorageService s3StorageService;
     private final com.digitalgroup.holape.security.UserAccessPolicy userAccessPolicy;
+
+    // V05: patron de nombre valido (misma lista blanca que el frontend):
+    // debe empezar por letra y solo admite letras (con tildes/ñ), espacios,
+    // guiones, apostrofes y puntos. Max 60. Rechaza el resto con HTTP 400.
+    public static final String NAME_PATTERN = "^[\\p{L}\\p{M}][\\p{L}\\p{M} .'\\-]{0,59}$";
 
     private static final List<String> ALLOWED_IMAGE_TYPES = List.of(
             "image/jpeg", "image/png", "image/gif", "image/webp"
@@ -230,7 +237,7 @@ public class UserAdminController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER_LEVEL_1', 'MANAGER_LEVEL_2', 'MANAGER_LEVEL_3', 'MANAGER_LEVEL_4')")
     public ResponseEntity<Map<String, Object>> create(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestBody CreateUserRequest request) {
+            @Valid @RequestBody CreateUserRequest request) {
 
         // V01: no se puede crear un usuario con rol igual o superior al propio.
         UserRole requestedRole = UserRole.valueOf(request.role().toUpperCase());
@@ -271,7 +278,7 @@ public class UserAdminController {
     public ResponseEntity<Map<String, Object>> update(
             @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
-            @RequestBody UpdateUserRequest request) {
+            @Valid @RequestBody UpdateUserRequest request) {
 
         // V01: el endpoint validaba solo el rol del actor, nunca el destino ni el
         // rol asignado. Un MANAGER_LEVEL_4 se ponia role=ADMIN sobre su propia cuenta.
@@ -1657,8 +1664,8 @@ public class UserAdminController {
 
     public record CreateUserRequest(
             String email,
-            String firstName,
-            String lastName,
+            @Pattern(regexp = NAME_PATTERN, message = "Nombre inválido: solo letras, espacios, guiones y apóstrofes") String firstName,
+            @Pattern(regexp = NAME_PATTERN, message = "Apellido inválido: solo letras, espacios, guiones y apóstrofes") String lastName,
             String phone,
             String password,
             String role,
@@ -1668,8 +1675,8 @@ public class UserAdminController {
 
     public record UpdateUserRequest(
             String email,
-            String firstName,
-            String lastName,
+            @Pattern(regexp = NAME_PATTERN, message = "Nombre inválido: solo letras, espacios, guiones y apóstrofes") String firstName,
+            @Pattern(regexp = NAME_PATTERN, message = "Apellido inválido: solo letras, espacios, guiones y apóstrofes") String lastName,
             String phone,
             String role,
             String status,
@@ -1745,7 +1752,7 @@ public class UserAdminController {
     @PutMapping("/profile")
     public ResponseEntity<Map<String, Object>> updateProfile(
             @AuthenticationPrincipal CustomUserDetails currentUser,
-            @RequestBody UpdateProfileRequest request) {
+            @Valid @RequestBody UpdateProfileRequest request) {
 
         User user = userService.findById(currentUser.getId());
 
@@ -1782,8 +1789,8 @@ public class UserAdminController {
     }
 
     public record UpdateProfileRequest(
-            String firstName,
-            String lastName,
+            @Pattern(regexp = NAME_PATTERN, message = "Nombre inválido: solo letras, espacios, guiones y apóstrofes") String firstName,
+            @Pattern(regexp = NAME_PATTERN, message = "Apellido inválido: solo letras, espacios, guiones y apóstrofes") String lastName,
             String phone,
             String timeZone
     ) {}

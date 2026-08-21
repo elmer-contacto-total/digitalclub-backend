@@ -174,6 +174,47 @@ public class AuthController {
                 && (e.getValue().blockedUntil == null || e.getValue().blockedUntil.isBefore(java.time.Instant.now())));
     }
 
+    // V05 (OTP Flooding): limite POR CUENTA con rafaga permitida. Se admiten
+    // ACCOUNT_OTP_BURST OTPs por ventana (cubre el reintento legitimo tras agotar
+    // los intentos de OTP: el usuario vuelve al login y re-solicita), y a partir de
+    // ahi se aplica bloqueo temporal progresivo. Asi se corta el envio masivo
+    // (11 OTP seguidos en el retest) sin trabar el re-login normal.
+    private static final int ACCOUNT_OTP_BURST = 3;
+    private static final Duration ACCOUNT_OTP_WINDOW = Duration.ofMinutes(3);
+    private final ConcurrentHashMap<Long, IpThrottleState> accountOtpThrottle = new ConcurrentHashMap<>();
+
+    private long accountOtpRetryAfterSeconds(Long userId) {
+        if (userId == null) return 0;
+        java.time.Instant now = java.time.Instant.now();
+        IpThrottleState st = accountOtpThrottle.computeIfAbsent(userId, k -> new IpThrottleState());
+        synchronized (st) {
+            if (st.blockedUntil != null && now.isBefore(st.blockedUntil)) {
+                return Duration.between(now, st.blockedUntil).getSeconds() + 1;
+            }
+            if (now.isAfter(st.windowStart.plus(ACCOUNT_OTP_WINDOW))) {
+                st.windowStart = now;
+                st.count.set(0);
+                st.blockedUntil = null;
+            }
+            int n = st.count.incrementAndGet();
+            if (n <= ACCOUNT_OTP_BURST) {
+                return 0;
+            }
+            int over = n - ACCOUNT_OTP_BURST - 1;
+            long wait = IP_BACKOFF_SECONDS[Math.min(over, IP_BACKOFF_SECONDS.length - 1)];
+            st.blockedUntil = now.plusSeconds(wait);
+            return wait;
+        }
+    }
+
+    private void purgeAccountOtpThrottle() {
+        java.time.Instant now = java.time.Instant.now();
+        java.time.Instant cutoff = now.minus(ACCOUNT_OTP_WINDOW.multipliedBy(2));
+        accountOtpThrottle.entrySet().removeIf(e ->
+                e.getValue().windowStart.isBefore(cutoff)
+                && (e.getValue().blockedUntil == null || e.getValue().blockedUntil.isBefore(now)));
+    }
+
     // ==================== WEB LOGIN ENDPOINTS ====================
 
     /**
@@ -225,9 +266,19 @@ public class AuthController {
         // rate-limit por IP (arriba) ya frena la automatizacion. Aplicar aqui el
         // cooldown bloqueaba el re-login legitimo tras agotar los intentos de OTP
         // (V03 invalida la sesion -> el usuario re-loguea -> quedaba trabado 60s).
-        // El cooldown se mantiene en /resend_otp, que es el vector real de flooding
-        // (solo requiere un otpSessionId, sin re-validar credenciales).
+        // El cooldown por-cuenta se reemplaza por un limite de RAFAGA (abajo): admite
+        // el reintento legitimo pero corta el envio masivo de OTPs.
         purgeExpiredOtpSessions();
+        purgeAccountOtpThrottle();
+
+        // V05 (OTP Flooding): limite por cuenta con rafaga permitida.
+        long acctRetry = accountOtpRetryAfterSeconds(user.getId());
+        if (acctRetry > 0) {
+            log.warn("SECURITY: OTP flooding bloqueado para la cuenta {} ({}s)", user.getId(), acctRetry);
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(acctRetry))
+                    .body(Map.of("error", "Demasiadas solicitudes de código. Intente nuevamente en " + acctRetry + " segundos."));
+        }
 
         // Generate OTP session ID
         String otpSessionId = UUID.randomUUID().toString();
