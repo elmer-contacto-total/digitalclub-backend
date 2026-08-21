@@ -261,13 +261,12 @@ public class AuthController {
                     .body(Map.of("error", "Credenciales Inválidas"));
         }
 
-        // V04 (OTP Flooding): prelogin NO aplica cooldown por cuenta a proposito.
-        // Cada prelogin exige credenciales validas antes de emitir el OTP, y el
-        // rate-limit por IP (arriba) ya frena la automatizacion. Aplicar aqui el
-        // cooldown bloqueaba el re-login legitimo tras agotar los intentos de OTP
-        // (V03 invalida la sesion -> el usuario re-loguea -> quedaba trabado 60s).
-        // El cooldown por-cuenta se reemplaza por un limite de RAFAGA (abajo): admite
-        // el reintento legitimo pero corta el envio masivo de OTPs.
+        // V05 (OTP Flooding): en vez de un cooldown fijo por cuenta (que bloqueaba el
+        // re-login legitimo tras agotar los intentos de OTP), se aplica un limite de
+        // RAFAGA (abajo): admite unas pocas solicitudes seguidas (re-login) y a partir
+        // de ahi bloquea con espera progresiva, cortando el envio masivo de OTPs.
+        // Cada prelogin ademas exige credenciales validas y esta cubierto por el
+        // rate-limit por IP (arriba).
         purgeExpiredOtpSessions();
         purgeAccountOtpThrottle();
 
