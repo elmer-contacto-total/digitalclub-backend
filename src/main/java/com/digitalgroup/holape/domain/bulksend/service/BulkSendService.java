@@ -295,6 +295,9 @@ public class BulkSendService {
             bulkSend.setStatus("PROCESSING");
             bulkSend.setStartedAt(LocalDateTime.now());
             bulkSendRepository.save(bulkSend);
+            // Diagnostico: este es el arranque real del envio (primer next-recipient que pasa
+            // todos los chequeos). Si nunca aparece, el envio jamas llego hasta aqui.
+            log.info("[BULKSEND] START id={} status->PROCESSING startedAt seteado", bulkSendId);
         }
 
         // Loop: get recipients, skip if concurrency checks fail

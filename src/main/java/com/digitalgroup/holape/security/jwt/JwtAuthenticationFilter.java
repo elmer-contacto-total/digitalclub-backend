@@ -63,6 +63,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (clientId != null) {
                     TenantContext.setCurrentTenant(clientId);
                 }
+            } else if (StringUtils.hasText(jwt)) {
+                // Diagnostico: hay token pero fue rechazado. Log con contexto (quien / donde /
+                // por que) para rastrear apps que pollean con token vencido o revocado
+                // (p.ej. un envio masivo que no arranca porque next-recipient se rechaza).
+                String reason = tokenBlacklistService.isRevoked(jwt)
+                        ? "revoked"
+                        : tokenProvider.invalidReason(jwt);
+                log.warn("[AUTH] token rechazado reason={} user={} ip={} path={}",
+                        reason, tokenProvider.getSubjectQuiet(jwt), clientIp(request), request.getRequestURI());
             }
         } catch (Exception ex) {
             log.error("Could not set user authentication in security context", ex);
@@ -81,6 +90,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return bearerToken.substring(7);
         }
         return null;
+    }
+
+    /** IP real del cliente (X-Real-IP puesto por nginx; no falsificable). */
+    private String clientIp(HttpServletRequest request) {
+        String xRealIp = request.getHeader("X-Real-IP");
+        if (StringUtils.hasText(xRealIp)) {
+            return xRealIp;
+        }
+        return request.getRemoteAddr();
     }
 
     @Override

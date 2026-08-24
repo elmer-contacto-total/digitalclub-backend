@@ -11,6 +11,7 @@ import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.exception.ResourceNotFoundException;
 import com.digitalgroup.holape.security.CustomUserDetails;
+import jakarta.servlet.http.HttpServletRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -416,7 +417,15 @@ public class BulkSendController {
      * Get next pending recipient for Electron polling
      */
     @GetMapping("/{id}/next-recipient")
-    public ResponseEntity<Map<String, Object>> nextRecipient(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> nextRecipient(
+            @PathVariable Long id,
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            HttpServletRequest request) {
+        // Diagnostico: registra cada poll (quien / desde donde). Si un envio no arranca,
+        // este log dice si la app llego a pedir destinatario y con que usuario.
+        log.info("[BULKSEND] poll id={} user={} ip={}", id,
+                currentUser != null ? currentUser.getId() : null, clientIp(request));
+
         BulkSend bulkSend = bulkSendRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BulkSend", id));
 
@@ -461,13 +470,21 @@ public class BulkSendController {
                 }
             }
 
+            log.info("[BULKSEND] poll id={} -> vacio: {}", id, emptyResponse.get("message"));
             return ResponseEntity.ok(emptyResponse);
         }
 
         Map<String, Object> response = new HashMap<>(next.get());
         response.put("has_next", true);
         response.put("total_recipients", bulkSend.getTotalRecipients());
+        log.info("[BULKSEND] poll id={} -> has_next (status={})", id, bulkSend.getStatus());
         return ResponseEntity.ok(response);
+    }
+
+    /** IP real del cliente (X-Real-IP puesto por nginx; no falsificable). */
+    private String clientIp(HttpServletRequest request) {
+        String xRealIp = request.getHeader("X-Real-IP");
+        return (xRealIp != null && !xRealIp.isBlank()) ? xRealIp : request.getRemoteAddr();
     }
 
     /**

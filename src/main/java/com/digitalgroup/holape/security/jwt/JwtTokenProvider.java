@@ -165,15 +165,43 @@ public class JwtTokenProvider {
                     .parseSignedClaims(token);
             return true;
         } catch (MalformedJwtException ex) {
-            log.error("Invalid JWT token");
+            log.debug("Invalid JWT token");
         } catch (ExpiredJwtException ex) {
-            log.error("Expired JWT token");
+            log.debug("Expired JWT token");
         } catch (UnsupportedJwtException ex) {
-            log.error("Unsupported JWT token");
+            log.debug("Unsupported JWT token");
         } catch (IllegalArgumentException ex) {
-            log.error("JWT claims string is empty");
+            log.debug("JWT claims string is empty");
         }
         return false;
+    }
+
+    /**
+     * Subject (username) de un token aunque este vencido; null si no se puede extraer.
+     * Uso: diagnostico, para saber QUIEN envia un token rechazado sin lanzar excepcion.
+     */
+    public String getSubjectQuiet(String token) {
+        try {
+            return getUsernameFromToken(token);
+        } catch (ExpiredJwtException ex) {
+            return ex.getClaims() != null ? ex.getClaims().getSubject() : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** Motivo de invalidez para diagnostico: "ok" | "expired" | "empty" | "invalid". */
+    public String invalidReason(String token) {
+        try {
+            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
+            return "ok";
+        } catch (ExpiredJwtException ex) {
+            return "expired";
+        } catch (IllegalArgumentException ex) {
+            return "empty";
+        } catch (Exception ex) {
+            return "invalid";
+        }
     }
 
     /** Fecha de expiracion del token (para calcular el TTL de revocacion). */
