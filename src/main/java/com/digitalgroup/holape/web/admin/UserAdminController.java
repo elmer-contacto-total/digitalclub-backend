@@ -1200,11 +1200,14 @@ public class UserAdminController {
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size) {
 
-        // V02 (IDOR): solo se ve el historial de un usuario/cliente dentro del
-        // alcance del solicitante (agente -> sus clientes; manager -> su arbol;
-        // admin/staff -> su tenant). En otro caso, 403.
+        // V02 (IDOR): action_history es el historial CRM de un CLIENTE. Se restringe
+        // a clientes (STANDARD/WHATSAPP_BUSINESS) dentro del alcance del solicitante;
+        // NUNCA a otros usuarios internos (agentes/managers), aunque sean subordinados.
+        // En otro caso, 403.
         User target = userRepository.findById(id).orElse(null);
-        if (target == null || !canAccessUser(currentUser, target)) {
+        boolean isClient = target != null
+                && (target.getRole() == UserRole.STANDARD || target.getRole() == UserRole.WHATSAPP_BUSINESS);
+        if (!isClient || !canAccessUser(currentUser, target)) {
             throw new org.springframework.security.access.AccessDeniedException("Acceso denegado");
         }
 
