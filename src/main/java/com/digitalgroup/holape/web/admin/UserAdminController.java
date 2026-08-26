@@ -922,6 +922,23 @@ public class UserAdminController {
     }
 
     /**
+     * V02: un actor accede a un usuario/cliente objetivo si es super admin; o
+     * admin/staff dentro de su mismo tenant; o el objetivo es subordinado suyo
+     * (asignado a el o a alguien de su arbol). Evita que un agente vea clientes
+     * de otros agentes del mismo tenant (IDOR via CRM / envio masivo).
+     */
+    private boolean canAccessUser(CustomUserDetails actor, User target) {
+        if (actor == null || target == null) return false;
+        if (actor.isSuperAdmin()) return true;
+        Long targetClientId = target.getClientId();
+        if (targetClientId == null || !targetClientId.equals(actor.getClientId())) {
+            return false;
+        }
+        if (actor.isAdmin() || "STAFF".equals(actor.getRole())) return true;
+        return userService.isSubordinate(actor.getId(), target.getId());
+    }
+
+    /**
      * Search user by phone number
      * PARIDAD ELECTRON: CRM panel search
      * Returns user info if found by phone (within agent's clients or client scope)
@@ -967,6 +984,16 @@ public class UserAdminController {
 
         // Only return standard users and WhatsApp Business (clients) — not internal users
         if (user.getRole() != UserRole.STANDARD && user.getRole() != UserRole.WHATSAPP_BUSINESS) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("found", false);
+            response.put("closeTypes", closeTypesMapped);
+            return ResponseEntity.ok(response);
+        }
+
+        // V02 (IDOR): agente/manager solo resuelven clientes dentro de su alcance.
+        // Fuera de alcance se responde como "no encontrado" (mismo formato), para no
+        // filtrar datos del cliente ni a que agente pertenece (evita enumeracion).
+        if (!canAccessUser(currentUser, user)) {
             Map<String, Object> response = new HashMap<>();
             response.put("found", false);
             response.put("closeTypes", closeTypesMapped);
@@ -1168,9 +1195,18 @@ public class UserAdminController {
     @GetMapping("/{id}/action_history")
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> actionHistory(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
             @PathVariable Long id,
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size) {
+
+        // V02 (IDOR): solo se ve el historial de un usuario/cliente dentro del
+        // alcance del solicitante (agente -> sus clientes; manager -> su arbol;
+        // admin/staff -> su tenant). En otro caso, 403.
+        User target = userRepository.findById(id).orElse(null);
+        if (target == null || !canAccessUser(currentUser, target)) {
+            throw new org.springframework.security.access.AccessDeniedException("Acceso denegado");
+        }
 
         // Fetch recent tickets for this user (with agent eagerly loaded)
         Pageable ticketPageable = PageRequest.of(0, size, Sort.by("updatedAt").descending());
