@@ -9,6 +9,7 @@ import com.digitalgroup.holape.domain.prospect.entity.Prospect;
 import com.digitalgroup.holape.domain.prospect.repository.ProspectRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
 import com.digitalgroup.holape.domain.user.repository.UserRepository;
+import com.digitalgroup.holape.websocket.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,7 @@ public class CapturedMessageService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final ProspectRepository prospectRepository;
+    private final WebSocketService webSocketService;
 
     @Transactional
     public Map<String, Object> registrar(CapturedMessagesRequest request) {
@@ -82,8 +84,10 @@ public class CapturedMessageService {
             }
 
             try {
-                messageRepository.save(construir(m, request, agente, cliente, prospecto));
+                Message guardado = messageRepository.save(
+                        construir(m, request, agente, cliente, prospecto));
                 guardados++;
+                avisar(guardado, agente);
             } catch (org.springframework.dao.DataIntegrityViolationException e) {
                 // Otro equipo del mismo asesor insertó el mismo mensaje entre la
                 // comprobación y el guardado. El índice único hace su trabajo.
@@ -96,6 +100,22 @@ public class CapturedMessageService {
                 cliente != null ? ("cliente:" + cliente.getId()) : ("prospecto:" + (prospecto != null ? prospecto.getId() : "-")));
 
         return resultado(guardados, repetidos, descartados, cliente);
+    }
+
+    /**
+     * Avisa al asesor de que la conversación tiene un mensaje nuevo.
+     *
+     * Sin este aviso el mensaje queda bien guardado pero una ficha ya abierta no
+     * se entera hasta que se la recarga a mano. Un fallo aquí no invalida el
+     * registro: el mensaje ya está guardado, así que se anota y se sigue.
+     */
+    private void avisar(Message mensaje, User agente) {
+        try {
+            webSocketService.sendMessageToUser(agente.getId(), mensaje);
+        } catch (Exception e) {
+            log.warn("[CAPTURA] no se pudo avisar del mensaje {}: {}",
+                    mensaje.getId(), e.getMessage());
+        }
     }
 
     /**

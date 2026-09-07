@@ -234,8 +234,13 @@ public class MessageAdminController {
         int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
 
         // Get paginated messages (DESC from DB, then reverse to ASC for frontend)
-        Page<Message> messagesPage = messageRepository.findBySenderIdOrRecipientIdOrderByCreatedAtDesc(
-                clientId, clientId, PageRequest.of(page, messageLimit));
+        // Orden por sent_at, no por created_at: created_at es cuando se insertó la
+        // fila. Al capturar desde el escritorio, los mensajes que el asesor lee
+        // desplazándose hacia atrás son antiguos pero se insertan al final, y con
+        // el orden anterior aparecían al pie de la conversación. Rails ordenaba
+        // por sent_at.
+        Page<Message> messagesPage = messageRepository.findConversacionOrdenadaPorEnvio(
+                clientId, PageRequest.of(page, messageLimit));
         List<Message> messages = new ArrayList<>(messagesPage.getContent());
         java.util.Collections.reverse(messages); // Reverse to chronological ASC order
 
@@ -464,7 +469,7 @@ public class MessageAdminController {
 
         int messageLimit = pageSize > 0 ? Math.min(pageSize, 200) : 100;
 
-        Page<Message> messagesPage = messageRepository.findByProspectIdOrderByCreatedAtDesc(
+        Page<Message> messagesPage = messageRepository.findConversacionDeProspectoOrdenadaPorEnvio(
                 prospectId, PageRequest.of(page, messageLimit));
         List<Message> messages = new ArrayList<>(messagesPage.getContent());
         java.util.Collections.reverse(messages); // ASC para el frontend
