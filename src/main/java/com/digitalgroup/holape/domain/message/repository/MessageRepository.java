@@ -21,6 +21,29 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
 
     List<Message> findByTicketIdOrderByCreatedAtAsc(Long ticketId);
 
+    /**
+     * Criterio de unicidad de la captura desde el escritorio: evita que un mismo
+     * mensaje se registre dos veces al releer la conversación, al desplazarse por
+     * ella, o al trabajar desde un segundo equipo.
+     */
+    boolean existsByWhatsappMessageId(String whatsappMessageId);
+
+    /**
+     * Deja constancia de que el mensaje desapareció de la conversación.
+     *
+     * No borra nada: solo sella la fecha y hora de la detección, y solo la primera
+     * vez, para que un reenvío del aviso no corra la marca original.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Message m SET m.deletedAt = :detectadoEn "
+         + "WHERE m.whatsappMessageId = :whatsappMessageId AND m.deletedAt IS NULL "
+         + "AND EXISTS (SELECT 1 FROM Message otro JOIN otro.sender s JOIN otro.recipient r "
+         + "            WHERE otro.id = m.id "
+         + "              AND (s.client.id = :clientId OR r.client.id = :clientId))")
+    int marcarEliminado(@Param("whatsappMessageId") String whatsappMessageId,
+                        @Param("detectadoEn") LocalDateTime detectadoEn,
+                        @Param("clientId") Long clientId);
+
     Page<Message> findBySenderIdOrRecipientIdOrderByCreatedAtDesc(Long senderId, Long recipientId, Pageable pageable);
 
     /**

@@ -20,7 +20,9 @@ import java.time.LocalDateTime;
     @Index(name = "index_messages_on_ticket_id", columnList = "ticket_id"),
     @Index(name = "index_messages_on_created_at", columnList = "created_at"),
     @Index(name = "index_messages_on_processed", columnList = "processed"),
-    @Index(name = "index_messages_on_direction_and_status", columnList = "direction, status")
+    @Index(name = "index_messages_on_direction_and_status", columnList = "direction, status"),
+    @Index(name = "index_messages_on_whatsapp_message_id", columnList = "whatsapp_message_id"),
+    @Index(name = "index_messages_on_deleted_at", columnList = "deleted_at")
 })
 @Getter
 @Setter
@@ -112,6 +114,26 @@ public class Message {
 
     @Column(name = "worker_processed_at")
     private LocalDateTime workerProcessedAt;
+
+    /**
+     * Identificador que WhatsApp asigna a cada mensaje. Se usa como criterio de
+     * unicidad al capturar desde la aplicación de escritorio: un mismo mensaje
+     * leído varias veces se registra una sola vez.
+     *
+     * Nulo en los mensajes históricos, que llegaron por el aplicativo móvil.
+     */
+    @Column(name = "whatsapp_message_id", length = 120)
+    private String whatsappMessageId;
+
+    /**
+     * Momento en que se detectó que el mensaje desapareció de la conversación.
+     *
+     * El contenido no se borra: se conserva junto con esta marca, de modo que la
+     * auditoría mantiene tanto el mensaje como la constancia de su eliminación.
+     * Nulo mientras el mensaje siga a la vista.
+     */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     // TODO: Habilitar cuando la columna exista en la BD de producción
     // @Column(name = "message_order")
