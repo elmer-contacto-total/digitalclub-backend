@@ -430,6 +430,9 @@ public class MessageAdminController {
                     m.put("messageSentAt", media.getMessageSentAt());
                     m.put("chatPhone", media.getChatPhone());
                     m.put("chatName", media.getChatName());
+                    // Quien lo envio. Sin esto la ficha pinta todo adjunto del
+                    // lado del cliente, tambien lo que envio el asesor.
+                    m.put("direction", media.getDirection());
                     m.put("deleted", media.getDeleted());
                     m.put("deletedAt", media.getDeletedAt());
                     return m;
