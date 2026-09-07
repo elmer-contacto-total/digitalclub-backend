@@ -102,6 +102,13 @@ public class CapturedMedia {
     @Column(name = "deleted", nullable = false)
     private Boolean deleted = false;
 
+    /**
+     * Quien envió el adjunto: INCOMING lo mandó el cliente, OUTGOING el asesor.
+     * Nulo en los adjuntos capturados antes de que se registrara este dato.
+     */
+    @Column(name = "direction", length = 10)
+    private String direction;
+
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 

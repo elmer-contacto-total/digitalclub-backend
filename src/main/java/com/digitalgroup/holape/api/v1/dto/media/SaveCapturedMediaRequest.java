@@ -56,6 +56,9 @@ public class SaveCapturedMediaRequest {
 
     private String source; // PREVIEW or PLAYBACK
 
+    /** INCOMING lo envió el cliente, OUTGOING el asesor. Opcional. */
+    private String direction;
+
     @NotNull(message = "capturedAt is required")
     private String capturedAt; // ISO datetime string
 

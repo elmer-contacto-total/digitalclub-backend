@@ -173,6 +173,7 @@ public class CapturedMediaService {
                     .sha256Hash(hash)
                     .whatsappMessageId(request.getWhatsappMessageId())
                     .captureSource(request.getSource())
+                    .direction(request.getDirection())
                     .capturedAt(capturedAt)
                     .messageSentAt(messageSentAt)
                     .build();

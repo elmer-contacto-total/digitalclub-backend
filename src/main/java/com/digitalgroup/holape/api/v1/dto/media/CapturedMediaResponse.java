@@ -35,6 +35,7 @@ public class CapturedMediaResponse {
     private LocalDateTime capturedAt;
     private LocalDateTime messageSentAt;
     private LocalDateTime createdAt;
+    private String direction;
     private Boolean deleted;
     private LocalDateTime deletedAt;
 
@@ -57,6 +58,7 @@ public class CapturedMediaResponse {
                 .capturedAt(media.getCapturedAt())
                 .messageSentAt(media.getMessageSentAt())
                 .createdAt(media.getCreatedAt())
+                .direction(media.getDirection())
                 .deleted(media.getDeleted())
                 .deletedAt(media.getDeletedAt())
                 .build();
