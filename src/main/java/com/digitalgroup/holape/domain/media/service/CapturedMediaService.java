@@ -178,7 +178,18 @@ public class CapturedMediaService {
                     .messageSentAt(messageSentAt)
                     .build();
 
-            CapturedMedia saved = mediaRepository.save(media);
+            CapturedMedia saved;
+            try {
+                saved = mediaRepository.save(media);
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // Otra sesion de la misma cuenta guardo este adjunto entre la
+                // comprobacion de arriba y este momento. El indice unico hace su
+                // trabajo: no es un error, es el duplicado que se queria evitar.
+                log.info("[CapturedMediaService] Duplicate media rejected by DB: sha256={}, whatsappMsgId={}",
+                        hash.substring(0, 16), request.getWhatsappMessageId());
+                return Optional.empty();
+            }
+
             log.info("[CapturedMediaService] Media saved: {} ({} bytes) agent={} client={}",
                     request.getMediaId(), fileData.length,
                     agent != null ? agent.getId() : "null",
