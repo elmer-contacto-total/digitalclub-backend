@@ -572,6 +572,9 @@ public class MessageAdminController {
         map.put("direction", message.getDirection() != null ? message.getDirection().name().toLowerCase() : "unknown");
         map.put("status", message.getStatus() != null ? message.getStatus().name().toLowerCase() : "unknown");
         map.put("sent_at", message.getSentAt());
+        // Constancia de eliminacion. El contenido se conserva; esto solo dice
+        // cuando se detecto que el mensaje desaparecio de la conversacion.
+        map.put("deleted_at", message.getDeletedAt());
         map.put("created_at", message.getCreatedAt());
         map.put("is_template", message.getIsTemplate());
         map.put("template_name", message.getTemplateName());
