@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Comparator;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
@@ -37,12 +39,29 @@ public class RefreshTokenService {
      */
     @Transactional
     public RefreshToken createRefreshToken(User user, String deviceInfo, String ipAddress) {
-        // Limit active tokens per user
-        long activeTokens = refreshTokenRepository.countByUserIdAndRevokedFalse(user.getId());
-        if (activeTokens >= MAX_ACTIVE_TOKENS_PER_USER) {
-            // Revoke all existing tokens
-            refreshTokenRepository.revokeAllByUserId(user.getId(), LocalDateTime.now());
-            log.info("Revoked all tokens for user {} due to max limit", user.getId());
+        // Limite de sesiones activas por usuario.
+        //
+        // Antes, al llegar al limite se revocaban TODAS las sesiones del usuario,
+        // incluida la que estaba en uso en ese momento. Medido en produccion el
+        // 28/09/2026 sobre una sola cuenta: dos barridas de 5 tokens de golpe
+        // (12:38:45 y 13:12:24) que dejaron sin sesion a las ventanas abiertas.
+        // Duele especialmente al suplantar, porque /login_as no emite refresh
+        // token propio y esa ventana viaja con el del administrador.
+        //
+        // Ahora se revocan solo las MAS ANTIGUAS, las justas para dejar sitio a
+        // la nueva. Las sesiones recientes siguen vivas.
+        List<RefreshToken> activos = refreshTokenRepository.findByUserIdAndRevokedFalse(user.getId());
+        int sobran = activos.size() - (MAX_ACTIVE_TOKENS_PER_USER - 1);
+        if (sobran > 0) {
+            activos.stream()
+                    .sorted(Comparator.comparing(RefreshToken::getCreatedAt))
+                    .limit(sobran)
+                    .forEach(t -> {
+                        t.revoke();
+                        refreshTokenRepository.save(t);
+                    });
+            log.info("Revoked {} oldest token(s) for user {} to stay under the limit",
+                    sobran, user.getId());
         }
 
         String tokenValue = jwtTokenProvider.generateRefreshToken(user.getEmail());
