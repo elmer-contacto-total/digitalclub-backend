@@ -241,6 +241,33 @@ public interface KpiRepository extends JpaRepository<Kpi, Long> {
             @Param("endDate") LocalDateTime endDate);
 
     /**
+     * Cuenta DEUDORES DISTINTOS (no filas) para un tipo de KPI. Usado por "Clientes Únicos":
+     * un mismo deudor que abre varios casos debe contar UNA sola vez. Antes se contaban filas
+     * NEW_CLIENT (una por conversación), inflando el número.
+     */
+    @Query("SELECT COUNT(DISTINCT k.ticket.user.id) FROM Kpi k WHERE k.user.id IN :userIds " +
+           "AND k.kpiType = :kpiType AND k.createdAt BETWEEN :startDate AND :endDate")
+    long countDistinctClientsByUsersKpiTypeAndDateRange(
+            @Param("userIds") List<Long> userIds,
+            @Param("kpiType") KpiType kpiType,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
+    /**
+     * Igual que el anterior pero exigiendo además que el deudor haya sido creado en el rango
+     * (cartera nueva). Numerador DISTINTO del Contact Ratio.
+     */
+    @Query("SELECT COUNT(DISTINCT k.ticket.user.id) FROM Kpi k WHERE k.user.id IN :userIds " +
+           "AND k.kpiType = :kpiType AND k.createdAt BETWEEN :startDate AND :endDate " +
+           "AND k.ticket.user.createdAt BETWEEN :startDate AND :endDate AND k.client.id = :clientId")
+    long countDistinctClientsByUsersKpiTypeAndDateRangeWithUserCreatedInRange(
+            @Param("userIds") List<Long> userIds,
+            @Param("kpiType") KpiType kpiType,
+            @Param("clientId") Long clientId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
+    /**
      * Average value by multiple users, kpi type, and date range
      */
     @Query("SELECT AVG(k.value) FROM Kpi k WHERE k.user.id IN :userIds AND k.kpiType = :kpiType " +

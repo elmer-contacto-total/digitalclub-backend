@@ -43,6 +43,7 @@ public class KpiService {
     private final MessageRepository messageRepository;
     private final TicketRepository ticketRepository;
     private final UserRepository userRepository;
+    private final BusinessHoursService businessHoursService;
 
     /**
      * Calculates KPIs for a client within a date range
@@ -191,9 +192,11 @@ public class KpiService {
         boolean hasAgents = agentIds != null && !agentIds.isEmpty();
 
         try {
-            // Unique clients (new_client KPIs)
+            // Unique clients (new_client KPIs) — DEUDORES DISTINTOS, no filas.
+            // Un mismo deudor con varios casos cuenta una sola vez (antes se inflaba).
             if (hasAgents) {
-                long uniqueClients = kpiRepository.countByUsersKpiTypeAndDateRange(agentIds, KpiType.NEW_CLIENT, startDate, endDate);
+                long uniqueClients = kpiRepository.countDistinctClientsByUsersKpiTypeAndDateRange(
+                        agentIds, KpiType.NEW_CLIENT, startDate, endDate);
                 kpis.put("unique_clients", uniqueClients);
             }
 
@@ -222,20 +225,28 @@ public class KpiService {
                 kpis.put("tmo", avgTmo != null ? (long) avgTmo.doubleValue() : 0L);
             }
 
-            // Users created in period (for contact ratio) - Rails: distinct.count(:codigo)
+            // Contact ratio = (deudores distintos contactados en el periodo) / (CARTERA TOTAL asignada).
+            // Mide "¿qué % de MI cartera trabajé en el periodo?".
+            //  - Denominador: TODA la cartera asignada al asesor/equipo (manager_id IN agentIds),
+            //    SIN filtro de fecha de carga. El asesor trabaja cartera cargada en cualquier
+            //    momento, no solo la del periodo; filtrar por fecha de carga dejaba el ratio ~0.
+            //  - Numerador: deudores DISTINTOS con actividad (NEW_CLIENT) en el periodo — es el
+            //    mismo valor que "unique_clients", así el ratio es coherente con ese KPI.
             if (clientId != null) {
-                long usersCreated = userRepository.countDistinctCodigoByClientIdAndCreatedAtBetween(clientId, startDate, endDate);
-                kpis.put("users_created", usersCreated);
+                long carteraTotal = hasAgents
+                        ? userRepository.countDistinctCodigoByManagerIds(agentIds)
+                        : userRepository.countDistinctCodigoByClientId(clientId);
+                kpis.put("users_created", carteraTotal);
 
-                // Unique clients contacted (Rails: KPIs new_client where user also created in range)
-                long uniqueClientsContacted = hasAgents ?
-                        kpiRepository.countByUsersKpiTypeAndDateRangeWithUserCreatedInRange(
-                                agentIds, KpiType.NEW_CLIENT, clientId, startDate, endDate) : 0L;
+                long uniqueClientsContacted = hasAgents
+                        ? kpiRepository.countDistinctClientsByUsersKpiTypeAndDateRange(
+                                agentIds, KpiType.NEW_CLIENT, startDate, endDate)
+                        : 0L;
                 kpis.put("unique_clients_contacted", uniqueClientsContacted);
 
                 // Contact ratio
-                double contactRatio = usersCreated > 0 ?
-                        Math.round((uniqueClientsContacted * 100.0 / usersCreated) * 100.0) / 100.0 : 0.0;
+                double contactRatio = carteraTotal > 0 ?
+                        Math.round((uniqueClientsContacted * 100.0 / carteraTotal) * 100.0) / 100.0 : 0.0;
                 kpis.put("contact_ratio", contactRatio);
             }
         } catch (Exception e) {
@@ -546,6 +557,9 @@ public class KpiService {
         List<Message> messages = messageRepository.findByTicketIdOrderByCreatedAtAsc(ticketId);
         int created = 0;
 
+        // Horario laboral del cliente (descuenta noches/fines de semana en FRT y TMO).
+        BusinessHoursService.Schedule schedule = businessHoursService.getSchedule(client.getId());
+
         // Calculate first_response_time
         Optional<Message> firstIncoming = messages.stream()
                 .filter(m -> m.getDirection() == MessageDirection.INCOMING)
@@ -559,7 +573,7 @@ public class KpiService {
             LocalDateTime outgoingTime = firstOutgoing.get().getCreatedAt();
 
             if (outgoingTime.isAfter(incomingTime)) {
-                int responseTimeMinutes = (int) ChronoUnit.MINUTES.between(incomingTime, outgoingTime);
+                int responseTimeMinutes = (int) businessHoursService.businessMinutes(schedule, incomingTime, outgoingTime);
                 Kpi frtKpi = Kpi.builder()
                         .client(client)
                         .user(agent)
@@ -604,7 +618,7 @@ public class KpiService {
         }
 
         // Calculate TMO (average response time)
-        Integer tmo = calculateTmo(messages);
+        Integer tmo = calculateTmo(messages, schedule);
         if (tmo != null) {
             Kpi tmoKpi = Kpi.builder()
                     .client(client)
@@ -802,7 +816,7 @@ public class KpiService {
 
         // Calculate TMO at ticket close
         List<Message> messages = messageRepository.findByTicketIdOrderByCreatedAtAsc(ticket.getId());
-        Integer tmo = calculateTmo(messages);
+        Integer tmo = calculateTmo(messages, businessHoursService.getSchedule(client.getId()));
         if (tmo != null) {
             Map<String, Object> dataHash = new HashMap<>();
             dataHash.put("tmo_minutes", tmo);
@@ -929,7 +943,7 @@ public class KpiService {
     /**
      * Calculate TMO (average time to respond to incoming messages)
      */
-    private Integer calculateTmo(List<Message> messages) {
+    private Integer calculateTmo(List<Message> messages, BusinessHoursService.Schedule schedule) {
         if (messages.isEmpty()) {
             return null;
         }
@@ -941,7 +955,7 @@ public class KpiService {
             if (message.getDirection() == MessageDirection.INCOMING) {
                 lastIncomingTime = message.getCreatedAt();
             } else if (message.getDirection() == MessageDirection.OUTGOING && lastIncomingTime != null) {
-                long minutes = ChronoUnit.MINUTES.between(lastIncomingTime, message.getCreatedAt());
+                long minutes = businessHoursService.businessMinutes(schedule, lastIncomingTime, message.getCreatedAt());
                 if (minutes >= 0) {
                     responseTimes.add(minutes);
                 }

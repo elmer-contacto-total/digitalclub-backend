@@ -917,9 +917,16 @@ public class MessageService {
                 logKpis(message);
             }
 
-            // For incoming messages, schedule deferred KPI creation with 10 second delay
-            // This ensures ticket assignment (5s) completes first
+            // For incoming messages, log KPIs synchronously (NEW_CLIENT, REQUIRE_RESPONSE).
+            // En el camino vivo (intake) el ticket ya se asignó síncronamente en
+            // createIncomingMessage (assignToTicket antes de afterMessageCreated), así que el
+            // ticket ya está presente aquí y logKpis puede escribir las filas.
+            // FIX regresión migración: antes solo se agendaba el job diferido cuyo cuerpo de
+            // creación de KPI está deshabilitado ("delegated to Rails"), por lo que NEW_CLIENT y
+            // REQUIRE_RESPONSE dejaron de escribirse. Se restaura la escritura y se mantiene el
+            // job diferido solo para la ALERTA (notification-only).
             if (message.isIncoming()) {
+                logKpis(message);
                 getDeferredKpiJob().scheduleKpiCreation(message.getId());
             }
 
@@ -1039,11 +1046,18 @@ public class MessageService {
             kpi.setUser(user);
         }
 
-        // Store ticket_id in data_hash if provided
+        // Store ticket_id in data_hash AND in the ticket_id column.
+        // La columna ticket_id es la que leen las consultas del dashboard (k.ticket.user.id:
+        // Clientes Únicos, Contact Ratio). Sin ella las filas nuevas no se cuentan. Se usa una
+        // referencia desligada (solo id) para no cargar el ticket de BD, igual que con el Client.
         if (ticketId != null) {
             Map<String, Object> dataHash = new java.util.HashMap<>();
             dataHash.put("ticket_id", ticketId);
             kpi.setDataHash(dataHash);
+
+            Ticket ticketRef = new Ticket();
+            ticketRef.setId(ticketId);
+            kpi.setTicket(ticketRef);
         }
 
         kpiRepository.save(kpi);

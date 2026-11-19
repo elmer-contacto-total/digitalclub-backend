@@ -64,6 +64,7 @@ import java.util.stream.Collectors;
 public class DashboardController {
 
     private final KpiService kpiService;
+    private final com.digitalgroup.holape.domain.kpi.service.BusinessHoursService businessHoursService;
     private final UserRepository userRepository;
     private final ClientRepository clientRepository;
     private final ClientSettingRepository clientSettingRepository;
@@ -370,6 +371,8 @@ public class DashboardController {
     public ResponseEntity<byte[]> exportKpis(
             @AuthenticationPrincipal CustomUserDetails user,
             @RequestParam(required = false, defaultValue = "30") int last_x_days,
+            @RequestParam(required = false, defaultValue = "agent") String object,
+            @RequestParam(required = false, defaultValue = "Todos") String object_option,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from_date,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to_date) {
 
@@ -391,8 +394,21 @@ public class DashboardController {
         LocalDateTime startDate = DateTimeUtils.startOfDayInUtc(fromDate, userTimezone);
         LocalDateTime endDate = DateTimeUtils.endOfDayInUtc(toDate, userTimezone);
 
-        // Query all tickets for the client in the range (Rails does NOT filter by agent)
-        List<Ticket> tickets = ticketRepository.findForKpiExport(clientId, startDate, endDate);
+        // Acotar por EQUIPO según el rol de quien descarga (antes traía TODO el cliente,
+        // sin importar quién exportaba: un supervisor veía los tickets de otros equipos).
+        // Reusa la misma lógica del panel: respeta object/object_option (que el front ya
+        // envía) y, para ADMIN/SUPER_ADMIN con "Todos", devuelve todos los agentes del cliente.
+        List<Long> agentIds = getAgentIdsForCalculation(
+                clientId, user.getUserRole(), user.getId(), object, object_option);
+
+        List<Ticket> tickets = agentIds.isEmpty()
+                ? java.util.Collections.emptyList()
+                : ticketRepository.findForKpiExportByAgents(clientId, agentIds, startDate, endDate);
+
+        // Horario laboral del cliente: 1ª Respuesta y TMO se miden en minutos laborables
+        // (descuentan noches/fines de semana), igual que el panel.
+        com.digitalgroup.holape.domain.kpi.service.BusinessHoursService.Schedule schedule =
+                businessHoursService.getSchedule(clientId);
 
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yy");
         DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -490,17 +506,32 @@ public class DashboardController {
                 LocalDateTime inAt = firstIncoming.get().getSentAt() != null
                         ? firstIncoming.get().getSentAt() : firstIncoming.get().getCreatedAt();
                 LocalDateTime outAt = firstOutgoing.get().getCreatedAt();
-                long mins = Duration.between(inAt, outAt).toMinutes();
+                long mins = businessHoursService.businessMinutes(schedule, inAt, outAt);
                 firstResponseMin = Math.max(mins, 0L);
             }
 
-            // TMO (minutes between first incoming and closedAt — only for closed tickets)
+            // TMO = tiempo de respuesta PROMEDIO del asesor a cada mensaje entrante del
+            // ticket (misma definición que el panel / KpiService.calculateTmo). Antes el
+            // Excel usaba la duración del caso (primer mensaje → cierre), que NO coincidía
+            // con el panel. Se recorre toda la conversación y se promedian los tiempos de
+            // respuesta (entrante → siguiente saliente).
             Long tmoMin = null;
-            if (ticket.isClosed() && ticket.getClosedAt() != null && firstIncoming.isPresent()) {
-                LocalDateTime inAt = firstIncoming.get().getSentAt() != null
-                        ? firstIncoming.get().getSentAt() : firstIncoming.get().getCreatedAt();
-                long mins = Duration.between(inAt, ticket.getClosedAt()).toMinutes();
-                tmoMin = Math.max(mins, 0L);
+            {
+                List<Message> allMsgs = messageRepository.findByTicketIdOrderByCreatedAtAsc(ticket.getId());
+                List<Long> responseTimes = new ArrayList<>();
+                LocalDateTime lastIn = null;
+                for (Message m : allMsgs) {
+                    if (m.getDirection() == MessageDirection.INCOMING) {
+                        lastIn = m.getCreatedAt();
+                    } else if (m.getDirection() == MessageDirection.OUTGOING && lastIn != null) {
+                        long mins = businessHoursService.businessMinutes(schedule, lastIn, m.getCreatedAt());
+                        if (mins >= 0) responseTimes.add(mins);
+                        lastIn = null;
+                    }
+                }
+                if (!responseTimes.isEmpty()) {
+                    tmoMin = Math.round(responseTimes.stream().mapToLong(Long::longValue).average().orElse(0));
+                }
             }
 
             // Escribir fila en Excel: numéricos como números (sumables/ordenables),

@@ -848,6 +848,36 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    /**
+     * Cartera asignada a un conjunto de agentes: deudores (por codigo distinto) cuyo
+     * manager es uno de esos agentes, creados en el rango. Denominador del Contact Ratio
+     * acotado al asesor/equipo que se está viendo (antes el denominador era TODO el cliente,
+     * lo que dejaba el ratio sin sentido para un asesor o supervisor).
+     */
+    @Query("SELECT COUNT(DISTINCT u.codigo) FROM User u WHERE u.manager.id IN :agentIds AND u.createdAt BETWEEN :startDate AND :endDate")
+    long countDistinctCodigoByManagerIdsAndCreatedAtBetween(
+            @Param("agentIds") List<Long> agentIds,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
+    /**
+     * Cartera TOTAL asignada a un conjunto de agentes: deudores (codigo distinto) cuyo
+     * manager es uno de esos agentes, SIN filtro de fecha de carga. Es el denominador
+     * correcto del Contact Ratio ("¿qué % de MI cartera trabajé en el periodo?"): el
+     * asesor trabaja cartera cargada en cualquier momento, no solo la del periodo, por
+     * eso NO se filtra por created_at. (codigo es el documento del deudor; agentes/
+     * supervisores tienen codigo nulo y COUNT(DISTINCT) los ignora.)
+     */
+    @Query("SELECT COUNT(DISTINCT u.codigo) FROM User u WHERE u.manager.id IN :agentIds")
+    long countDistinctCodigoByManagerIds(@Param("agentIds") List<Long> agentIds);
+
+    /**
+     * Cartera TOTAL del cliente: deudores (codigo distinto) del cliente, SIN filtro de
+     * fecha de carga. Denominador del Contact Ratio a nivel cliente-total (ADMIN "Todos").
+     */
+    @Query("SELECT COUNT(DISTINCT u.codigo) FROM User u WHERE u.client.id = :clientId")
+    long countDistinctCodigoByClientId(@Param("clientId") Long clientId);
+
     // ==================== MANAGER ASSIGNMENTS QUERIES ====================
 
     /**

@@ -165,6 +165,26 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
+    // Find tickets for KPI export SCOPED to a set of agents (team scoping per role).
+    // Igual que findForKpiExport pero acotado a los agentes permitidos para el rol
+    // que descarga (ej. un supervisor solo baja los tickets de SU equipo, no de todo
+    // el cliente). El filtro por client.id se mantiene como defensa adicional.
+    @Query("""
+            SELECT t FROM Ticket t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH t.agent a
+            LEFT JOIN FETCH a.manager
+            WHERE a.client.id = :clientId
+            AND a.id IN :agentIds
+            AND t.createdAt BETWEEN :startDate AND :endDate
+            ORDER BY t.createdAt DESC
+            """)
+    List<Ticket> findForKpiExportByAgents(
+            @Param("clientId") Long clientId,
+            @Param("agentIds") java.util.List<Long> agentIds,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate);
+
     // Find tickets for export
     @Query("""
             SELECT t FROM Ticket t
