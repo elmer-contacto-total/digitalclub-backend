@@ -4,6 +4,7 @@ import com.digitalgroup.holape.domain.common.enums.MessageDirection;
 import com.digitalgroup.holape.domain.common.enums.UserRole;
 import com.digitalgroup.holape.domain.message.entity.Message;
 import com.digitalgroup.holape.domain.message.repository.MessageRepository;
+import com.digitalgroup.holape.domain.message.service.MessageService;
 import com.digitalgroup.holape.domain.prospect.entity.Prospect;
 import com.digitalgroup.holape.domain.prospect.repository.ProspectRepository;
 import com.digitalgroup.holape.domain.user.entity.User;
@@ -34,6 +35,7 @@ public class WhatsAppWebhookService {
     private final MessageRepository messageRepository;
     private final ProspectRepository prospectRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final MessageService messageService;
 
     /**
      * Processes incoming webhook from WhatsApp
@@ -195,11 +197,14 @@ public class WhatsAppWebhookService {
                 .originalWhatsappBusinessRecipientId(originalRecipient.getId())
                 .build();
 
-        Message savedMessage = messageRepository.save(message);
-        log.info("Created incoming WhatsApp message from {} to {}", sender.getPhone(), recipient.getEmail());
-
-        // PARIDAD RAILS: Publish event for async processing (equivalent to after_commit callbacks)
-        eventPublisher.publishEvent(new com.digitalgroup.holape.event.DomainEventListener.MessageCreatedEvent(savedMessage));
+        // FIX regresión migración: antes se hacía messageRepository.save(message) directo → el
+        // mensaje quedaba SIN ticket (ticket_id NULL) y SIN KPIs de engagement. Ahora se delega en
+        // MessageService, que asigna/crea el ticket (y NEW_TICKET), loguea NEW_CLIENT/REQUIRE_RESPONSE
+        // y publica el evento vía afterMessageCreated (por eso ya NO publicamos el evento manualmente).
+        Message savedMessage = messageService.persistIncomingWithTicketAndKpis(message);
+        log.info("Created incoming WhatsApp message from {} to {} (ticket={})",
+                sender.getPhone(), recipient.getEmail(),
+                savedMessage.getTicket() != null ? savedMessage.getTicket().getId() : "none");
     }
 
     private void createProspectMessage(Prospect prospect, User recipient, String content, String timestamp) {

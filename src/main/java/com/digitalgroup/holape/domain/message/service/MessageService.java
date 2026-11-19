@@ -292,6 +292,59 @@ public class MessageService {
     }
 
     /**
+     * Persiste un mensaje ENTRANTE ya construido (p.ej. desde el webhook de WhatsApp) corriendo
+     * la MISMA lógica que createIncomingMessage: asignar/crear ticket (y NEW_TICKET), guardar y
+     * afterMessageCreated (que loguea NEW_CLIENT/REQUIRE_RESPONSE y agenda jobs).
+     *
+     * FIX regresión migración: en el cutover de septiembre la ingesta de WhatsApp pasó a
+     * WhatsAppWebhookService.createMessage, que guardaba el mensaje SIN asignar ticket y SIN
+     * loguear KPIs (ticket_id quedaba NULL y los KPIs de engagement dejaron de escribirse). Este
+     * método es el punto de entrada para que ese path vuelva a enlazar ticket + KPIs.
+     */
+    @Transactional
+    public Message persistIncomingWithTicketAndKpis(Message message) {
+        // Asigna/crea el ticket y setea message.ticket (además escribe NEW_TICKET si corresponde)
+        assignToTicket(message);
+        Message savedMessage = messageRepository.save(message);
+        // Post-save: logKpis (NEW_CLIENT, REQUIRE_RESPONSE) + publish event + jobs
+        afterMessageCreated(savedMessage);
+        return savedMessage;
+    }
+
+    /**
+     * Procesa un mensaje CRUDO ya insertado (el interceptor NodeJS escribe directo a la BD con
+     * processed=false, SIN ticket ni KPIs). Replica lo que hacía el worker de Rails: asigna/crea
+     * ticket, escribe los KPIs (NEW_TICKET + engagement) y marca processed=true. Idempotente.
+     *
+     * FIX regresión migración: desde el cutover a Spring (8-sep-2026) nadie procesaba estos
+     * mensajes → ticket_id NULL y KPIs muertos. Lo invoca MessageProcessingWorker.
+     *
+     * Usa logKpis directo (no afterMessageCreated) para NO re-emitir el broadcast WebSocket ni
+     * re-agendar jobs de un mensaje que ya fue insertado por fuera.
+     */
+    @Transactional
+    public void processRawMessage(Long messageId) {
+        Message message = messageRepository.findById(messageId).orElse(null);
+        if (message == null || Boolean.TRUE.equals(message.getProcessed())) {
+            return; // ya procesado o inexistente → idempotente
+        }
+        // Mensajes de prospecto: no generan ticket/KPIs, solo se marcan procesados.
+        if (Boolean.TRUE.equals(message.getIsProspect())) {
+            message.setProcessed(true);
+            messageRepository.save(message);
+            return;
+        }
+        // Asigna/crea ticket (setea message.ticket; escribe NEW_TICKET si es nuevo).
+        assignToTicket(message);
+        message.setProcessed(true);
+        Message saved = messageRepository.save(message);
+        // KPIs (requieren ticket seteado): entrante NEW_CLIENT/REQUIRE_RESPONSE,
+        // saliente SENT_MESSAGE/RESPONDED_TO_CLIENT/FIRST_RESPONSE_TIME/UNIQUE_RESPONDED.
+        logKpis(saved);
+        updateLastMessageAt(saved);
+    }
+
+    /**
      * Activates/creates a ticket for an incoming WhatsApp message without creating a Message record.
      * Used by Electron when it detects an incoming message — only needs to ensure the ticket
      * exists and the user is flagged as requiring a response.

@@ -86,6 +86,14 @@ public interface MessageRepository extends JpaRepository<Message, Long>, JpaSpec
     @Query("SELECT m FROM Message m WHERE m.processed = false ORDER BY m.createdAt ASC")
     List<Message> findUnprocessedMessages(Pageable pageable);
 
+    /**
+     * Mensajes crudos sin procesar creados DESPUÉS de un corte. Lo usa el worker de
+     * procesamiento "hacia adelante" (asignar ticket + KPIs) para NO tocar el backlog
+     * histórico (que requiere backfill con fecha real, aparte). cutoff = arranque del worker.
+     */
+    @Query("SELECT m FROM Message m WHERE m.processed = false AND m.createdAt > :cutoff ORDER BY m.createdAt ASC")
+    List<Message> findUnprocessedMessagesAfter(@Param("cutoff") java.time.LocalDateTime cutoff, Pageable pageable);
+
     @Query("SELECT m FROM Message m WHERE m.ticket.id = :ticketId AND m.direction = :direction AND m.createdAt > :since")
     List<Message> findMessagesByTicketAndDirectionSince(
             @Param("ticketId") Long ticketId,
